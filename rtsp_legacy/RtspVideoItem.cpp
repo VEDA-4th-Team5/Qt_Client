@@ -5,7 +5,11 @@
 #include <QMetaObject>
 #include <QPainter>
 #include <QRectF>
+#include <QTimer>
+#include <algorithm>
+#include <chrono>
 #include <mutex>
+#include <utility>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -43,13 +47,21 @@ int interruptCallback(void *opaque)
 
 RtspVideoItem::RtspVideoItem(QQuickItem *parent)
     : QQuickPaintedItem(parent)
+    , m_reconnectTimer(new QTimer(this))
 {
     setRenderTarget(QQuickPaintedItem::FramebufferObject);
     setAntialiasing(false);
+    m_reconnectTimer->setSingleShot(true);
+    connect(m_reconnectTimer, &QTimer::timeout, this, [this]() {
+        if (source() == m_reconnectSource) {
+            startWorker();
+        }
+    });
 }
 
 RtspVideoItem::~RtspVideoItem()
 {
+    m_reconnectTimer->stop();
     stopWorker();
 }
 
@@ -71,8 +83,11 @@ void RtspVideoItem::setSource(const QString &source)
         m_videoSize = QSize();
         m_startupDelayMs = -1;
         m_errorString.clear();
+        m_pendingFrame = QImage();
+        m_pendingStartupDelayMs = -1;
     }
 
+    m_reconnectAttempt = 0;
     emit sourceChanged();
     emit videoSizeChanged();
     emit startupDelayMsChanged();
@@ -165,6 +180,7 @@ void RtspVideoItem::handleDecodedFrame(const QImage &image, int startupDelayMs)
             m_errorString.clear();
             errorChangedNow = true;
         }
+        m_reconnectAttempt = 0;
     }
 
     if (statusChangedNow) {
@@ -182,6 +198,35 @@ void RtspVideoItem::handleDecodedFrame(const QImage &image, int startupDelayMs)
     update();
 }
 
+void RtspVideoItem::deliverPendingFrame()
+{
+    QImage image;
+    int startupDelayMs = -1;
+    {
+        QMutexLocker locker(&m_mutex);
+        image = std::move(m_pendingFrame);
+        m_pendingFrame = QImage();
+        startupDelayMs = m_pendingStartupDelayMs;
+        m_pendingStartupDelayMs = -1;
+    }
+
+    if (!image.isNull()) {
+        handleDecodedFrame(image, startupDelayMs);
+    }
+
+    m_frameDeliveryQueued.store(false);
+    bool scheduleAgain = false;
+    {
+        QMutexLocker locker(&m_mutex);
+        if (!m_pendingFrame.isNull() && !m_frameDeliveryQueued.exchange(true)) {
+            scheduleAgain = true;
+        }
+    }
+    if (scheduleAgain) {
+        QMetaObject::invokeMethod(this, "deliverPendingFrame", Qt::QueuedConnection);
+    }
+}
+
 void RtspVideoItem::handleStatusChanged(const QString &status)
 {
     setStatus(status);
@@ -192,8 +237,26 @@ void RtspVideoItem::handleErrorChanged(const QString &message)
     setErrorString(message);
 }
 
+void RtspVideoItem::handleStreamFailure(const QString &source, const QString &message)
+{
+    if (source != this->source()) {
+        return;
+    }
+
+    setStatus(QStringLiteral("Reconnecting"));
+    setErrorString(message);
+
+    const int shift = std::min(m_reconnectAttempt, 5);
+    const int delayMs = std::min(1000 * (1 << shift), 30000);
+    ++m_reconnectAttempt;
+    m_reconnectSource = source;
+    m_reconnectTimer->start(delayMs);
+}
+
 void RtspVideoItem::startWorker()
 {
+    m_reconnectTimer->stop();
+
     QString currentSource;
     {
         QMutexLocker locker(&m_mutex);
@@ -202,6 +265,8 @@ void RtspVideoItem::startWorker()
         m_videoSize = QSize();
         m_startupDelayMs = -1;
         m_errorString.clear();
+        m_pendingFrame = QImage();
+        m_pendingStartupDelayMs = -1;
     }
 
     stopWorker();
@@ -292,6 +357,25 @@ void RtspVideoItem::setStartupDelayMs(int delayMs)
     }
 }
 
+void RtspVideoItem::queueDecodedFrame(QImage image, int startupDelayMs)
+{
+    bool scheduleDelivery = false;
+    {
+        QMutexLocker locker(&m_mutex);
+        m_pendingFrame = std::move(image);
+        if (startupDelayMs >= 0 && m_pendingStartupDelayMs < 0 && m_startupDelayMs < 0) {
+            m_pendingStartupDelayMs = startupDelayMs;
+        }
+        if (!m_frameDeliveryQueued.exchange(true)) {
+            scheduleDelivery = true;
+        }
+    }
+
+    if (scheduleDelivery) {
+        QMetaObject::invokeMethod(this, "deliverPendingFrame", Qt::QueuedConnection);
+    }
+}
+
 void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> state)
 {
     static std::once_flag networkInitFlag;
@@ -327,8 +411,8 @@ void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> stat
     if (result < 0) {
         const QString message = QStringLiteral("FFmpeg open failed: ") + ffmpegErrorToString(result);
         avformat_free_context(formatContext);
-        QMetaObject::invokeMethod(this, "handleErrorChanged", Qt::QueuedConnection, Q_ARG(QString, message));
-        QMetaObject::invokeMethod(this, "handleStatusChanged", Qt::QueuedConnection, Q_ARG(QString, QStringLiteral("Error")));
+        QMetaObject::invokeMethod(this, "handleStreamFailure", Qt::QueuedConnection,
+                                  Q_ARG(QString, source), Q_ARG(QString, message));
         return;
     }
 
@@ -337,8 +421,8 @@ void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> stat
     if (result < 0) {
         const QString message = QStringLiteral("Stream info failed: ") + ffmpegErrorToString(result);
         avformat_close_input(&formatContext);
-        QMetaObject::invokeMethod(this, "handleErrorChanged", Qt::QueuedConnection, Q_ARG(QString, message));
-        QMetaObject::invokeMethod(this, "handleStatusChanged", Qt::QueuedConnection, Q_ARG(QString, QStringLiteral("Error")));
+        QMetaObject::invokeMethod(this, "handleStreamFailure", Qt::QueuedConnection,
+                                  Q_ARG(QString, source), Q_ARG(QString, message));
         return;
     }
 
@@ -385,21 +469,25 @@ void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> stat
         const QString message = QStringLiteral("Codec parameter copy failed: ") + ffmpegErrorToString(result);
         avcodec_free_context(&codecContext);
         avformat_close_input(&formatContext);
-        QMetaObject::invokeMethod(this, "handleErrorChanged", Qt::QueuedConnection, Q_ARG(QString, message));
-        QMetaObject::invokeMethod(this, "handleStatusChanged", Qt::QueuedConnection, Q_ARG(QString, QStringLiteral("Error")));
+        QMetaObject::invokeMethod(this, "handleStreamFailure", Qt::QueuedConnection,
+                                  Q_ARG(QString, source), Q_ARG(QString, message));
         return;
     }
 
     codecContext->flags |= AV_CODEC_FLAG_LOW_DELAY;
-    codecContext->thread_count = 1;
+    const unsigned int logicalCores = std::max(1u, std::thread::hardware_concurrency());
+    const unsigned int reservedCores = logicalCores >= 8 ? 2u : 1u;
+    const unsigned int usableCores = std::max(1u, logicalCores - reservedCores);
+    codecContext->thread_count = static_cast<int>(std::clamp(usableCores / 4u, 1u, 4u));
+    codecContext->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 
     result = avcodec_open2(codecContext, codec, nullptr);
     if (result < 0) {
         const QString message = QStringLiteral("Decoder open failed: ") + ffmpegErrorToString(result);
         avcodec_free_context(&codecContext);
         avformat_close_input(&formatContext);
-        QMetaObject::invokeMethod(this, "handleErrorChanged", Qt::QueuedConnection, Q_ARG(QString, message));
-        QMetaObject::invokeMethod(this, "handleStatusChanged", Qt::QueuedConnection, Q_ARG(QString, QStringLiteral("Error")));
+        QMetaObject::invokeMethod(this, "handleStreamFailure", Qt::QueuedConnection,
+                                  Q_ARG(QString, source), Q_ARG(QString, message));
         return;
     }
 
@@ -424,6 +512,7 @@ void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> stat
     int lastWidth = 0;
     int lastHeight = 0;
     AVPixelFormat lastFormat = AV_PIX_FMT_NONE;
+    QString readFailure;
 
     while (!state->stopRequested.load()) {
         result = av_read_frame(formatContext, packet);
@@ -431,10 +520,13 @@ void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> stat
             if (result == AVERROR_EXIT || state->stopRequested.load()) {
                 break;
             }
-            QMetaObject::invokeMethod(this, "handleStatusChanged", Qt::QueuedConnection,
-                                      Q_ARG(QString, QStringLiteral("Connecting")));
+            if (result == AVERROR(EAGAIN)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            readFailure = QStringLiteral("RTSP read failed: ") + ffmpegErrorToString(result);
             av_packet_unref(packet);
-            continue;
+            break;
         }
 
         if (packet->stream_index != videoStreamIndex) {
@@ -492,9 +584,7 @@ void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> stat
                                          : static_cast<int>(QDateTime::currentMSecsSinceEpoch() - startupStart);
             firstFrameDelivered = true;
 
-            QMetaObject::invokeMethod(this, "handleDecodedFrame", Qt::QueuedConnection,
-                                      Q_ARG(QImage, image.copy()),
-                                      Q_ARG(int, startupDelay));
+            queueDecodedFrame(image.copy(), startupDelay);
             av_frame_unref(frame);
         }
     }
@@ -507,4 +597,9 @@ void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> stat
     av_packet_free(&packet);
     avcodec_free_context(&codecContext);
     avformat_close_input(&formatContext);
+
+    if (!readFailure.isEmpty() && !state->stopRequested.load()) {
+        QMetaObject::invokeMethod(this, "handleStreamFailure", Qt::QueuedConnection,
+                                  Q_ARG(QString, source), Q_ARG(QString, readFailure));
+    }
 }

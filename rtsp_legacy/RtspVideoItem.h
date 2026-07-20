@@ -12,6 +12,8 @@
 #include <memory>
 #include <thread>
 
+class QTimer;
+
 class RtspVideoItem : public QQuickPaintedItem
 {
     Q_OBJECT
@@ -48,8 +50,10 @@ signals:
 
 private slots:
     void handleDecodedFrame(const QImage &image, int startupDelayMs);
+    void deliverPendingFrame();
     void handleStatusChanged(const QString &status);
     void handleErrorChanged(const QString &message);
+    void handleStreamFailure(const QString &source, const QString &message);
 
 private:
     struct WorkerState;
@@ -61,6 +65,7 @@ private:
     void setErrorString(const QString &message);
     void setVideoSize(const QSize &size);
     void setStartupDelayMs(int delayMs);
+    void queueDecodedFrame(QImage image, int startupDelayMs);
     void decodeLoop(QString source, std::shared_ptr<WorkerState> state);
 
     mutable QMutex m_mutex;
@@ -70,7 +75,13 @@ private:
     QSize m_videoSize;
     int m_startupDelayMs = -1;
     QImage m_frame;
+    QImage m_pendingFrame;
+    int m_pendingStartupDelayMs = -1;
+    std::atomic_bool m_frameDeliveryQueued { false };
 
     std::thread m_worker;
     std::shared_ptr<WorkerState> m_state;
+    QTimer *m_reconnectTimer = nullptr;
+    QString m_reconnectSource;
+    int m_reconnectAttempt = 0;
 };
