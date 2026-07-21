@@ -38,6 +38,7 @@ private:
     QString cameraConfigPath() const;
     QString clientConfigPath() const;
     QString clientLocalConfigPath() const;
+    QString parkingMapLayoutPath() const;
 
     CameraSettings m_cameraSettings;
     NotificationCenter *m_notificationCenter = nullptr;

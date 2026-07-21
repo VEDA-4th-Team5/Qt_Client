@@ -47,6 +47,8 @@ add_executable(smart_parking_qt_client
     src/dialogs/slotevidencedialog.h
     src/models/parkingstate.cpp
     src/models/parkingstate.h
+    src/models/parkingzonelayout.cpp
+    src/models/parkingzonelayout.h
     src/pages/dashboardpage.cpp
     src/pages/dashboardpage.h
     src/pages/debugpage.cpp
@@ -143,4 +145,32 @@ if (BUILD_TESTING)
         Qt${QT_VERSION_MAJOR}::Network
     )
     add_test(NAME parkingcontroller_retry COMMAND parkingcontroller_retry_test)
+
+    add_executable(parkingmappage_add_slot_test
+        tests/parkingmappage_add_slot_test.cpp
+        src/pages/parkingmappage.cpp
+        src/pages/parkingmappage.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/models/parkingzonelayout.cpp
+        src/models/parkingzonelayout.h
+    )
+    target_include_directories(parkingmappage_add_slot_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingmappage_add_slot_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(parkingmappage_add_slot_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parkingmappage_add_slot COMMAND parkingmappage_add_slot_test)
+    set(QT_GUI_DIR_VARIABLE "Qt${QT_VERSION_MAJOR}Gui_DIR")
+    get_filename_component(QT_RUNTIME_ROOT
+        "${${QT_GUI_DIR_VARIABLE}}/../../.." ABSOLUTE)
+    set_tests_properties(parkingmappage_add_slot PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
 endif()

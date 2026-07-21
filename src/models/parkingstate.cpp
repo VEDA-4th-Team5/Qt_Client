@@ -32,6 +32,58 @@ SlotState slotStateFromText(const QString &text)
     return SlotState::Vacant;
 }
 
+SlotAlarmKind slotAlarmKindFromText(const QString &text, SlotState fallbackState)
+{
+    const QString normalized = text.trimmed().toUpper();
+    if (normalized == QStringLiteral("EV_ZONE_VIOLATION")
+        || normalized == QStringLiteral("NON_EV")
+        || normalized == QStringLiteral("NON_EV_ALERT")) {
+        return SlotAlarmKind::NonEvViolation;
+    }
+    if (normalized == QStringLiteral("OVERSTAY")
+        || normalized == QStringLiteral("OVERTIME")
+        || normalized == QStringLiteral("OVERTIME_ALERT")) {
+        return SlotAlarmKind::Overstay;
+    }
+    if (normalized == QStringLiteral("HALL_SENSOR_ERROR")
+        || normalized == QStringLiteral("SENSOR_ERROR")
+        || normalized == QStringLiteral("ERROR")) {
+        return SlotAlarmKind::SensorError;
+    }
+
+    switch (fallbackState) {
+    case SlotState::NonEvAlert: return SlotAlarmKind::NonEvViolation;
+    case SlotState::OvertimeAlert: return SlotAlarmKind::Overstay;
+    case SlotState::SensorError: return SlotAlarmKind::SensorError;
+    case SlotState::Vacant:
+    case SlotState::Occupied:
+    case SlotState::Acked:
+        return SlotAlarmKind::None;
+    }
+    return SlotAlarmKind::None;
+}
+
+QString slotAlarmText(SlotAlarmKind alarm)
+{
+    switch (alarm) {
+    case SlotAlarmKind::None: return QStringLiteral("NORMAL");
+    case SlotAlarmKind::NonEvViolation: return QStringLiteral("NON-EV");
+    case SlotAlarmKind::Overstay: return QStringLiteral("OVERSTAY");
+    case SlotAlarmKind::SensorError: return QStringLiteral("SENSOR");
+    }
+    return QStringLiteral("NORMAL");
+}
+
+QString vehicleClassText(VehicleClass vehicleClass)
+{
+    switch (vehicleClass) {
+    case VehicleClass::Electric: return QStringLiteral("EV CAR");
+    case VehicleClass::General: return QStringLiteral("GENERAL CAR");
+    case VehicleClass::Unknown: return QStringLiteral("UNKNOWN CAR");
+    }
+    return QStringLiteral("UNKNOWN CAR");
+}
+
 QString slotStateText(SlotState state)
 {
     switch (state) {

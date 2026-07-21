@@ -75,8 +75,26 @@ bool parseSlotObject(const QJsonObject &item,
         details, {QStringLiteral("plate_number"), QStringLiteral("plateNumber")});
     const QString vehicleType = firstString(
         details, {QStringLiteral("vehicle_type"), QStringLiteral("vehicleType")}).toUpper();
-    parsed.isEv = item.value(QStringLiteral("is_ev")).toBool(
-        vehicleType == QStringLiteral("EV") || vehicleType == QStringLiteral("HYBRID"));
+    QJsonValue isEvValue = item.value(QStringLiteral("is_ev"));
+    if (!isEvValue.isBool()) {
+        isEvValue = details.value(QStringLiteral("is_ev"));
+    }
+    if (isEvValue.isBool()) {
+        parsed.isEv = isEvValue.toBool();
+        parsed.vehicleTypeKnown = true;
+    } else if (vehicleType == QStringLiteral("EV")
+               || vehicleType == QStringLiteral("ELECTRIC")
+               || vehicleType == QStringLiteral("HYBRID")) {
+        parsed.isEv = true;
+        parsed.vehicleTypeKnown = true;
+    } else if (vehicleType == QStringLiteral("GENERAL")
+               || vehicleType == QStringLiteral("NON_EV")
+               || vehicleType == QStringLiteral("ICE")
+               || vehicleType == QStringLiteral("GASOLINE")
+               || vehicleType == QStringLiteral("DIESEL")) {
+        parsed.isEv = false;
+        parsed.vehicleTypeKnown = true;
+    }
     parsed.occupiedSince = QDateTime::fromString(
         firstString(details, {QStringLiteral("entry_time"), QStringLiteral("entryTime"),
                               QStringLiteral("occupied_since")}),

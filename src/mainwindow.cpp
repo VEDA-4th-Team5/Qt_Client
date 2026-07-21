@@ -144,7 +144,7 @@ void MainWindow::buildUi()
 
     m_dashboardPage = new DashboardPage(m_cameraSettings.rtspUrls(QStringLiteral("profile3")),
                                         m_cameraSettings.rtspUrls(QStringLiteral("profile2")), m_pages);
-    m_parkingMapPage = new ParkingMapPage(m_pages);
+    m_parkingMapPage = new ParkingMapPage(parkingMapLayoutPath(), m_pages);
     m_eventsPage = new EventsPage(m_pages);
     m_settingsPage = new SettingsPage(m_cameraSettings.configPath(), m_cameraSettings.cameraIp(), m_pages);
     m_debugPage = new DebugPage(m_pages);
@@ -202,8 +202,6 @@ void MainWindow::connectPages()
             [this](const QString &message) {
                 QMessageBox::warning(this, QStringLiteral("Parking detail"), message);
             });
-    connect(m_parkingMapPage, &ParkingMapPage::slotClicked,
-            m_parkingController, &ParkingController::requestSlotDetail);
     connect(m_debugPage, &DebugPage::clearAlarmsRequested,
             m_parkingController, &ParkingController::clearAlarms);
     connect(m_debugPage, &DebugPage::toggleMockEvRequested,
@@ -251,9 +249,12 @@ void MainWindow::renderParkingState()
     int vacant = 0;
     int sensorErrors = 0;
     for (const ParkingSlotInfo &slot : state.parkingSlots) {
-        if (slot.state == SlotState::Occupied) ++occupied;
-        else if (slot.state == SlotState::SensorError) ++sensorErrors;
+        if (slot.visual.occupancy == SlotOccupancy::Occupied) ++occupied;
         else ++vacant;
+        if (slot.visual.alarm == SlotAlarmKind::SensorError
+            && !slot.visual.alarmAcknowledged) {
+            ++sensorErrors;
+        }
     }
     m_dashboardPage->setSummary(
         state.parkingSlots.size(), occupied, vacant, sensorErrors);
@@ -453,6 +454,17 @@ QString MainWindow::clientLocalConfigPath() const
 #else
     return QDir(QCoreApplication::applicationDirPath())
         .absoluteFilePath(QStringLiteral("../config/client_config.local.ini"));
+#endif
+}
+
+QString MainWindow::parkingMapLayoutPath() const
+{
+#ifdef SMART_PARKING_CONFIG_DIR
+    return QDir(QStringLiteral(SMART_PARKING_CONFIG_DIR))
+        .absoluteFilePath(QStringLiteral("parking_map_layout.local.json"));
+#else
+    return QDir(QCoreApplication::applicationDirPath())
+        .absoluteFilePath(QStringLiteral("../config/parking_map_layout.local.json"));
 #endif
 }
 
