@@ -59,6 +59,8 @@ add_executable(smart_parking_qt_client
     src/pages/settingspage.h
     src/services/camerasettings.cpp
     src/services/camerasettings.h
+    src/services/notificationcenter.cpp
+    src/services/notificationcenter.h
     src/api/apiclient.cpp
     src/api/apiclient.h
     src/api/imageloader.cpp

@@ -17,7 +17,9 @@ SlotState slotStateFromText(const QString &text)
 {
     const QString normalized = text.trimmed().toUpper();
     if (normalized == QStringLiteral("OCCUPIED")) return SlotState::Occupied;
-    if (normalized == QStringLiteral("SENSOR_ERROR") || normalized == QStringLiteral("ERROR")) {
+    if (normalized == QStringLiteral("HALL_SENSOR_ERROR")
+        || normalized == QStringLiteral("SENSOR_ERROR")
+        || normalized == QStringLiteral("ERROR")) {
         return SlotState::SensorError;
     }
     if (normalized == QStringLiteral("NON_EV") || normalized == QStringLiteral("NON_EV_ALERT")) {
@@ -37,7 +39,7 @@ QString slotStateText(SlotState state)
     case SlotState::Occupied: return QStringLiteral("OCCUPIED");
     case SlotState::NonEvAlert: return QStringLiteral("NON_EV_ALERT");
     case SlotState::OvertimeAlert: return QStringLiteral("OVERTIME_ALERT");
-    case SlotState::SensorError: return QStringLiteral("SENSOR_ERROR");
+    case SlotState::SensorError: return QStringLiteral("HALL_SENSOR_ERROR");
     case SlotState::Acked: return QStringLiteral("ACKED");
     }
     return QStringLiteral("UNKNOWN");

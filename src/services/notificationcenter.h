@@ -1,0 +1,54 @@
+#ifndef NOTIFICATIONCENTER_H
+#define NOTIFICATIONCENTER_H
+
+#include <QList>
+#include <QObject>
+#include <QString>
+
+struct NotificationRecord {
+    QString id;
+    QString time;
+    QString sourceId;
+    QString eventType;
+    QString severity;
+    QString title;
+    QString message;
+    QString status;
+    bool unread = true;
+};
+
+class NotificationCenter : public QObject
+{
+    Q_OBJECT
+
+public:
+    explicit NotificationCenter(QObject *parent = nullptr);
+
+    QList<NotificationRecord> notifications() const;
+    int unreadCount() const;
+    bool hasNotifications() const;
+
+    void ingestEvent(const QString &time, const QString &sourceId,
+                     const QString &eventType, const QString &message,
+                     const QString &status);
+    void markAllRead();
+    void clearAll();
+
+signals:
+    void notificationsChanged();
+
+private:
+    QString normalizeEventType(const QString &eventType) const;
+    QString severityForEvent(const QString &eventType, const QString &status) const;
+    QString titleForEvent(const QString &eventType) const;
+    bool isAcknowledgementEvent(const QString &eventType, const QString &status) const;
+    bool isNotifiableEvent(const QString &eventType, const QString &status) const;
+    bool isSameAlertGroup(const QString &left, const QString &right) const;
+    bool acknowledgeMatching(const QString &sourceId, const QString &eventType);
+    void addOrUpdateNotification(NotificationRecord record);
+
+    QList<NotificationRecord> m_notifications;
+    int m_nextNotificationId = 1;
+};
+
+#endif

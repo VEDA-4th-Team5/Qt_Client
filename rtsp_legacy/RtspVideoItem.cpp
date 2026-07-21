@@ -6,6 +6,7 @@
 #include <QPainter>
 #include <QRectF>
 #include <QTimer>
+#include <QTimeZone>
 #include <algorithm>
 #include <chrono>
 #include <mutex>
@@ -17,6 +18,7 @@ extern "C" {
 #include <libavutil/dict.h>
 #include <libavutil/error.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/mathematics.h>
 #include <libswscale/swscale.h>
 }
 
@@ -36,6 +38,17 @@ QString ffmpegErrorToString(int errorCode)
 void setOption(AVDictionary **options, const char *key, const char *value)
 {
     av_dict_set(options, key, value, 0);
+}
+
+QString formatKstClock(qint64 epochMs)
+{
+    if (epochMs < 0) {
+        return QStringLiteral("--:--:--.--- KST");
+    }
+
+    static const QTimeZone kstTimeZone("Asia/Seoul");
+    return QDateTime::fromMSecsSinceEpoch(epochMs, kstTimeZone)
+        .toString(QStringLiteral("HH:mm:ss.zzz 'KST'"));
 }
 }
 
@@ -82,15 +95,22 @@ void RtspVideoItem::setSource(const QString &source)
         m_frame = QImage();
         m_videoSize = QSize();
         m_startupDelayMs = -1;
+        m_frameTimestampMs = -1;
+        m_frameWallClockMs = -1;
         m_errorString.clear();
         m_pendingFrame = QImage();
         m_pendingStartupDelayMs = -1;
+        m_pendingFrameTimestampMs = -1;
+        m_pendingFrameWallClockMs = -1;
     }
 
     m_reconnectAttempt = 0;
     emit sourceChanged();
     emit videoSizeChanged();
     emit startupDelayMsChanged();
+    emit frameTimestampMsChanged();
+    emit frameWallClockMsChanged();
+    emit frameClockTextChanged();
     emit errorStringChanged();
     update();
     startWorker();
@@ -118,6 +138,28 @@ int RtspVideoItem::startupDelayMs() const
 {
     QMutexLocker locker(&m_mutex);
     return m_startupDelayMs;
+}
+
+qint64 RtspVideoItem::frameTimestampMs() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_frameTimestampMs;
+}
+
+qint64 RtspVideoItem::frameWallClockMs() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_frameWallClockMs;
+}
+
+QString RtspVideoItem::frameClockText() const
+{
+    qint64 frameWallClockMs = -1;
+    {
+        QMutexLocker locker(&m_mutex);
+        frameWallClockMs = m_frameWallClockMs;
+    }
+    return formatKstClock(frameWallClockMs);
 }
 
 void RtspVideoItem::paint(QPainter *painter)
@@ -154,10 +196,13 @@ void RtspVideoItem::stop()
     stopWorker();
 }
 
-void RtspVideoItem::handleDecodedFrame(const QImage &image, int startupDelayMs)
+void RtspVideoItem::handleDecodedFrame(const QImage &image, int startupDelayMs, qint64 frameTimestampMs,
+                                       qint64 frameWallClockMs)
 {
     bool sizeChanged = false;
     bool startupChanged = false;
+    bool timestampChanged = false;
+    bool wallClockChanged = false;
     bool statusChangedNow = false;
     bool errorChangedNow = false;
 
@@ -171,6 +216,14 @@ void RtspVideoItem::handleDecodedFrame(const QImage &image, int startupDelayMs)
         if (m_startupDelayMs < 0 && startupDelayMs >= 0) {
             m_startupDelayMs = startupDelayMs;
             startupChanged = true;
+        }
+        if (m_frameTimestampMs != frameTimestampMs) {
+            m_frameTimestampMs = frameTimestampMs;
+            timestampChanged = true;
+        }
+        if (m_frameWallClockMs != frameWallClockMs) {
+            m_frameWallClockMs = frameWallClockMs;
+            wallClockChanged = true;
         }
         if (m_status != QStringLiteral("Playing")) {
             m_status = QStringLiteral("Playing");
@@ -195,6 +248,13 @@ void RtspVideoItem::handleDecodedFrame(const QImage &image, int startupDelayMs)
     if (startupChanged) {
         emit startupDelayMsChanged();
     }
+    if (timestampChanged) {
+        emit frameTimestampMsChanged();
+    }
+    if (wallClockChanged) {
+        emit frameWallClockMsChanged();
+        emit frameClockTextChanged();
+    }
     update();
 }
 
@@ -202,16 +262,22 @@ void RtspVideoItem::deliverPendingFrame()
 {
     QImage image;
     int startupDelayMs = -1;
+    qint64 frameTimestampMs = -1;
+    qint64 frameWallClockMs = -1;
     {
         QMutexLocker locker(&m_mutex);
         image = std::move(m_pendingFrame);
         m_pendingFrame = QImage();
         startupDelayMs = m_pendingStartupDelayMs;
         m_pendingStartupDelayMs = -1;
+        frameTimestampMs = m_pendingFrameTimestampMs;
+        m_pendingFrameTimestampMs = -1;
+        frameWallClockMs = m_pendingFrameWallClockMs;
+        m_pendingFrameWallClockMs = -1;
     }
 
     if (!image.isNull()) {
-        handleDecodedFrame(image, startupDelayMs);
+        handleDecodedFrame(image, startupDelayMs, frameTimestampMs, frameWallClockMs);
     }
 
     m_frameDeliveryQueued.store(false);
@@ -264,9 +330,13 @@ void RtspVideoItem::startWorker()
         m_frame = QImage();
         m_videoSize = QSize();
         m_startupDelayMs = -1;
+        m_frameTimestampMs = -1;
+        m_frameWallClockMs = -1;
         m_errorString.clear();
         m_pendingFrame = QImage();
         m_pendingStartupDelayMs = -1;
+        m_pendingFrameTimestampMs = -1;
+        m_pendingFrameWallClockMs = -1;
     }
 
     stopWorker();
@@ -281,6 +351,9 @@ void RtspVideoItem::startWorker()
     setErrorString(QString());
     emit videoSizeChanged();
     emit startupDelayMsChanged();
+    emit frameTimestampMsChanged();
+    emit frameWallClockMsChanged();
+    emit frameClockTextChanged();
 
     m_state = std::make_shared<WorkerState>();
     m_worker = std::thread(&RtspVideoItem::decodeLoop, this, currentSource, m_state);
@@ -357,7 +430,8 @@ void RtspVideoItem::setStartupDelayMs(int delayMs)
     }
 }
 
-void RtspVideoItem::queueDecodedFrame(QImage image, int startupDelayMs)
+void RtspVideoItem::queueDecodedFrame(QImage image, int startupDelayMs, qint64 frameTimestampMs,
+                                      qint64 frameWallClockMs)
 {
     bool scheduleDelivery = false;
     {
@@ -366,6 +440,8 @@ void RtspVideoItem::queueDecodedFrame(QImage image, int startupDelayMs)
         if (startupDelayMs >= 0 && m_pendingStartupDelayMs < 0 && m_startupDelayMs < 0) {
             m_pendingStartupDelayMs = startupDelayMs;
         }
+        m_pendingFrameTimestampMs = frameTimestampMs;
+        m_pendingFrameWallClockMs = frameWallClockMs;
         if (!m_frameDeliveryQueued.exchange(true)) {
             scheduleDelivery = true;
         }
@@ -383,6 +459,8 @@ void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> stat
 
     const qint64 startupStart = QDateTime::currentMSecsSinceEpoch();
     bool firstFrameDelivered = false;
+    bool streamWallClockOffsetInitialized = false;
+    qint64 streamWallClockOffsetMs = 0;
 
     AVFormatContext *formatContext = avformat_alloc_context();
     if (!formatContext) {
@@ -583,8 +661,34 @@ void RtspVideoItem::decodeLoop(QString source, std::shared_ptr<WorkerState> stat
                                          ? -1
                                          : static_cast<int>(QDateTime::currentMSecsSinceEpoch() - startupStart);
             firstFrameDelivered = true;
+            const int64_t timestamp = frame->best_effort_timestamp != AV_NOPTS_VALUE
+                                          ? frame->best_effort_timestamp
+                                          : frame->pts;
+            const qint64 frameTimestampMs = timestamp == AV_NOPTS_VALUE
+                                                ? -1
+                                                : av_rescale_q(timestamp, videoStream->time_base,
+                                                               AVRational { 1, 1000 });
+            const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+            qint64 frameWallClockMs = nowMs;
+            if (frameTimestampMs >= 0) {
+                if (formatContext->start_time_realtime != AV_NOPTS_VALUE) {
+                    const qint64 streamStartMs =
+                        videoStream->start_time == AV_NOPTS_VALUE
+                            ? 0
+                            : av_rescale_q(videoStream->start_time, videoStream->time_base,
+                                           AVRational { 1, 1000 });
+                    frameWallClockMs = (formatContext->start_time_realtime / 1000)
+                        + (frameTimestampMs - streamStartMs);
+                } else {
+                    if (!streamWallClockOffsetInitialized) {
+                        streamWallClockOffsetMs = nowMs - frameTimestampMs;
+                        streamWallClockOffsetInitialized = true;
+                    }
+                    frameWallClockMs = streamWallClockOffsetMs + frameTimestampMs;
+                }
+            }
 
-            queueDecodedFrame(image.copy(), startupDelay);
+            queueDecodedFrame(image.copy(), startupDelay, frameTimestampMs, frameWallClockMs);
             av_frame_unref(frame);
         }
     }

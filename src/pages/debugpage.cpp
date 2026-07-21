@@ -19,7 +19,7 @@ DebugPage::DebugPage(QWidget *parent)
     auto *mockButton = new QPushButton(QStringLiteral("Toggle mock EV"), controls);
     auto *nonEvButton = new QPushButton(QStringLiteral("Test non-EV"), controls);
     auto *overtimeButton = new QPushButton(QStringLiteral("Test overtime"), controls);
-    auto *sensorButton = new QPushButton(QStringLiteral("Test sensor error"), controls);
+    auto *sensorButton = new QPushButton(QStringLiteral("Test Hall sensor error"), controls);
     auto *randomButton = new QPushButton(QStringLiteral("Randomize parking"), controls);
     auto *sampleButton = new QPushButton(QStringLiteral("Run RX sample"), controls);
     grid->addWidget(clearButton, 0, 0); grid->addWidget(mockButton, 0, 1);

@@ -335,7 +335,7 @@ void ParkingController::toggleMockEv()
 
 void ParkingController::triggerNonEvAlert() { updateEvSlotState(QStringLiteral("EV-01"), SlotState::NonEvAlert, QStringLiteral("12A3456"), false, QStringLiteral("00:19"), QStringLiteral("NON_EV_ALERT")); recordEvent(QStringLiteral("EV-01"), QStringLiteral("NON_EV_ALERT"), QStringLiteral("Non-EV alert test executed"), QStringLiteral("OPEN")); }
 void ParkingController::triggerOvertimeAlert() { updateEvSlotState(QStringLiteral("EV-02"), SlotState::OvertimeAlert, QStringLiteral("34B7788"), true, QStringLiteral("03:43"), QStringLiteral("OVERTIME_ALERT")); recordEvent(QStringLiteral("EV-02"), QStringLiteral("OVERTIME_ALERT"), QStringLiteral("Overtime alert test executed"), QStringLiteral("OPEN")); }
-void ParkingController::triggerSensorError() { updateParkingSlotState(QStringLiteral("P-03"), SlotState::SensorError); recordEvent(QStringLiteral("P-03"), QStringLiteral("SENSOR_ERROR"), QStringLiteral("Sensor error test executed"), QStringLiteral("OPEN")); }
+void ParkingController::triggerSensorError() { updateParkingSlotState(QStringLiteral("P-03"), SlotState::SensorError); recordEvent(QStringLiteral("P-03"), QStringLiteral("HALL_SENSOR_ERROR"), QStringLiteral("Hall sensor error test executed"), QStringLiteral("OPEN")); }
 
 void ParkingController::randomizeParkingSlots()
 {
@@ -348,7 +348,15 @@ void ParkingController::randomizeParkingSlots()
 
 void ParkingController::simulateIncomingMessages()
 {
-    for (const QString &message : {QStringLiteral("PARKING_SLOT,P01,OCCUPIED"), QStringLiteral("PARKING_SLOT,P02,VACANT"), QStringLiteral("EV_ALERT,EV01,NON_EV"), QStringLiteral("EV_ALERT,EV02,OVERTIME")}) processIncomingMessage(message);
+    for (const QString &message : {
+             QStringLiteral("PARKING_SLOT,P01,OCCUPIED"),
+             QStringLiteral("PARKING_SLOT,P02,VACANT"),
+             QStringLiteral("EV_ALERT,EV01,NON_EV"),
+             QStringLiteral("EV_ALERT,EV02,OVERTIME"),
+             QStringLiteral("FIRE_ALARM,CH2,DETECTED"),
+             QStringLiteral("HALL_SENSOR,P03,ERROR"),
+             QStringLiteral("EVENT,CH1,CAMERA_DISCONNECTED,FAILED,RTSP stream disconnected")
+         }) processIncomingMessage(message);
 }
 
 void ParkingController::processIncomingMessage(const QString &message)
@@ -362,14 +370,65 @@ void ParkingController::processIncomingMessage(const QString &message)
     const QString type = parts.at(0).toUpper();
     const QString slotId = normalizeParkingSlotId(parts.at(1));
     const QString value = parts.at(2).toUpper();
+    if (type == QStringLiteral("EVENT") || type == QStringLiteral("DB_EVENT")) {
+        if (parts.size() < 4) {
+            recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("RX_ERROR"),
+                        QStringLiteral("Invalid normalized event: ") + trimmed,
+                        QStringLiteral("REJECTED"));
+            return;
+        }
+        const QString source = normalizeParkingSlotId(parts.at(1));
+        const QString normalizedEventType = parts.at(2).toUpper();
+        const QString normalizedStatus = parts.at(3).toUpper();
+        const QString normalizedMessage = parts.size() > 4
+            ? parts.mid(4).join(QStringLiteral(", "))
+            : QStringLiteral("Normalized event received");
+        recordEvent(source, normalizedEventType, normalizedMessage, normalizedStatus);
+        return;
+    }
     if (type == QStringLiteral("PARKING_SLOT")) {
         const SlotState state = slotStateFromText(value); updateParkingSlotState(slotId, state);
         recordEvent(slotId, slotStateText(state), QStringLiteral("Parking slot state updated from RX message"), QStringLiteral("RECORDED")); return;
+    }
+    if (type == QStringLiteral("HALL_SENSOR") || type == QStringLiteral("HALL_SENSOR_EVENT")) {
+        if (value == QStringLiteral("ERROR") || value == QStringLiteral("FAILED")) {
+            updateParkingSlotState(slotId, SlotState::SensorError);
+            recordEvent(slotId, QStringLiteral("HALL_SENSOR_ERROR"),
+                        QStringLiteral("Hall sensor error received"),
+                        QStringLiteral("OPEN"));
+            return;
+        }
+        if (value == QStringLiteral("CLEAR") || value == QStringLiteral("ACKED")) {
+            updateParkingSlotState(slotId, SlotState::Vacant);
+            recordEvent(slotId, QStringLiteral("HALL_SENSOR_ACK"),
+                        QStringLiteral("Hall sensor alarm acknowledged from RX message"),
+                        QStringLiteral("ACKED"));
+            return;
+        }
+        const SlotState state = slotStateFromText(value);
+        updateParkingSlotState(slotId, state);
+        recordEvent(slotId, QStringLiteral("HALL_SENSOR_CHANGED"),
+                    QStringLiteral("Hall sensor state updated from RX message"),
+                    QStringLiteral("RECORDED"));
+        return;
     }
     if (type == QStringLiteral("EV_ALERT")) {
         if (value == QStringLiteral("NON_EV")) { updateEvSlotState(slotId, SlotState::NonEvAlert, QStringLiteral("UNKNOWN"), false, QStringLiteral("00:00"), QStringLiteral("NON_EV_ALERT")); recordEvent(slotId, QStringLiteral("NON_EV_ALERT"), QStringLiteral("Non-EV alert received"), QStringLiteral("OPEN")); return; }
         if (value == QStringLiteral("OVERTIME")) { updateEvSlotState(slotId, SlotState::OvertimeAlert, QStringLiteral("UNKNOWN"), true, QStringLiteral("02:00+"), QStringLiteral("OVERTIME_ALERT")); recordEvent(slotId, QStringLiteral("OVERTIME_ALERT"), QStringLiteral("Overtime alert received"), QStringLiteral("OPEN")); return; }
         if (value == QStringLiteral("CLEAR") || value == QStringLiteral("ACKED")) { updateEvSlotState(slotId, SlotState::Acked, QStringLiteral("UNKNOWN"), true, QStringLiteral("00:00"), QStringLiteral("ACKED")); recordEvent(slotId, QStringLiteral("ALARM_ACK"), QStringLiteral("Alarm acknowledged from RX message"), QStringLiteral("ACKED")); return; }
+    }
+    if (type == QStringLiteral("FIRE_ALARM") || type == QStringLiteral("FIRE_EVENT")) {
+        const QString channel = parts.at(1).toUpper();
+        if (value == QStringLiteral("CLEAR") || value == QStringLiteral("ACKED")) {
+            recordEvent(channel, QStringLiteral("FIRE_ALARM_ACK"),
+                        QStringLiteral("Fire alarm acknowledged from RX message"),
+                        QStringLiteral("ACKED"));
+            return;
+        }
+        recordEvent(channel, QStringLiteral("FIRE_ALARM"),
+                    QStringLiteral("Fire detected on ") + channel,
+                    QStringLiteral("OPEN"));
+        return;
     }
     recordEvent(slotId, QStringLiteral("RX_UNSUPPORTED"), QStringLiteral("Unsupported message: ") + trimmed, QStringLiteral("REJECTED"));
 }

@@ -48,7 +48,7 @@ DashboardPage::DashboardPage(const QStringList &lowRtspUrls,
     summaryGrid->addWidget(m_occupiedSlotsLabel, 1, 1);
     summaryGrid->addWidget(new QLabel(QStringLiteral("Vacant"), summaryGroup), 2, 0);
     summaryGrid->addWidget(m_vacantSlotsLabel, 2, 1);
-    summaryGrid->addWidget(new QLabel(QStringLiteral("Sensor errors"), summaryGroup), 3, 0);
+    summaryGrid->addWidget(new QLabel(QStringLiteral("Hall errors"), summaryGroup), 3, 0);
     summaryGrid->addWidget(m_sensorErrorLabel, 3, 1);
     topLayout->addWidget(summaryGroup, 1);
     pageLayout->addLayout(topLayout, 4);
@@ -99,13 +99,13 @@ QWidget *DashboardPage::createVideoChannel(int channelIndex, const QString &chan
 
 void DashboardPage::startDelayedVideoStreams()
 {
-    for (int i = 0; i < m_videoQuickWidgets.size(); ++i) {
-        QTimer::singleShot(300 + (i * 450), this, [this, i]() {
-            if (QQuickWidget *view = m_videoQuickWidgets.value(i)) {
+    QTimer::singleShot(300, this, [this]() {
+        for (QQuickWidget *view : m_videoQuickWidgets) {
+            if (view) {
                 if (QQuickItem *root = view->rootObject()) root->setProperty("streamEnabled", true);
             }
-        });
-    }
+        }
+    });
 }
 
 void DashboardPage::handleVideoChannelClicked()

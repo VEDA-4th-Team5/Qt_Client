@@ -37,7 +37,7 @@ ParkingMapPage::ParkingMapPage(QWidget *parent)
     legendLayout->addWidget(createLegendItem(QStringLiteral("OCCUPIED"), SlotState::Occupied));
     legendLayout->addWidget(createLegendItem(QStringLiteral("NON_EV"), SlotState::NonEvAlert));
     legendLayout->addWidget(createLegendItem(QStringLiteral("OVERTIME"), SlotState::OvertimeAlert));
-    legendLayout->addWidget(createLegendItem(QStringLiteral("ERROR"), SlotState::SensorError));
+    legendLayout->addWidget(createLegendItem(QStringLiteral("HALL ERROR"), SlotState::SensorError));
     mapGrid->addLayout(legendLayout, 3, 0, 1, 3);
     pageLayout->addWidget(mapGroup, 2);
 
