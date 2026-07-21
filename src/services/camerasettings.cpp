@@ -90,12 +90,10 @@ QStringList CameraSettings::rtspUrls(const QString &profileOverride) const
     for (int i = 0; i < urls.size(); ++i) {
         QString channel = settings.value(QStringLiteral("camera/channel_ch%1").arg(i + 1), QString::number(i)).toString();
         QString profile = defaultProfile;
-        if (profileOverride.isEmpty()) {
-            profile = settings.value(QStringLiteral("camera/profile_ch%1").arg(i + 1), profile).toString();
-        } else {
-            const QString legacy = settings.value(QStringLiteral("camera/profile_ch%1").arg(i + 1)).toString();
-            const int slash = legacy.indexOf(QLatin1Char('/'));
-            if (slash > 0) channel = legacy.left(slash);
+        const QString channelProfile =
+            settings.value(QStringLiteral("camera/profile_ch%1").arg(i + 1)).toString();
+        if (!channelProfile.isEmpty()) {
+            profile = channelProfile;
         }
         const int slash = profile.indexOf(QLatin1Char('/'));
         if (slash > 0) {
