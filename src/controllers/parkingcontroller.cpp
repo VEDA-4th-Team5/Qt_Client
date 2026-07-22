@@ -55,14 +55,20 @@ void ParkingController::initializeApiClient()
     };
 
     m_state.apiEnabled = setting(QStringLiteral("api/enabled"), false).toBool();
+    m_apiDiagnostic = ApiDiagnosticState{};
+    m_apiDiagnostic.enabled = m_state.apiEnabled;
     if (!m_state.apiEnabled) {
         if (m_reconnectTimer) m_reconnectTimer->stop();
         emit serverConnectionChanged(QStringLiteral("API disabled"), false);
+        publishApiDiagnostic();
         notifyStateChanged();
         return;
     }
 
     m_apiBaseUrl = QUrl(setting(QStringLiteral("api/base_url"), QString()).toString().trimmed());
+    m_apiDiagnostic.endpoint = m_apiBaseUrl.toString(
+        QUrl::RemoveUserInfo | QUrl::RemoveQuery | QUrl::RemoveFragment);
+    m_apiDiagnostic.status = QStringLiteral("DISCONNECTED");
     m_slotsPath = setting(QStringLiteral("api/slots_path"),
                           QStringLiteral("/api/v1/parking-slots")).toString();
     m_slotDetailPath = setting(QStringLiteral("api/slot_detail_path"),
@@ -96,21 +102,31 @@ void ParkingController::rebuildApiClient()
         m_apiTimeoutMs, m_allowInsecureHttp, this);
 
     connect(m_apiClient, &ApiClient::jsonReceived, this,
-            [this](const QString &path, const QJsonDocument &document) {
+            [this](const QString &path, const QJsonDocument &document,
+                   int latencyMs, int httpStatus) {
                 if (path == m_slotsPath) {
                     m_snapshotRequestInFlight = false;
+                    m_apiDiagnostic.lastLatencyMs = latencyMs;
+                    m_apiDiagnostic.lastHttpStatus = httpStatus;
                     applyParkingSnapshot(document);
                 } else {
                     applyParkingSlotDetail(document);
                 }
             });
     connect(m_apiClient, &ApiClient::requestFailed, this,
-            [this](const QString &path, const QString &message) {
+            [this](const QString &path, const QString &message,
+                   int latencyMs, int httpStatus) {
                 recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_ERROR"),
                             path + QStringLiteral(": ") + message,
                             QStringLiteral("FAILED"));
                 if (path == m_slotsPath) {
                     m_snapshotRequestInFlight = false;
+                    m_apiDiagnostic.connected = false;
+                    m_apiDiagnostic.status = QStringLiteral("ERROR");
+                    m_apiDiagnostic.lastError = message;
+                    m_apiDiagnostic.lastLatencyMs = latencyMs;
+                    m_apiDiagnostic.lastHttpStatus = httpStatus;
+                    ++m_apiDiagnostic.consecutiveFailures;
                     scheduleReconnect(message);
                 } else {
                     emit detailError(message);
@@ -118,6 +134,7 @@ void ParkingController::rebuildApiClient()
             });
 
     emit serverBaseUrlChanged(m_apiBaseUrl.toString());
+    publishApiDiagnostic();
     notifyStateChanged();
 }
 void ParkingController::reconnectNow()
@@ -132,9 +149,15 @@ void ParkingController::reconnectNow()
         return;
     }
     const QString message =
-        QStringLiteral("Connecting to %1...").arg(m_apiBaseUrl.toString());
+        QStringLiteral("Connecting to %1...").arg(m_apiBaseUrl.toString(
+            QUrl::RemoveUserInfo | QUrl::RemoveQuery | QUrl::RemoveFragment));
     emit bannerChanged(message, false);
     emit serverConnectionChanged(QStringLiteral("Connecting..."), false);
+    m_apiDiagnostic.connected = false;
+    m_apiDiagnostic.status = QStringLiteral("CONNECTING");
+    m_apiDiagnostic.lastAttemptAt = QDateTime::currentDateTime();
+    m_apiDiagnostic.nextRetrySeconds = 0;
+    publishApiDiagnostic();
     m_snapshotRequestInFlight = true;
     m_apiClient->getJson(m_slotsPath);
 }
@@ -151,6 +174,11 @@ void ParkingController::scheduleReconnect(const QString &reason)
         QStringLiteral("Disconnected: %1 | retry in %2 seconds")
             .arg(reason).arg(delayMs / 1000),
         false);
+    m_apiDiagnostic.connected = false;
+    m_apiDiagnostic.status = QStringLiteral("RETRYING");
+    m_apiDiagnostic.lastError = reason;
+    m_apiDiagnostic.nextRetrySeconds = delayMs / 1000;
+    publishApiDiagnostic();
     if (!m_reconnectTimer->isActive()) m_reconnectTimer->start(delayMs);
     m_currentReconnectDelayMs =
         qMin(m_currentReconnectDelayMs * 2, m_maxReconnectIntervalMs);
@@ -182,7 +210,9 @@ void ParkingController::updateServerBaseUrl(const QString &baseUrl)
     }
 
     recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_ADDRESS_UPDATED"),
-                QStringLiteral("Server API changed to ") + normalized,
+                QStringLiteral("Server API changed to ")
+                    + url.toString(QUrl::RemoveUserInfo | QUrl::RemoveQuery
+                                   | QUrl::RemoveFragment),
                 QStringLiteral("DONE"));
     initializeApiClient();
 }
@@ -193,6 +223,11 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
     if (!ParkingResponseParser::parseSnapshot(document, snapshot, error)) {
         emit bannerChanged(QStringLiteral("Invalid parking API response | Previous state retained"), true);
         recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_PARSE_ERROR"), error, QStringLiteral("FAILED"));
+        m_apiDiagnostic.connected = false;
+        m_apiDiagnostic.status = QStringLiteral("INVALID_RESPONSE");
+        m_apiDiagnostic.lastError = error;
+        ++m_apiDiagnostic.consecutiveFailures;
+        publishApiDiagnostic();
         return;
     }
     if (m_reconnectTimer) m_reconnectTimer->stop();
@@ -239,7 +274,20 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
         ? snapshot.generatedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
         : QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
     emit statusMessageChanged(QStringLiteral("API synchronized: %1 slots at %2").arg(appliedCount).arg(generatedAt));
+    m_apiDiagnostic.connected = true;
+    m_apiDiagnostic.status = QStringLiteral("CONNECTED");
+    m_apiDiagnostic.lastError.clear();
+    m_apiDiagnostic.lastSuccessAt = QDateTime::currentDateTime();
+    m_apiDiagnostic.consecutiveFailures = 0;
+    m_apiDiagnostic.nextRetrySeconds = 0;
+    m_apiDiagnostic.appliedSlotCount = appliedCount;
+    publishApiDiagnostic();
     recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_SYNC"), QStringLiteral("Applied %1 parking slots").arg(appliedCount), QStringLiteral("DONE"));
+}
+
+void ParkingController::publishApiDiagnostic()
+{
+    emit apiDiagnosticChanged(m_apiDiagnostic);
 }
 
 void ParkingController::applyParkingSlotDetail(const QJsonDocument &document)

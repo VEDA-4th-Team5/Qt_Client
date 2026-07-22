@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 
 #include "controllers/parkingcontroller.h"
+#include "diagnostics/diagnosticsservice.h"
 #include "dialogs/slotevidencedialog.h"
 #include "pages/dashboardpage.h"
 #include "pages/debugpage.h"
@@ -13,6 +14,7 @@
 
 
 #include <QButtonGroup>
+#include <QCloseEvent>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFrame>
@@ -55,12 +57,44 @@ MainWindow::MainWindow(QWidget *parent)
     , m_cameraSettings(cameraConfigPath())
     , m_notificationCenter(new NotificationCenter(this))
 {
+    m_diagnosticsService = new DiagnosticsService(this);
     buildUi();
     m_parkingController = new ParkingController(clientConfigPath(), clientLocalConfigPath(), this);
     m_parkingSimulationService = new ParkingSimulationService(m_parkingController, this);
     connectPages();
     m_parkingSimulationService->seedInitialState();
     m_parkingController->start();
+}
+
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (!m_parkingMapPage || !m_parkingMapPage->hasUnsavedLayoutChanges()) {
+        QMainWindow::closeEvent(event);
+        return;
+    }
+
+    const QMessageBox::StandardButton choice = QMessageBox::warning(
+        this,
+        QStringLiteral("Unsaved parking map layout"),
+        QStringLiteral("The parking map layout has unsaved changes.\n\nSave before closing?"),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+        QMessageBox::Save);
+
+    if (choice == QMessageBox::Cancel) {
+        event->ignore();
+        return;
+    }
+
+    if (choice == QMessageBox::Save) {
+        QString error;
+        if (!m_parkingMapPage->saveLayoutNow(&error)) {
+            QMessageBox::warning(this, QStringLiteral("Parking map layout"), error);
+            event->ignore();
+            return;
+        }
+    }
+
+    QMainWindow::closeEvent(event);
 }
 
 void MainWindow::buildUi()
@@ -197,6 +231,35 @@ void MainWindow::connectPages()
                 m_eventsPage->appendEvent(time, zone, eventType, message, status);
                 m_notificationCenter->ingestEvent(time, zone, eventType, message, status);
             });
+    connect(m_parkingController, &ParkingController::eventLogged,
+            m_diagnosticsService, &DiagnosticsService::ingestDomainEvent);
+    connect(m_parkingController, &ParkingController::apiDiagnosticChanged,
+            m_diagnosticsService, &DiagnosticsService::setApiState);
+    connect(m_dashboardPage, &DashboardPage::rtspDiagnosticsChanged,
+            m_diagnosticsService, &DiagnosticsService::setRtspChannels);
+    connect(m_parkingSimulationService, &ParkingSimulationService::simulationApplied,
+            m_diagnosticsService, &DiagnosticsService::markSimulationApplied);
+    connect(m_diagnosticsService, &DiagnosticsService::apiStateChanged,
+            m_debugPage, &DebugPage::setApiDiagnostic);
+    connect(m_diagnosticsService, &DiagnosticsService::rtspChannelsChanged,
+            m_debugPage, &DebugPage::setRtspDiagnostics);
+    connect(m_diagnosticsService, &DiagnosticsService::parkingStateChanged,
+            m_debugPage, &DebugPage::setParkingDiagnostic);
+    connect(m_diagnosticsService, &DiagnosticsService::logAdded,
+            m_debugPage, &DebugPage::appendDiagnosticLog);
+    connect(m_parkingMapPage, &ParkingMapPage::layoutSaveResult, this,
+            [this](bool success, const QString &message) {
+                m_alertBanner->setText(message);
+                m_alertBanner->setStyleSheet(success
+                    ? QStringLiteral("background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; border-radius: 4px; font-weight: 700;")
+                    : QStringLiteral("background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; border-radius: 4px; font-weight: 800;"));
+                m_parkingController->recordEvent(
+                    QStringLiteral("PARKING_MAP"),
+                    success ? QStringLiteral("LAYOUT_SAVED")
+                            : QStringLiteral("LAYOUT_SAVE_FAILED"),
+                    message,
+                    success ? QStringLiteral("DONE") : QStringLiteral("FAILED"));
+            });
     connect(m_parkingController, &ParkingController::statusMessageChanged,
             m_debugPage, &DebugPage::setLastMessage);
     connect(m_parkingController, &ParkingController::slotDetailReady,
@@ -207,6 +270,8 @@ void MainWindow::connectPages()
             });
     connect(m_debugPage, &DebugPage::clearAlarmsRequested,
             m_parkingController, &ParkingController::clearAlarms);
+    connect(m_debugPage, &DebugPage::reconnectApiRequested,
+            m_parkingController, &ParkingController::reconnectNow);
     connect(m_debugPage, &DebugPage::toggleMockEvRequested,
             m_parkingSimulationService, &ParkingSimulationService::toggleMockEv);
     connect(m_debugPage, &DebugPage::nonEvAlertRequested,
@@ -229,7 +294,7 @@ void MainWindow::connectPages()
                     message, success ? QStringLiteral("DONE") : QStringLiteral("FAILED"));
             });
     connect(m_settingsPage, &SettingsPage::saveCameraIpRequested,
-            this, &MainWindow::saveCameraIpLastOctet);
+            this, &MainWindow::saveCameraIp);
     connect(m_settingsPage, &SettingsPage::saveServerBaseUrlRequested,
             m_parkingController, &ParkingController::updateServerBaseUrl);
     connect(m_settingsPage, &SettingsPage::reconnectServerRequested,
@@ -261,6 +326,19 @@ void MainWindow::renderParkingState()
     }
     m_dashboardPage->setSummary(
         state.parkingSlots.size(), occupied, vacant, sensorErrors);
+    if (m_diagnosticsService) {
+        int activeAlarms = 0;
+        for (const EvSlotInfo &slot : state.evSlots) {
+            if (slot.visual.alarm != SlotAlarmKind::None
+                && !slot.visual.alarmAcknowledged) ++activeAlarms;
+        }
+        for (const ParkingSlotInfo &slot : state.parkingSlots) {
+            if (slot.visual.alarm != SlotAlarmKind::None
+                && !slot.visual.alarmAcknowledged) ++activeAlarms;
+        }
+        m_diagnosticsService->setParkingSummary(
+            state.evSlots.size() + state.parkingSlots.size(), activeAlarms);
+    }
 }
 
 void MainWindow::showSlotEvidence(const QString &slotId)
@@ -471,11 +549,11 @@ QString MainWindow::parkingMapLayoutPath() const
 #endif
 }
 
-void MainWindow::saveCameraIpLastOctet(const QString &lastOctetText)
+void MainWindow::saveCameraIp(const QString &cameraIpText)
 {
     QString newIp;
     QString errorMessage;
-    if (!m_cameraSettings.saveLastOctet(lastOctetText, newIp, errorMessage)) {
+    if (!m_cameraSettings.saveCameraIp(cameraIpText, newIp, errorMessage)) {
         QMessageBox::warning(this, QStringLiteral("Camera IP"), errorMessage);
         return;
     }

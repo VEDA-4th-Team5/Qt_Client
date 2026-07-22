@@ -219,7 +219,7 @@ ParkingController::start()
 | `showSlotEvidence()` | 프로토타입 | Controller가 준비한 이미지 목록을 `SlotEvidenceDialog`로 표시 |
 | `updateNotificationIndicator()` | 운영 | NotificationCenter의 미확인 수로 badge와 bell 스타일 갱신 |
 | `showNotificationPopup()` | 운영 | 최대 10개의 활성 알림을 popup에 표시하고 열 때 모두 읽음 처리 |
-| `saveCameraIpLastOctet()` | 운영 | 카메라 설정 저장 후 4채널 RTSP URL을 다시 계산하여 Dashboard에 반영 |
+| `saveCameraIp()` | 운영 | 전체 카메라 IPv4 주소를 검증·저장한 후 4채널 RTSP URL을 다시 계산하여 Dashboard에 반영 |
 
 ### 이벤트 fan-out
 
@@ -262,11 +262,12 @@ rtsp://[username:password@]camera_ip:port/channel/profile/media.smp
 
 채널별 `profile_ch1`~`profile_ch4`가 있으면 공통 profile보다 우선한다.
 
-### `CameraSettings::saveLastOctet()`
+### `CameraSettings::saveCameraIp()`
 
-- 마지막 IPv4 octet이 `0~255`인지 검증한다.
-- 현재 IP가 잘못된 형식이면 `172.20.35.0`을 임시 기준으로 사용한다.
-- `camera_config.ini`의 `camera/camera_ip`에 저장한다.
+- 사용자가 입력한 전체 문자열이 유효한 IPv4 주소인지 검증한다.
+- 기존 주소의 subnet/prefix를 재사용하거나 특정 사설망 대역을 가정하지 않는다.
+- 유효한 전체 주소만 `camera_config.ini`의 `camera/camera_ip`에 저장한다.
+- 잘못된 입력은 기존 설정을 덮어쓰지 않는다.
 
 실제 credential이 들어갈 수 있는 `config/camera_config.ini`는 Git 제외 대상이다.
 
@@ -915,13 +916,13 @@ DebugPage에 표시되는 기본 문자열 `EV_ALERT,EV01,NON_EV`는 실제 수�
 
 ### 카메라 설정
 
-- 화면에는 마지막 IPv4 octet만 입력
-- 저장 요청은 `MainWindow::saveCameraIpLastOctet()`로 전달
+- 화면에서 전체 IPv4 주소 입력
+- 저장 요청은 `MainWindow::saveCameraIp()`로 전달
 - 저장 성공 후 4채널 RTSP URL 재생성
 
 ### 서버 설정
 
-- API base URL 입력
+- subnet 가정 없이 전체 API base URL 입력
 - Save and reconnect: local override 저장 후 client 재생성
 - Reconnect now: 현재 설정으로 snapshot 재요청
 - Controller의 connection signal을 label 색상과 문구로 표시

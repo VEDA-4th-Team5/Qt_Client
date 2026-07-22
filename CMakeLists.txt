@@ -43,6 +43,9 @@ add_executable(smart_parking_qt_client
     src/mainwindow.h
     src/controllers/parkingcontroller.cpp
     src/controllers/parkingcontroller.h
+    src/diagnostics/diagnostictypes.h
+    src/diagnostics/diagnosticsservice.cpp
+    src/diagnostics/diagnosticsservice.h
     src/dialogs/slotevidencedialog.cpp
     src/dialogs/slotevidencedialog.h
     src/models/parkingstate.cpp
@@ -179,6 +182,40 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME parking_simulation_service COMMAND parkingsimulationservice_test)
+
+    add_executable(diagnosticsservice_test
+        tests/diagnosticsservice_test.cpp
+        src/diagnostics/diagnostictypes.h
+        src/diagnostics/diagnosticsservice.cpp
+        src/diagnostics/diagnosticsservice.h
+    )
+    target_include_directories(diagnosticsservice_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(diagnosticsservice_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(diagnosticsservice_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME diagnostics_service COMMAND diagnosticsservice_test)
+
+    add_executable(camerasettings_test
+        tests/camerasettings_test.cpp
+        src/services/camerasettings.cpp
+        src/services/camerasettings.h
+    )
+    target_include_directories(camerasettings_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(camerasettings_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(camerasettings_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME camera_settings COMMAND camerasettings_test)
 
     add_executable(parkingmappage_add_slot_test
         tests/parkingmappage_add_slot_test.cpp

@@ -20,6 +20,7 @@ void ParkingSimulationService::seedInitialState()
     for (const ParkingMockData::EventRecord &event : ParkingMockData::initialEvents()) {
         m_controller->recordEvent(event.zone, event.eventType, event.message, event.status);
     }
+    emit simulationApplied(QStringLiteral("Initial mock state"));
 }
 
 void ParkingSimulationService::toggleMockEv()
@@ -39,6 +40,7 @@ void ParkingSimulationService::toggleMockEv()
         QStringLiteral("EV-03"),
         occupied ? QStringLiteral("OCCUPIED") : QStringLiteral("VACANT"),
         QStringLiteral("Mock EV-03 state changed"), QStringLiteral("RECORDED"));
+    emit simulationApplied(QStringLiteral("Toggle mock EV"));
 }
 
 void ParkingSimulationService::triggerNonEvAlert()
@@ -51,6 +53,7 @@ void ParkingSimulationService::triggerNonEvAlert()
     m_controller->recordEvent(
         QStringLiteral("EV-01"), QStringLiteral("NON_EV_ALERT"),
         QStringLiteral("Non-EV alert test executed"), QStringLiteral("OPEN"));
+    emit simulationApplied(QStringLiteral("Non-EV violation"));
 }
 
 void ParkingSimulationService::triggerOvertimeAlert()
@@ -63,6 +66,7 @@ void ParkingSimulationService::triggerOvertimeAlert()
     m_controller->recordEvent(
         QStringLiteral("EV-02"), QStringLiteral("OVERTIME_ALERT"),
         QStringLiteral("Overtime alert test executed"), QStringLiteral("OPEN"));
+    emit simulationApplied(QStringLiteral("Overstay warning"));
 }
 
 void ParkingSimulationService::triggerSensorError()
@@ -73,6 +77,7 @@ void ParkingSimulationService::triggerSensorError()
     m_controller->recordEvent(
         QStringLiteral("P-03"), QStringLiteral("HALL_SENSOR_ERROR"),
         QStringLiteral("Hall sensor error test executed"), QStringLiteral("OPEN"));
+    emit simulationApplied(QStringLiteral("Hall sensor error"));
 }
 
 void ParkingSimulationService::randomizeParkingSlots()
@@ -89,6 +94,7 @@ void ParkingSimulationService::randomizeParkingSlots()
             occupied ? QStringLiteral("OCCUPIED") : QStringLiteral("VACANT"),
             QStringLiteral("Parking slot randomized"), QStringLiteral("RECORDED"));
     }
+    emit simulationApplied(QStringLiteral("Randomize parking"));
 }
 
 void ParkingSimulationService::runSampleMessages()
@@ -98,9 +104,12 @@ void ParkingSimulationService::runSampleMessages()
     for (const QString &message : ParkingMockData::sampleIncomingMessages()) {
         m_controller->processIncomingMessage(message);
     }
+    emit simulationApplied(QStringLiteral("RX sample messages"));
 }
 
 void ParkingSimulationService::applyManualMessage(const QString &message)
 {
-    if (m_controller) m_controller->processIncomingMessage(message);
+    if (!m_controller) return;
+    m_controller->processIncomingMessage(message);
+    emit simulationApplied(QStringLiteral("Manual RX: %1").arg(message.left(120)));
 }

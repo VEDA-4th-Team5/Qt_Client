@@ -24,6 +24,9 @@ public slots:
     void runSampleMessages();
     void applyManualMessage(const QString &message);
 
+signals:
+    void simulationApplied(const QString &scenario);
+
 private:
     ParkingController *m_controller = nullptr;
     int m_mockStep = 0;

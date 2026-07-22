@@ -424,6 +424,19 @@ QString channelTitle(const QString &channel)
     if (channel == QStringLiteral("CH4")) return QStringLiteral("CH4 | IVA1-IVA4");
     return QStringLiteral("CH1 | IVA1-IVA4");
 }
+
+bool sameZoneLayout(const ParkingZoneLayout &left, const ParkingZoneLayout &right)
+{
+    return left.zoneId == right.zoneId
+        && left.zoneType == right.zoneType
+        && left.displayName == right.displayName
+        && left.rect == right.rect
+        && left.rotation == right.rotation
+        && left.cameraChannel == right.cameraChannel
+        && left.ivaAreaId == right.ivaAreaId
+        && left.hallSensorId == right.hallSensorId
+        && left.enabled == right.enabled;
+}
 }
 
 ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
@@ -733,7 +746,7 @@ void ParkingMapPage::addGeneralZone()
         item->setSelected(true);
         m_mapView->ensureVisible(item, 24, 24);
     }
-    m_layoutStatusLabel->setText(QStringLiteral("Unsaved changes | %1 added").arg(zone.zoneId));
+    markLayoutDirty(QStringLiteral("%1 added").arg(zone.zoneId));
     updateZoneTable();
 }
 
@@ -759,7 +772,7 @@ void ParkingMapPage::addEvZone()
         item->setSelected(true);
         m_mapView->ensureVisible(item, 24, 24);
     }
-    m_layoutStatusLabel->setText(QStringLiteral("Unsaved changes | %1 added").arg(zone.zoneId));
+    markLayoutDirty(QStringLiteral("%1 added").arg(zone.zoneId));
     updateZoneTable();
 }
 
@@ -772,18 +785,38 @@ void ParkingMapPage::deleteSelectedZone()
     rebuildScene();
     updateZoneTable();
     updateEditorFromSelection();
-    m_layoutStatusLabel->setText(QStringLiteral("Unsaved changes | %1 deleted").arg(zoneId));
+    markLayoutDirty(QStringLiteral("%1 deleted").arg(zoneId));
 }
 
 void ParkingMapPage::saveLayout()
 {
+    QString error;
+    if (!saveLayoutNow(&error)) {
+        QMessageBox::warning(this, QStringLiteral("Parking map layout"), error);
+    }
+}
+
+bool ParkingMapPage::saveLayoutNow(QString *errorMessage)
+{
     syncZonesFromItems();
     QString error;
     if (!saveParkingZoneLayout(m_layoutPath, m_zones, &error)) {
-        QMessageBox::warning(this, QStringLiteral("Parking map layout"), error);
-        return;
+        if (errorMessage) *errorMessage = error;
+        if (m_layoutStatusLabel) {
+            m_layoutStatusLabel->setText(
+                QStringLiteral("Save failed | %1").arg(QDir::toNativeSeparators(m_layoutPath)));
+        }
+        emit layoutSaveResult(false, error);
+        return false;
     }
-    m_layoutStatusLabel->setText(QStringLiteral("Saved local layout"));
+
+    if (errorMessage) errorMessage->clear();
+    setLayoutDirty(false, QStringLiteral("Saved local layout"));
+    emit layoutSaveResult(
+        true,
+        QStringLiteral("Parking map layout saved: %1")
+            .arg(QDir::toNativeSeparators(m_layoutPath)));
+    return true;
 }
 
 void ParkingMapPage::reloadLayout()
@@ -802,7 +835,7 @@ void ParkingMapPage::resetDefaultLayout()
     updateZoneTable();
     updateEditorFromSelection();
     scrollMapToOrigin();
-    m_layoutStatusLabel->setText(QStringLiteral("Unsaved changes | Default layout restored"));
+    markLayoutDirty(QStringLiteral("Default layout restored"));
 }
 
 void ParkingMapPage::handleSceneSelectionChanged()
@@ -840,7 +873,8 @@ void ParkingMapPage::applyEditorFields()
     const int index = zoneIndexById(oldZoneId);
     if (index < 0) return;
 
-    ParkingZoneLayout zone = m_zones.at(index);
+    const ParkingZoneLayout previousZone = m_zones.at(index);
+    ParkingZoneLayout zone = previousZone;
     const QString previousChannel = zone.cameraChannel;
     const QString newZoneId = normalizedZoneId(m_zoneIdEdit->text());
     if (newZoneId.isEmpty()) return;
@@ -868,6 +902,7 @@ void ParkingMapPage::applyEditorFields()
         zone.rotation = 0.0;
     }
     applyZoneTypeRules(&zone, previousChannel != zone.cameraChannel ? QString() : preferredIva);
+    if (sameZoneLayout(previousZone, zone)) return;
     m_zones[index] = zone;
 
     if (oldZoneId != zone.zoneId) {
@@ -882,7 +917,7 @@ void ParkingMapPage::applyEditorFields()
     }
     updateZoneTable();
     updateEditorFromSelection();
-    m_layoutStatusLabel->setText(QStringLiteral("Unsaved changes"));
+    markLayoutDirty();
 }
 
 void ParkingMapPage::setEditMode(bool enabled)
@@ -891,7 +926,9 @@ void ParkingMapPage::setEditMode(bool enabled)
     m_editToggleButton->setText(enabled ? QStringLiteral("Finish edit") : QStringLiteral("Edit layout"));
     syncItemsEditable();
     updateEditorFromSelection();
-    m_layoutStatusLabel->setText(enabled ? QStringLiteral("Edit mode") : QStringLiteral("View mode"));
+    if (!m_layoutDirty) {
+        m_layoutStatusLabel->setText(enabled ? QStringLiteral("Edit mode") : QStringLiteral("View mode"));
+    }
 }
 
 void ParkingMapPage::loadLayout()
@@ -901,12 +938,12 @@ void ParkingMapPage::loadLayout()
     if (QFile::exists(m_layoutPath)
         && loadParkingZoneLayout(m_layoutPath, &loadedZones, &error)) {
         m_zones = loadedZones;
-        if (m_layoutStatusLabel) m_layoutStatusLabel->setText(QStringLiteral("Loaded local layout"));
+        setLayoutDirty(false, QStringLiteral("Loaded local layout"));
         return;
     }
 
     m_zones = defaultParkingZoneLayout();
-    if (m_layoutStatusLabel) m_layoutStatusLabel->setText(QStringLiteral("Loaded default layout"));
+    setLayoutDirty(false, QStringLiteral("Loaded default layout"));
 }
 
 QString ParkingMapPage::exampleLayoutPath() const
@@ -1068,19 +1105,22 @@ void ParkingMapPage::handleZoneItemMoved(const QString &zoneId)
     QGraphicsRectItem *item = m_zoneItems.value(zoneId);
     if (!item) return;
 
-    ParkingZoneLayout zone = m_zones.at(index);
+    const ParkingZoneLayout previousZone = m_zones.at(index);
+    ParkingZoneLayout zone = previousZone;
     zone.rect = QRectF(item->pos().x(), item->pos().y(), item->rect().width(), item->rect().height());
+    zone.rotation = item->rotation();
     const QString detectedChannel = channelForScenePoint(item->sceneBoundingRect().center());
     if (!detectedChannel.isEmpty()) {
         zone.cameraChannel = detectedChannel;
     }
     applyZoneTypeRules(&zone);
+    if (sameZoneLayout(previousZone, zone)) return;
     m_zones[index] = zone;
 
     updateZoneVisual(zone.zoneId);
     updateZoneTable();
     updateEditorFromSelection();
-    m_layoutStatusLabel->setText(QStringLiteral("Unsaved changes | %1 moved").arg(zone.zoneId));
+    markLayoutDirty(QStringLiteral("%1 geometry changed").arg(zone.zoneId));
 }
 
 void ParkingMapPage::showZoneContextMenu(const QString &zoneId, const QPoint &screenPos)
@@ -1088,43 +1128,57 @@ void ParkingMapPage::showZoneContextMenu(const QString &zoneId, const QPoint &sc
     selectZoneById(zoneId);
 
     QMenu menu(this);
-    QAction *editAction = menu.addAction(QStringLiteral("Edit zone"));
-    QAction *smallSizeAction = menu.addAction(QStringLiteral("Fit standard size"));
+    QAction *resetShapeAction = menu.addAction(QStringLiteral("Reset to default shape"));
     menu.addSeparator();
     QAction *deleteAction = menu.addAction(QStringLiteral("Delete zone"));
     QAction *selectedAction = menu.exec(screenPos);
     if (!selectedAction) return;
 
-    if (selectedAction == editAction) {
+    if (selectedAction == resetShapeAction) {
         if (m_editToggleButton && !m_editToggleButton->isChecked()) {
             m_editToggleButton->setChecked(true);
         }
-        updateEditorFromSelection();
-        return;
-    }
-
-    if (selectedAction == smallSizeAction) {
-        if (m_editToggleButton && !m_editToggleButton->isChecked()) {
-            m_editToggleButton->setChecked(true);
-        }
-        const QString selectedId = selectedZoneId();
-        const int index = zoneIndexById(selectedId);
-        if (index < 0) return;
-        ParkingZoneLayout &zone = m_zones[index];
-        zone.rect = QRectF(zone.rect.x(), zone.rect.y(), 84, 58);
-        if (QGraphicsRectItem *item = m_zoneItems.value(zone.zoneId)) {
-            item->setRect(QRectF(0, 0, zone.rect.width(), zone.rect.height()));
-            item->setTransformOriginPoint(item->rect().center());
-            updateZoneVisual(zone.zoneId);
-        }
-        updateZoneTable();
-        updateEditorFromSelection();
+        resetSelectedZoneShape();
         return;
     }
 
     if (selectedAction == deleteAction) {
         deleteSelectedZone();
     }
+}
+
+void ParkingMapPage::resetSelectedZoneShape()
+{
+    const QString selectedId = selectedZoneId();
+    const int index = zoneIndexById(selectedId);
+    if (index < 0) return;
+
+    ParkingZoneLayout &zone = m_zones[index];
+    QGraphicsRectItem *item = m_zoneItems.value(zone.zoneId);
+    const bool itemAlreadyDefault = !item
+        || (item->rect().width() == 84.0
+            && item->rect().height() == 58.0
+            && item->rotation() == 0.0);
+    if (zone.rect.width() == 84.0
+        && zone.rect.height() == 58.0
+        && zone.rotation == 0.0
+        && itemAlreadyDefault) {
+        return;
+    }
+
+    const QPointF position = item ? item->pos() : zone.rect.topLeft();
+    zone.rect = QRectF(position.x(), position.y(), 84, 58);
+    zone.rotation = 0.0;
+    if (item) {
+        item->setPos(position);
+        item->setRect(QRectF(0, 0, zone.rect.width(), zone.rect.height()));
+        item->setTransformOriginPoint(item->rect().center());
+        item->setRotation(zone.rotation);
+        updateZoneVisual(zone.zoneId);
+    }
+    updateZoneTable();
+    updateEditorFromSelection();
+    markLayoutDirty(QStringLiteral("%1 shape reset to default").arg(zone.zoneId));
 }
 
 void ParkingMapPage::selectZoneById(const QString &zoneId)
@@ -1658,6 +1712,30 @@ void ParkingMapPage::syncItemsEditable()
         item->setFlag(QGraphicsItem::ItemIsMovable, true);
         item->setCursor(Qt::SizeAllCursor);
     }
+}
+
+void ParkingMapPage::markLayoutDirty(const QString &detail)
+{
+    setLayoutDirty(true, detail);
+}
+
+void ParkingMapPage::setLayoutDirty(bool dirty, const QString &status)
+{
+    const bool changed = m_layoutDirty != dirty;
+    m_layoutDirty = dirty;
+
+    if (m_layoutStatusLabel) {
+        if (dirty) {
+            m_layoutStatusLabel->setText(
+                status.isEmpty()
+                    ? QStringLiteral("Unsaved changes")
+                    : QStringLiteral("Unsaved changes | %1").arg(status));
+        } else if (!status.isEmpty()) {
+            m_layoutStatusLabel->setText(status);
+        }
+    }
+
+    if (changed) emit layoutDirtyChanged(dirty);
 }
 
 QWidget *ParkingMapPage::createLegendItem(const QString &label, const QColor &fill,

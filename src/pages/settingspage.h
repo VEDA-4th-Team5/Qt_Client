@@ -18,13 +18,13 @@ public:
     void setServerConnectionStatus(const QString &status, bool connected);
 
 signals:
-    void saveCameraIpRequested(const QString &lastOctet);
+    void saveCameraIpRequested(const QString &cameraIp);
     void saveServerBaseUrlRequested(const QString &baseUrl);
     void reconnectServerRequested();
 
 private:
     QLabel *m_cameraIpLabel = nullptr;
-    QLineEdit *m_lastOctetInput = nullptr;
+    QLineEdit *m_cameraIpInput = nullptr;
     QLineEdit *m_serverBaseUrlInput = nullptr;
     QLabel *m_serverConnectionLabel = nullptr;
 };

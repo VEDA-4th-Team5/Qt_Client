@@ -1,6 +1,7 @@
 #ifndef PARKINGCONTROLLER_H
 #define PARKINGCONTROLLER_H
 
+#include "diagnostics/diagnostictypes.h"
 #include "models/parkingstate.h"
 
 #include <QObject>
@@ -52,6 +53,7 @@ signals:
     void detailError(const QString &message);
     void serverBaseUrlChanged(const QString &baseUrl);
     void serverConnectionChanged(const QString &status, bool connected);
+    void apiDiagnosticChanged(const ApiDiagnosticState &state);
     void serverConfigurationError(const QString &message);
 
 private:
@@ -63,6 +65,7 @@ private:
     void resetSlotsForSnapshot();
     void notifyStateChanged();
     void refreshAlert();
+    void publishApiDiagnostic();
     QUrl resolveApiUrl(const QUrl &url) const;
     QString occupiedDurationText(const QDateTime &occupiedSince, int elapsedSeconds) const;
 
@@ -81,6 +84,7 @@ private:
     int m_currentReconnectDelayMs = 5000;
     bool m_allowInsecureHttp = false;
     bool m_snapshotRequestInFlight = false;
+    ApiDiagnosticState m_apiDiagnostic;
 };
 
 #endif

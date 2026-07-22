@@ -64,6 +64,13 @@ DashboardPage::DashboardPage(const QStringList &lowRtspUrls,
     recentLayout->addWidget(m_recentEventTable);
     pageLayout->addWidget(recentGroup, 1);
     startDelayedVideoStreams();
+
+    m_diagnosticTimer = new QTimer(this);
+    m_diagnosticTimer->setInterval(1000);
+    connect(m_diagnosticTimer, &QTimer::timeout,
+            this, &DashboardPage::publishRtspDiagnostics);
+    m_diagnosticTimer->start();
+    QTimer::singleShot(0, this, &DashboardPage::publishRtspDiagnostics);
 }
 
 QWidget *DashboardPage::createVideoChannel(int channelIndex, const QString &channel,
@@ -155,6 +162,29 @@ void DashboardPage::setRtspUrls(const QStringList &lowRtspUrls, const QStringLis
         m_videoChannelWidgets.at(i)->setVisible(true);
         m_videoGrid->addWidget(m_videoChannelWidgets.at(i), i / 2, i % 2);
     }
+}
+
+void DashboardPage::publishRtspDiagnostics()
+{
+    QList<RtspChannelDiagnostic> channels;
+    for (int i = 0; i < m_videoQuickWidgets.size(); ++i) {
+        QQuickWidget *view = m_videoQuickWidgets.at(i);
+        QQuickItem *root = view ? view->rootObject() : nullptr;
+        RtspChannelDiagnostic channel;
+        channel.channel = QStringLiteral("CH%1").arg(i + 1);
+        if (root) {
+            channel.configured = root->property("diagnosticConfigured").toBool();
+            channel.status = root->property("diagnosticStatus").toString();
+            channel.error = root->property("diagnosticError").toString();
+            channel.resolution = root->property("diagnosticVideoSize").toSize();
+            channel.startupDelayMs = root->property("diagnosticStartupDelayMs").toInt();
+            channel.lastFrameWallClockMs =
+                root->property("diagnosticFrameWallClockMs").toLongLong();
+        }
+        if (channel.status.isEmpty()) channel.status = QStringLiteral("WAITING");
+        channels.append(channel);
+    }
+    emit rtspDiagnosticsChanged(channels);
 }
 
 void DashboardPage::setSummary(int total, int occupied, int vacant, int sensorErrors)

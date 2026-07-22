@@ -8,7 +8,9 @@
 
 class DashboardPage;
 class DebugPage;
+class DiagnosticsService;
 class EventsPage;
+class QCloseEvent;
 class QFrame;
 class QLabel;
 class NotificationCenter;
@@ -27,12 +29,15 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
 
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
 private:
     void buildUi();
     void connectPages();
     void renderParkingState();
     void showSlotEvidence(const QString &slotId);
-    void saveCameraIpLastOctet(const QString &lastOctetText);
+    void saveCameraIp(const QString &cameraIpText);
     void updateNotificationIndicator();
     void showNotificationPopup();
     void showEventsPage();
@@ -54,6 +59,7 @@ private:
     EventsPage *m_eventsPage = nullptr;
     SettingsPage *m_settingsPage = nullptr;
     DebugPage *m_debugPage = nullptr;
+    DiagnosticsService *m_diagnosticsService = nullptr;
     ParkingController *m_parkingController = nullptr;
     ParkingSimulationService *m_parkingSimulationService = nullptr;
 };

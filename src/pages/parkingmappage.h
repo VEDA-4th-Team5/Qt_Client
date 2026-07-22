@@ -36,6 +36,12 @@ public:
     explicit ParkingMapPage(const QString &layoutPath, QWidget *parent = nullptr);
     ~ParkingMapPage() override;
     void render(const ParkingViewState &state);
+    bool hasUnsavedLayoutChanges() const { return m_layoutDirty; }
+    bool saveLayoutNow(QString *errorMessage = nullptr);
+
+signals:
+    void layoutSaveResult(bool success, const QString &message);
+    void layoutDirtyChanged(bool dirty);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -48,8 +54,10 @@ private slots:
     void saveLayout();
     void reloadLayout();
     void resetDefaultLayout();
+    void resetSelectedZoneShape();
     void handleSceneSelectionChanged();
     void handleZoneTableClicked(int row, int column);
+    void handleZoneItemMoved(const QString &zoneId);
     void applyEditorFields();
     void setEditMode(bool enabled);
 
@@ -65,7 +73,6 @@ private:
     bool stateForZone(const QString &zoneId, SlotState *state) const;
     SlotVisualState visualStateForZone(const QString &zoneId, bool *known = nullptr) const;
     void handleZoneItemDragStarted(const QString &zoneId);
-    void handleZoneItemMoved(const QString &zoneId);
     void showZoneContextMenu(const QString &zoneId, const QPoint &screenPos);
     void selectZoneById(const QString &zoneId);
     QString channelForScenePoint(const QPointF &point) const;
@@ -83,6 +90,8 @@ private:
     void updateGeometrySliderLabels();
     void syncZonesFromItems();
     void syncItemsEditable();
+    void markLayoutDirty(const QString &detail = QString());
+    void setLayoutDirty(bool dirty, const QString &status = QString());
     QWidget *createLegendItem(const QString &label, const QColor &fill,
                               const QColor &border, bool circular = false);
 
@@ -92,6 +101,7 @@ private:
     bool m_editMode = false;
     bool m_updatingEditor = false;
     bool m_rebuildingScene = false;
+    bool m_layoutDirty = false;
 
     QGraphicsScene *m_scene = nullptr;
     QGraphicsView *m_mapView = nullptr;

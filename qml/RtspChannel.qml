@@ -14,6 +14,12 @@ Item {
     property bool highQualityEnabled: false
     readonly property string activeRtspUrl: highQualityEnabled && highRtspUrl !== "" ? highRtspUrl : lowRtspUrl
     readonly property string qualityLabel: highQualityEnabled ? "High" : "Low"
+    readonly property bool diagnosticConfigured: activeRtspUrl !== ""
+    readonly property string diagnosticStatus: videoItem.status
+    readonly property string diagnosticError: videoItem.errorString
+    readonly property size diagnosticVideoSize: videoItem.videoSize
+    readonly property int diagnosticStartupDelayMs: videoItem.startupDelayMs
+    readonly property double diagnosticFrameWallClockMs: videoItem.frameWallClockMs
     signal clicked()
 
     Rectangle {

@@ -1,6 +1,8 @@
 #ifndef DASHBOARDPAGE_H
 #define DASHBOARDPAGE_H
 
+#include "diagnostics/diagnostictypes.h"
+
 #include <QList>
 #include <QStringList>
 #include <QWidget>
@@ -9,6 +11,7 @@ class QGridLayout;
 class QLabel;
 class QQuickWidget;
 class QTableWidget;
+class QTimer;
 
 class DashboardPage : public QWidget
 {
@@ -24,6 +27,9 @@ public:
                       const QString &message, const QString &status);
     void setRtspUrls(const QStringList &lowRtspUrls, const QStringList &highRtspUrls);
 
+signals:
+    void rtspDiagnosticsChanged(const QList<RtspChannelDiagnostic> &channels);
+
 private slots:
     void handleVideoChannelClicked();
 
@@ -32,6 +38,7 @@ private:
                                 const QString &lowRtspUrl, const QString &highRtspUrl);
     void startDelayedVideoStreams();
     void toggleVideoChannel(int channelIndex);
+    void publishRtspDiagnostics();
 
     QGridLayout *m_videoGrid = nullptr;
     QList<QWidget *> m_videoChannelWidgets;
@@ -41,6 +48,7 @@ private:
     QLabel *m_vacantSlotsLabel = nullptr;
     QLabel *m_sensorErrorLabel = nullptr;
     QTableWidget *m_recentEventTable = nullptr;
+    QTimer *m_diagnosticTimer = nullptr;
     int m_expandedVideoChannel = -1;
 };
 

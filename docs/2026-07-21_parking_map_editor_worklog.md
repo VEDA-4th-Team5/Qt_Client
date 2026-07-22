@@ -79,11 +79,12 @@ Parking Map 화면에 다음 조작을 구현했다.
 - `Reload`
 - `Reset default`
 - 우클릭 메뉴
-  - `Edit zone`
-  - `Fit standard size`
+  - `Reset to default shape`
   - `Delete zone`
 
 기존에 의미가 모호했던 `Add P` 같은 버튼명은 관제자가 바로 이해할 수 있도록 `Add General Slot`으로 바꾸었다.
+
+`Edit zone`은 별도 편집창을 열지 않고 `Edit layout`을 켜는 동작만 수행해 기능이 중복되고 반응이 없는 것처럼 보였다. 2026-07-22에 해당 메뉴를 제거하고, 편집 진입은 상단 `Edit layout`으로 통일했다.
 
 ## 드래그, 크기 조절, 회전
 
@@ -103,7 +104,7 @@ Parking Map 화면에 다음 조작을 구현했다.
 
 - `setTransformOriginPoint(item->rect().center())`
 - 크기 변경 후 중심 재설정
-- `Fit standard size` 후 중심 재설정
+- `Reset to default shape` 후 크기 `84 × 58`, 회전 `0°`, 중심 재설정
 
 꼭지점 근처에서는 기본 마우스 커서 대신 직접 그린 회전 커서를 사용한다. Qt 기본 커서에 적절한 회전 모양이 없어서 `QPixmap`과 `QPainter`로 작은 회전 화살표 커서를 생성했다.
 

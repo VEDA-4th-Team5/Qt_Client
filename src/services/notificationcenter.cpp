@@ -121,6 +121,7 @@ QString NotificationCenter::severityForEvent(const QString &eventType, const QSt
         || eventType == QStringLiteral("API_PARSE_ERROR")
         || eventType == QStringLiteral("CAMERA_DISCONNECTED")
         || eventType == QStringLiteral("DB_WRITE_FAILED")
+        || eventType == QStringLiteral("LAYOUT_SAVE_FAILED")
         || eventType == QStringLiteral("HALL_SENSOR_ERROR")
         || eventType == QStringLiteral("NON_EV_ALERT")
         || eventType == QStringLiteral("OVERTIME_ALERT")) {
@@ -152,6 +153,9 @@ QString NotificationCenter::titleForEvent(const QString &eventType) const
     }
     if (eventType == QStringLiteral("DB_WRITE_FAILED")) {
         return QStringLiteral("Database write failed");
+    }
+    if (eventType == QStringLiteral("LAYOUT_SAVE_FAILED")) {
+        return QStringLiteral("Parking map layout save failed");
     }
     if (eventType == QStringLiteral("NON_EV_ALERT")) {
         return QStringLiteral("Non-EV alert");
