@@ -11,6 +11,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network)
 
+# Qt Mqtt 는 기본 설치에 포함되지 않는 add-on 이다. 팀원 PC 에서 아직 설치하지
+# 않았더라도 빌드가 깨지지 않도록 선택적으로 찾는다. 모듈이 없으면 실시간
+# 알림만 꺼진 채로 빌드된다 (MaintenanceTool > Additional Libraries > Qt Mqtt).
+find_package(Qt${QT_VERSION_MAJOR} QUIET COMPONENTS Mqtt)
+if (Qt${QT_VERSION_MAJOR}Mqtt_FOUND)
+    message(STATUS "Qt Mqtt found: real-time MQTT alerts enabled")
+else()
+    message(WARNING
+        "Qt Mqtt module not found. Building without real-time MQTT alerts. "
+        "Install it with the Qt Maintenance Tool (Additional Libraries > Qt Mqtt).")
+endif()
+
 set(DEFAULT_FFMPEG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg")
 
 if(DEFINED ENV{FFMPEG_ROOT})
@@ -59,6 +71,8 @@ add_executable(smart_parking_qt_client
     src/pages/settingspage.h
     src/services/camerasettings.cpp
     src/services/camerasettings.h
+    src/services/mqttserviceclient.cpp
+    src/services/mqttserviceclient.h
     src/api/apiclient.cpp
     src/api/apiclient.h
     src/api/imageloader.cpp
@@ -93,6 +107,13 @@ target_include_directories(smart_parking_qt_client
 target_compile_definitions(smart_parking_qt_client
     PRIVATE SMART_PARKING_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config"
 )
+
+if (Qt${QT_VERSION_MAJOR}Mqtt_FOUND)
+    target_link_libraries(smart_parking_qt_client
+        PRIVATE Qt${QT_VERSION_MAJOR}::Mqtt)
+    target_compile_definitions(smart_parking_qt_client
+        PRIVATE SMART_PARKING_HAS_QT_MQTT)
+endif()
 
 if (QT_VERSION_MAJOR EQUAL 6)
     qt_add_resources(smart_parking_qt_client rtsp_qml
@@ -132,10 +153,18 @@ if (BUILD_TESTING)
         src/api/parkingmodels.h
         src/api/parkingresponseparser.cpp
         src/api/parkingresponseparser.h
+        src/services/mqttserviceclient.cpp
+        src/services/mqttserviceclient.h
     )
     target_include_directories(parkingcontroller_retry_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
+    if (Qt${QT_VERSION_MAJOR}Mqtt_FOUND)
+        target_link_libraries(parkingcontroller_retry_test PRIVATE
+            Qt${QT_VERSION_MAJOR}::Mqtt)
+        target_compile_definitions(parkingcontroller_retry_test PRIVATE
+            SMART_PARKING_HAS_QT_MQTT)
+    endif()
     target_link_libraries(parkingcontroller_retry_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::Network

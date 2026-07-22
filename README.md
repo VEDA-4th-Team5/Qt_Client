@@ -12,6 +12,38 @@ Qt Widgets와 QML 기반 스마트 주차 관제 클라이언트입니다.
 - 주차면 클릭 시 차량·번호판 원본/개선 이미지 조회
 - API 실패 시 Mock 화면 유지
 - 이벤트 로그와 CSV 내보내기
+- Pi MQTT 화재 후보 알림 구독 (`parking/fire/#`)
+
+## 실시간 MQTT 알림
+
+Pi가 발행하는 화재 후보 알림을 구독합니다. **Qt Mqtt 애드온 모듈이 필요**하며
+기본 Qt 설치에는 포함되지 않습니다.
+
+~~~powershell
+C:\Qt\MaintenanceTool.exe
+# Add or remove components > Qt 6.11.0 > Additional Libraries > Qt Mqtt
+~~~
+
+모듈이 없어도 빌드는 됩니다. 이 경우 CMake가 경고를 내고 실시간 알림만 꺼진 채로
+동작하며, 실행 시 Events 로그에 `MQTT_UNAVAILABLE`이 남습니다.
+
+설정은 `config/client_config.ini`의 `[mqtt]` 섹션입니다.
+
+~~~ini
+[mqtt]
+enabled=true
+host=<raspberry-pi-ip>
+port=1883
+topics=parking/fire/#
+~~~
+
+개인 테스트용 Pi를 쓸 때는 공용 파일 대신 `config/client_config.local.ini`의
+`[mqtt] host`를 덮어씁니다. 이 파일은 Git에서 제외됩니다.
+
+화재 후보는 주차면을 `FIRE_SUSPECTED`(진한 빨강)로 표시하고 배너를 띄웁니다.
+**확정이 아니라 후보이며, 클라이언트가 자동으로 확정 처리하지 않습니다.**
+해제 신호가 오면 화재 직전 상태로 되돌립니다.
+페이로드 규약은 Pi_Server의 `docs/MQTT_PROTOCOL_PROPOSAL.md`에 있습니다.
 
 ## 팀 공유 API 설정
 

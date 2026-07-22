@@ -10,6 +10,8 @@ class ApiClient;
 class QDateTime;
 class ImageLoader;
 class QJsonDocument;
+class QJsonObject;
+class MqttServiceClient;
 class QTimer;
 
 class ParkingController : public QObject
@@ -58,6 +60,9 @@ signals:
 private:
     void initializeMockData();
     void initializeApiClient();
+    void initializeMqttClient();
+    void handleMqttMessage(const QString &topic, const QByteArray &payload);
+    void applyFireEvent(const QJsonObject &event);
     void rebuildApiClient();
     void scheduleReconnect(const QString &reason);
     void applyParkingSnapshot(const QJsonDocument &document);
@@ -77,7 +82,11 @@ private:
     ParkingViewState m_state;
     ApiClient *m_apiClient = nullptr;
     ImageLoader *m_imageLoader = nullptr;
+    MqttServiceClient *m_mqttClient = nullptr;
     QTimer *m_reconnectTimer = nullptr;
+    // 화재 후보가 해제되면 직전 주차 상태로 되돌리기 위해 보관한다.
+    // Pi 는 점유 여부를 모르므로 해제를 VACANT 로 단정하면 안 된다.
+    QHash<QString, SlotState> m_stateBeforeFire;
     QUrl m_apiBaseUrl;
     QString m_slotsPath;
     QString m_slotDetailPath;

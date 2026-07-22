@@ -38,6 +38,7 @@ ParkingMapPage::ParkingMapPage(QWidget *parent)
     legendLayout->addWidget(createLegendItem(QStringLiteral("NON_EV"), SlotState::NonEvAlert));
     legendLayout->addWidget(createLegendItem(QStringLiteral("OVERTIME"), SlotState::OvertimeAlert));
     legendLayout->addWidget(createLegendItem(QStringLiteral("ERROR"), SlotState::SensorError));
+    legendLayout->addWidget(createLegendItem(QStringLiteral("FIRE?"), SlotState::FireSuspected));
     mapGrid->addLayout(legendLayout, 3, 0, 1, 3);
     pageLayout->addWidget(mapGroup, 2);
 
