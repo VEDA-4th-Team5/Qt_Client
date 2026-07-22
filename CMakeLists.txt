@@ -1,3 +1,5 @@
+# Windows(MinGW) 와 Linux/WSL 양쪽에서 빌드된다. 차이는 FFmpeg 를 찾는 방식뿐이다.
+
 cmake_minimum_required(VERSION 3.14)
 
 project(smart_parking_qt_client VERSION 0.1 LANGUAGES CXX)
@@ -39,15 +41,40 @@ find_library(FFMPEG_AVCODEC_LIBRARY NAMES avcodec libavcodec PATHS "${FFMPEG_LIB
 find_library(FFMPEG_AVUTIL_LIBRARY NAMES avutil libavutil PATHS "${FFMPEG_LIBRARY_DIR}" NO_DEFAULT_PATH)
 find_library(FFMPEG_SWSCALE_LIBRARY NAMES swscale libswscale PATHS "${FFMPEG_LIBRARY_DIR}" NO_DEFAULT_PATH)
 
-foreach(required_library
-        FFMPEG_AVFORMAT_LIBRARY
-        FFMPEG_AVCODEC_LIBRARY
-        FFMPEG_AVUTIL_LIBRARY
-        FFMPEG_SWSCALE_LIBRARY)
-    if(NOT ${required_library})
-        message(FATAL_ERROR "Missing FFmpeg library: ${required_library}. Check FFMPEG_ROOT=${FFMPEG_ROOT}")
+# FFmpeg 는 두 가지 방식으로 들어온다.
+#   1) Windows: 팀 공용 shared build 를 third_party/ffmpeg 에 풀어둔 self-contained 트리
+#   2) Linux: 배포판 개발 패키지. 멀티아치 경로라 include/ + lib/ 짝이 안 맞으므로 pkg-config 로 찾는다
+add_library(smart_parking_ffmpeg INTERFACE)
+
+if(FFMPEG_AVFORMAT_LIBRARY AND FFMPEG_AVCODEC_LIBRARY
+        AND FFMPEG_AVUTIL_LIBRARY AND FFMPEG_SWSCALE_LIBRARY)
+    message(STATUS "FFmpeg found in FFMPEG_ROOT=${FFMPEG_ROOT}")
+    target_include_directories(smart_parking_ffmpeg INTERFACE "${FFMPEG_INCLUDE_DIR}")
+    target_link_libraries(smart_parking_ffmpeg
+        INTERFACE
+            "${FFMPEG_AVFORMAT_LIBRARY}"
+            "${FFMPEG_AVCODEC_LIBRARY}"
+            "${FFMPEG_AVUTIL_LIBRARY}"
+            "${FFMPEG_SWSCALE_LIBRARY}")
+else()
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(FFMPEG_PC IMPORTED_TARGET
+            libavformat libavcodec libavutil libswscale)
     endif()
-endforeach()
+
+    if(FFMPEG_PC_FOUND)
+        message(STATUS "FFmpeg found via pkg-config (libavformat ${FFMPEG_PC_libavformat_VERSION})")
+        target_link_libraries(smart_parking_ffmpeg INTERFACE PkgConfig::FFMPEG_PC)
+    else()
+        message(FATAL_ERROR
+            "FFmpeg not found.\n"
+            "  Windows: extract the shared build so that ${FFMPEG_ROOT}/include and "
+            "${FFMPEG_ROOT}/lib exist, or pass -DFFMPEG_ROOT=<path>.\n"
+            "  Linux:   sudo apt install libavformat-dev libavcodec-dev "
+            "libavutil-dev libswscale-dev pkg-config")
+    endif()
+endif()
 
 add_executable(smart_parking_qt_client
     src/main.cpp
@@ -91,16 +118,12 @@ target_link_libraries(smart_parking_qt_client
         Qt${QT_VERSION_MAJOR}::QuickWidgets
         Qt${QT_VERSION_MAJOR}::Qml
         Qt${QT_VERSION_MAJOR}::Network
-        "${FFMPEG_AVFORMAT_LIBRARY}"
-        "${FFMPEG_AVCODEC_LIBRARY}"
-        "${FFMPEG_AVUTIL_LIBRARY}"
-        "${FFMPEG_SWSCALE_LIBRARY}"
+        smart_parking_ffmpeg
 )
 
 target_include_directories(smart_parking_qt_client
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
-        "${FFMPEG_INCLUDE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/rtsp_legacy"
 )
 
