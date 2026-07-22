@@ -82,24 +82,43 @@ Settings 화면의 `Server API URL`에서 주소를 저장하면 로컬 오버�
 - `src/api/`: HTTP 요청, 이미지 로딩, JSON 응답 파싱
 
 각 페이지는 사용자 동작을 signal로 전달하고, 상태 변경은 `ParkingController`를 거쳐 화면에 반영됩니다.
-## 빌드
 
-~~~bash
-cmake -S . -B build
+## 빌드 (Windows / MinGW)
+
+FFmpeg는 저장소에 포함되지 않습니다. [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)의
+`ffmpeg-*-full_build-shared` 를 받아 `third_party/ffmpeg/` 아래에 `bin` `include` `lib`
+가 바로 보이도록 풀어둡니다 (최초 1회).
+
+~~~powershell
+tar -xf ffmpeg-8.0.1-full_build-shared.7z -C third_party
+Rename-Item third_party\ffmpeg-8.0.1-full_build-shared ffmpeg
+~~~
+
+빌드 도구는 Qt 설치에 포함된 것을 씁니다. PATH는 새 셸을 열 때마다 지정합니다.
+아래 경로의 버전(`6.11.0`, `mingw1310_64`)은 설치한 Qt에 맞춰 바꿉니다.
+`C:\Qt\Tools` 와 `C:\Qt` 를 열어 실제 폴더명을 확인하세요.
+
+~~~powershell
+$env:PATH = "C:\Qt\Tools\mingw1310_64\bin;C:\Qt\Tools\Ninja;C:\Qt\Tools\CMake_64\bin;$env:PATH"
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:/Qt/6.11.0/mingw_64"
 cmake --build build
 ~~~
 
-Qt 또는 FFmpeg 경로를 직접 지정해야 하면:
-
-~~~bash
-cmake -S . -B build   -DCMAKE_PREFIX_PATH=/path/to/Qt   -DFFMPEG_ROOT=/path/to/ffmpeg
-cmake --build build
-~~~
+`build/` 캐시에는 소스 경로와 컴파일러가 고정됩니다. WSL 등 다른 툴체인으로
+빌드하려면 `build/` 를 지우고 다시 configure 합니다.
 
 ## 실행
 
-~~~bash
-./build/smart_parking_qt_client
+~~~powershell
+$env:PATH = "C:\Qt\6.11.0\mingw_64\bin;$env:PATH"
+.\build\smart_parking_qt_client.exe
+~~~
+
+FFmpeg DLL은 빌드 시 exe 옆으로 자동 복사됩니다. PATH 지정 없이 실행하려면
+Qt DLL을 한 번 배포해 둡니다.
+
+~~~powershell
+C:\Qt\6.11.0\mingw_64\bin\windeployqt.exe --qmldir qml .\build\smart_parking_qt_client.exe
 ~~~
 
 API 규격은 [docs/api_v1.md](docs/api_v1.md), RTSP 동작은
