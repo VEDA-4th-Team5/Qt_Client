@@ -16,16 +16,10 @@ Qt Widgets와 QML 기반 스마트 주차 관제 클라이언트입니다.
 
 ## 실시간 MQTT 알림
 
-Pi가 발행하는 화재 후보 알림을 구독합니다. **Qt Mqtt 애드온 모듈이 필요**하며
-기본 Qt 설치에는 포함되지 않습니다.
-
-~~~powershell
-C:\Qt\MaintenanceTool.exe
-# Add or remove components > Qt 6.11.0 > Additional Libraries > Qt Mqtt
-~~~
-
-모듈이 없어도 빌드는 됩니다. 이 경우 CMake가 경고를 내고 실시간 알림만 꺼진 채로
-동작하며, 실행 시 Events 로그에 `MQTT_UNAVAILABLE`이 남습니다.
+Pi가 발행하는 화재 후보 알림을 구독합니다. Qt Mqtt 애드온 모듈은 팀 계정 저장소에
+없어서 설치할 수 없었고, 대신 `QTcpSocket` 위에 MQTT 3.1.1을 직접 구현했습니다
+(`src/services/mqttserviceclient.cpp`) — 구독 전용(발행·인증·TLS 없음)이라
+추가 모듈 설치 없이 기본 Qt(Network 모듈)만으로 항상 빌드됩니다.
 
 설정은 `config/client_config.ini`의 `[mqtt]` 섹션입니다.
 

@@ -49,16 +49,6 @@ void ParkingController::initializeMqttClient()
         return;
     }
 
-    if (!MqttServiceClient::isAvailable()) {
-        // 모듈 없이 빌드된 실행 파일이면 조용히 죽지 말고 관제자에게 알린다.
-        recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("MQTT_UNAVAILABLE"),
-                    QStringLiteral("Built without the Qt Mqtt module; "
-                                   "real-time alerts are off"),
-                    QStringLiteral("FAILED"));
-        emit statusMessageChanged(QStringLiteral("MQTT unavailable (module missing)"));
-        return;
-    }
-
     mqttSettings.host = setting(QStringLiteral("mqtt/host"), QString()).toString().trimmed();
     mqttSettings.port =
         static_cast<quint16>(setting(QStringLiteral("mqtt/port"), 1883).toInt());
