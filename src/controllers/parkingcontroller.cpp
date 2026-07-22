@@ -6,7 +6,6 @@
 
 #include <QDateTime>
 #include <QJsonDocument>
-#include <QRandomGenerator>
 #include <QSettings>
 #include <QTimer>
 
@@ -26,37 +25,6 @@ QString parkingSlotId(int number)
     return numberedSlotId(QStringLiteral("P"), number);
 }
 
-SlotState mockParkingStateFor(int number)
-{
-    if (number == 1 || number == 3 || number == 5 || number == 8
-        || number == 11 || number == 14) {
-        return SlotState::Occupied;
-    }
-    return SlotState::Vacant;
-}
-
-SlotVisualState makeSlotVisualState(SlotState state, bool vehicleTypeKnown,
-                                    bool isEv, const QString &alarmText = QString())
-{
-    SlotVisualState visual;
-    visual.alarm = slotAlarmKindFromText(alarmText, state);
-    visual.alarmAcknowledged = state == SlotState::Acked;
-
-    if (state == SlotState::Vacant) {
-        visual.occupancy = SlotOccupancy::Vacant;
-        return visual;
-    }
-    if (state == SlotState::SensorError) {
-        visual.occupancy = SlotOccupancy::Unknown;
-        return visual;
-    }
-
-    visual.occupancy = SlotOccupancy::Occupied;
-    if (vehicleTypeKnown) {
-        visual.vehicleClass = isEv ? VehicleClass::Electric : VehicleClass::General;
-    }
-    return visual;
-}
 }
 
 ParkingController::ParkingController(const QString &sharedConfigPath,
@@ -74,7 +42,6 @@ ParkingController::ParkingController(const QString &sharedConfigPath,
 
 void ParkingController::start()
 {
-    initializeMockData();
     initializeApiClient();
 }
 
@@ -219,52 +186,12 @@ void ParkingController::updateServerBaseUrl(const QString &baseUrl)
                 QStringLiteral("DONE"));
     initializeApiClient();
 }
-void ParkingController::initializeMockData()
-{
-    m_state.evSlots.clear();
-    m_state.parkingSlots.clear();
-    m_state.slotImages.clear();
-    m_state.slotPlateNumbers.clear();
-
-    for (int number = 1; number <= 16; ++number) {
-        const QString slotId = evSlotId(number);
-        EvSlotInfo slot{slotId, QStringLiteral("-"), true, QStringLiteral("00:00"),
-                        SlotState::Vacant, QStringLiteral("NORMAL")};
-        slot.visual = makeSlotVisualState(slot.state, false, slot.isEv, slot.alarmText);
-        m_state.evSlots.insert(slotId, slot);
-    }
-    EvSlotInfo nonEvAlert{QStringLiteral("EV-01"), QStringLiteral("12A3456"), false,
-                          QStringLiteral("00:18"), SlotState::NonEvAlert,
-                          QStringLiteral("NON_EV_ALERT")};
-    nonEvAlert.visual = makeSlotVisualState(nonEvAlert.state, true, nonEvAlert.isEv,
-                                             nonEvAlert.alarmText);
-    m_state.evSlots[nonEvAlert.slotId] = nonEvAlert;
-    EvSlotInfo overtimeAlert{QStringLiteral("EV-02"), QStringLiteral("34B7788"), true,
-                             QStringLiteral("03:42"), SlotState::OvertimeAlert,
-                             QStringLiteral("OVERTIME_ALERT")};
-    overtimeAlert.visual = makeSlotVisualState(overtimeAlert.state, true, overtimeAlert.isEv,
-                                                overtimeAlert.alarmText);
-    m_state.evSlots[overtimeAlert.slotId] = overtimeAlert;
-    for (int number = 1; number <= 16; ++number) {
-        const QString slotId = parkingSlotId(number);
-        ParkingSlotInfo slot{slotId, mockParkingStateFor(number)};
-        slot.visual = makeSlotVisualState(slot.state, slot.state == SlotState::Occupied, false);
-        m_state.parkingSlots.insert(slotId, slot);
-    }
-    notifyStateChanged();
-    recordEvent(QStringLiteral("EV-01"), QStringLiteral("NON_EV_ALERT"), QStringLiteral("Non-EV vehicle detected in EV charging slot"), QStringLiteral("OPEN"));
-    recordEvent(QStringLiteral("EV-02"), QStringLiteral("OVERTIME_ALERT"), QStringLiteral("EV charging dwell time exceeded"), QStringLiteral("OPEN"));
-    recordEvent(QStringLiteral("P-01"), QStringLiteral("OCCUPIED"), QStringLiteral("General parking slot occupied"), QStringLiteral("RECORDED"));
-    recordEvent(QStringLiteral("P-02"), QStringLiteral("VACANT"), QStringLiteral("General parking slot changed to vacant"), QStringLiteral("RECORDED"));
-    recordEvent(QStringLiteral("P-05"), QStringLiteral("OCCUPIED"), QStringLiteral("General parking slot occupied"), QStringLiteral("RECORDED"));
-}
-
 void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
 {
     ParkingSnapshot snapshot;
     QString error;
     if (!ParkingResponseParser::parseSnapshot(document, snapshot, error)) {
-        emit bannerChanged(QStringLiteral("Invalid parking API response | Mock data displayed"), true);
+        emit bannerChanged(QStringLiteral("Invalid parking API response | Previous state retained"), true);
         recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_PARSE_ERROR"), error, QStringLiteral("FAILED"));
         return;
     }
@@ -285,7 +212,7 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
         if (alarmKind == SlotAlarmKind::NonEvViolation) state = SlotState::NonEvAlert;
         else if (alarmKind == SlotAlarmKind::Overstay) state = SlotState::OvertimeAlert;
         else if (alarmKind == SlotAlarmKind::SensorError) state = SlotState::SensorError;
-        SlotVisualState visual = makeSlotVisualState(
+        SlotVisualState visual = deriveSlotVisualState(
             state, slot.vehicleTypeKnown, slot.isEv, slot.alarm);
         if (slotStateFromText(slot.state) == SlotState::Acked) {
             visual.alarmAcknowledged = true;
@@ -340,13 +267,13 @@ void ParkingController::resetSlotsForSnapshot()
         const QString slotId = evSlotId(number);
         EvSlotInfo slot{slotId, QStringLiteral("-"), false, QStringLiteral("-"),
                         SlotState::Vacant, QStringLiteral("NORMAL")};
-        slot.visual = makeSlotVisualState(slot.state, false, false, slot.alarmText);
+        slot.visual = deriveSlotVisualState(slot.state, false, false, slot.alarmText);
         m_state.evSlots.insert(slotId, slot);
     }
     for (int number = 1; number <= 16; ++number) {
         const QString slotId = parkingSlotId(number);
         ParkingSlotInfo slot{slotId, SlotState::Vacant};
-        slot.visual = makeSlotVisualState(slot.state, false, false);
+        slot.visual = deriveSlotVisualState(slot.state, false, false);
         m_state.parkingSlots.insert(slotId, slot);
     }
 }
@@ -361,7 +288,13 @@ void ParkingController::requestSlotDetail(const QString &rawSlotId)
     m_apiClient->getJson(path);
 }
 
-void ParkingController::updateEvSlotState(const QString &slotId, SlotState state,
+void ParkingController::replaceViewState(const ParkingViewState &state)
+{
+    m_state = state;
+    notifyStateChanged();
+}
+
+void ParkingController::applyEvSlotUpdate(const QString &slotId, SlotState state,
                                           const QString &plateNumber, bool isEv,
                                           const QString &occupiedTime, const QString &alarmText)
 {
@@ -370,14 +303,14 @@ void ParkingController::updateEvSlotState(const QString &slotId, SlotState state
         updated.visual = m_state.evSlots.value(slotId).visual;
         updated.visual.alarmAcknowledged = true;
     } else {
-        updated.visual = makeSlotVisualState(state, state != SlotState::Vacant,
-                                             isEv, alarmText);
+        updated.visual = deriveSlotVisualState(state, state != SlotState::Vacant,
+                                               isEv, alarmText);
     }
     m_state.evSlots[slotId] = updated;
     notifyStateChanged();
 }
 
-void ParkingController::updateParkingSlotState(const QString &slotId, SlotState state)
+void ParkingController::applyParkingSlotUpdate(const QString &slotId, SlotState state)
 {
     ParkingSlotInfo updated{slotId, state};
     const ParkingSlotInfo previous = m_state.parkingSlots.value(slotId);
@@ -389,7 +322,7 @@ void ParkingController::updateParkingSlotState(const QString &slotId, SlotState 
         updated.visual = previous.visual;
         updated.visual.alarmAcknowledged = true;
     } else {
-        updated.visual = makeSlotVisualState(state, state == SlotState::Occupied, false);
+        updated.visual = deriveSlotVisualState(state, state == SlotState::Occupied, false);
     }
     m_state.parkingSlots[slotId] = updated;
     notifyStateChanged();
@@ -447,43 +380,6 @@ void ParkingController::clearAlarms()
     recordEvent(QStringLiteral("ALL"), QStringLiteral("ALARM_ACK"), cleared ? QStringLiteral("Active alarms acknowledged") : QStringLiteral("No alarms to clear"), QStringLiteral("ACKED"));
 }
 
-void ParkingController::toggleMockEv()
-{
-    ++m_mockStep;
-    const bool occupied = (m_mockStep % 2) == 0;
-    updateEvSlotState(QStringLiteral("EV-03"), occupied ? SlotState::Occupied : SlotState::Vacant,
-                      occupied ? QStringLiteral("56C9012") : QStringLiteral("-"), true,
-                      occupied ? QStringLiteral("00:07") : QStringLiteral("00:00"), QStringLiteral("NORMAL"));
-    recordEvent(QStringLiteral("EV-03"), occupied ? QStringLiteral("OCCUPIED") : QStringLiteral("VACANT"), QStringLiteral("Mock EV-03 state changed"), QStringLiteral("RECORDED"));
-}
-
-void ParkingController::triggerNonEvAlert() { updateEvSlotState(QStringLiteral("EV-01"), SlotState::NonEvAlert, QStringLiteral("12A3456"), false, QStringLiteral("00:19"), QStringLiteral("NON_EV_ALERT")); recordEvent(QStringLiteral("EV-01"), QStringLiteral("NON_EV_ALERT"), QStringLiteral("Non-EV alert test executed"), QStringLiteral("OPEN")); }
-void ParkingController::triggerOvertimeAlert() { updateEvSlotState(QStringLiteral("EV-02"), SlotState::OvertimeAlert, QStringLiteral("34B7788"), true, QStringLiteral("03:43"), QStringLiteral("OVERTIME_ALERT")); recordEvent(QStringLiteral("EV-02"), QStringLiteral("OVERTIME_ALERT"), QStringLiteral("Overtime alert test executed"), QStringLiteral("OPEN")); }
-void ParkingController::triggerSensorError() { updateParkingSlotState(QStringLiteral("P-03"), SlotState::SensorError); recordEvent(QStringLiteral("P-03"), QStringLiteral("HALL_SENSOR_ERROR"), QStringLiteral("Hall sensor error test executed"), QStringLiteral("OPEN")); }
-
-void ParkingController::randomizeParkingSlots()
-{
-    for (int number = 1; number <= 16; ++number) {
-        const QString slotId = parkingSlotId(number);
-        const bool occupied = QRandomGenerator::global()->bounded(2) == 1;
-        updateParkingSlotState(slotId, occupied ? SlotState::Occupied : SlotState::Vacant);
-        recordEvent(slotId, occupied ? QStringLiteral("OCCUPIED") : QStringLiteral("VACANT"), QStringLiteral("Parking slot randomized"), QStringLiteral("RECORDED"));
-    }
-}
-
-void ParkingController::simulateIncomingMessages()
-{
-    for (const QString &message : {
-             QStringLiteral("PARKING_SLOT,P01,OCCUPIED"),
-             QStringLiteral("PARKING_SLOT,P02,VACANT"),
-             QStringLiteral("EV_ALERT,EV01,NON_EV"),
-             QStringLiteral("EV_ALERT,EV02,OVERTIME"),
-             QStringLiteral("FIRE_ALARM,CH2,DETECTED"),
-             QStringLiteral("HALL_SENSOR,P03,ERROR"),
-             QStringLiteral("EVENT,CH1,CAMERA_DISCONNECTED,FAILED,RTSP stream disconnected")
-         }) processIncomingMessage(message);
-}
-
 void ParkingController::processIncomingMessage(const QString &message)
 {
     const QString trimmed = message.trimmed();
@@ -512,19 +408,19 @@ void ParkingController::processIncomingMessage(const QString &message)
         return;
     }
     if (type == QStringLiteral("PARKING_SLOT")) {
-        const SlotState state = slotStateFromText(value); updateParkingSlotState(slotId, state);
+        const SlotState state = slotStateFromText(value); applyParkingSlotUpdate(slotId, state);
         recordEvent(slotId, slotStateText(state), QStringLiteral("Parking slot state updated from RX message"), QStringLiteral("RECORDED")); return;
     }
     if (type == QStringLiteral("HALL_SENSOR") || type == QStringLiteral("HALL_SENSOR_EVENT")) {
         if (value == QStringLiteral("ERROR") || value == QStringLiteral("FAILED")) {
-            updateParkingSlotState(slotId, SlotState::SensorError);
+            applyParkingSlotUpdate(slotId, SlotState::SensorError);
             recordEvent(slotId, QStringLiteral("HALL_SENSOR_ERROR"),
                         QStringLiteral("Hall sensor error received"),
                         QStringLiteral("OPEN"));
             return;
         }
         if (value == QStringLiteral("ACKED")) {
-            updateParkingSlotState(slotId, SlotState::Acked);
+            applyParkingSlotUpdate(slotId, SlotState::Acked);
             recordEvent(slotId, QStringLiteral("HALL_SENSOR_ACK"),
                         QStringLiteral("Hall sensor alarm acknowledged from RX message"),
                         QStringLiteral("ACKED"));
@@ -543,16 +439,16 @@ void ParkingController::processIncomingMessage(const QString &message)
             return;
         }
         const SlotState state = slotStateFromText(value);
-        updateParkingSlotState(slotId, state);
+        applyParkingSlotUpdate(slotId, state);
         recordEvent(slotId, QStringLiteral("HALL_SENSOR_CHANGED"),
                     QStringLiteral("Hall sensor state updated from RX message"),
                     QStringLiteral("RECORDED"));
         return;
     }
     if (type == QStringLiteral("EV_ALERT")) {
-        if (value == QStringLiteral("NON_EV")) { updateEvSlotState(slotId, SlotState::NonEvAlert, QStringLiteral("UNKNOWN"), false, QStringLiteral("00:00"), QStringLiteral("NON_EV_ALERT")); recordEvent(slotId, QStringLiteral("NON_EV_ALERT"), QStringLiteral("Non-EV alert received"), QStringLiteral("OPEN")); return; }
-        if (value == QStringLiteral("OVERTIME")) { updateEvSlotState(slotId, SlotState::OvertimeAlert, QStringLiteral("UNKNOWN"), true, QStringLiteral("02:00+"), QStringLiteral("OVERTIME_ALERT")); recordEvent(slotId, QStringLiteral("OVERTIME_ALERT"), QStringLiteral("Overtime alert received"), QStringLiteral("OPEN")); return; }
-        if (value == QStringLiteral("ACKED")) { updateEvSlotState(slotId, SlotState::Acked, QStringLiteral("UNKNOWN"), true, QStringLiteral("00:00"), QStringLiteral("ACKED")); recordEvent(slotId, QStringLiteral("ALARM_ACK"), QStringLiteral("Alarm acknowledged from RX message"), QStringLiteral("ACKED")); return; }
+        if (value == QStringLiteral("NON_EV")) { applyEvSlotUpdate(slotId, SlotState::NonEvAlert, QStringLiteral("UNKNOWN"), false, QStringLiteral("00:00"), QStringLiteral("NON_EV_ALERT")); recordEvent(slotId, QStringLiteral("NON_EV_ALERT"), QStringLiteral("Non-EV alert received"), QStringLiteral("OPEN")); return; }
+        if (value == QStringLiteral("OVERTIME")) { applyEvSlotUpdate(slotId, SlotState::OvertimeAlert, QStringLiteral("UNKNOWN"), true, QStringLiteral("02:00+"), QStringLiteral("OVERTIME_ALERT")); recordEvent(slotId, QStringLiteral("OVERTIME_ALERT"), QStringLiteral("Overtime alert received"), QStringLiteral("OPEN")); return; }
+        if (value == QStringLiteral("ACKED")) { applyEvSlotUpdate(slotId, SlotState::Acked, QStringLiteral("UNKNOWN"), true, QStringLiteral("00:00"), QStringLiteral("ACKED")); recordEvent(slotId, QStringLiteral("ALARM_ACK"), QStringLiteral("Alarm acknowledged from RX message"), QStringLiteral("ACKED")); return; }
         if (value == QStringLiteral("CLEAR")) {
             EvSlotInfo &slot = m_state.evSlots[slotId];
             slot.visual.alarm = SlotAlarmKind::None;

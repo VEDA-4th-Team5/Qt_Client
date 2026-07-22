@@ -27,18 +27,17 @@ public:
     SlotState slotState(const QString &slotId) const;
     QString plateNumber(const QString &slotId) const;
     QList<ParkingImageResource> images(const QString &slotId) const;
+    void replaceViewState(const ParkingViewState &state);
+    void applyEvSlotUpdate(const QString &slotId, SlotState state,
+                           const QString &plateNumber, bool isEv,
+                           const QString &occupiedTime, const QString &alarmText);
+    void applyParkingSlotUpdate(const QString &slotId, SlotState state);
 
 public slots:
     void requestSlotDetail(const QString &slotId);
     void updateServerBaseUrl(const QString &baseUrl);
     void reconnectNow();
     void clearAlarms();
-    void toggleMockEv();
-    void triggerNonEvAlert();
-    void triggerOvertimeAlert();
-    void triggerSensorError();
-    void randomizeParkingSlots();
-    void simulateIncomingMessages();
     void processIncomingMessage(const QString &message);
     void recordEvent(const QString &zone, const QString &eventType,
                      const QString &message, const QString &status);
@@ -56,17 +55,12 @@ signals:
     void serverConfigurationError(const QString &message);
 
 private:
-    void initializeMockData();
     void initializeApiClient();
     void rebuildApiClient();
     void scheduleReconnect(const QString &reason);
     void applyParkingSnapshot(const QJsonDocument &document);
     void applyParkingSlotDetail(const QJsonDocument &document);
     void resetSlotsForSnapshot();
-    void updateEvSlotState(const QString &slotId, SlotState state,
-                           const QString &plateNumber, bool isEv,
-                           const QString &occupiedTime, const QString &alarmText);
-    void updateParkingSlotState(const QString &slotId, SlotState state);
     void notifyStateChanged();
     void refreshAlert();
     QUrl resolveApiUrl(const QUrl &url) const;
@@ -87,7 +81,6 @@ private:
     int m_currentReconnectDelayMs = 5000;
     bool m_allowInsecureHttp = false;
     bool m_snapshotRequestInFlight = false;
-    int m_mockStep = 0;
 };
 
 #endif

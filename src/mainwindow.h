@@ -14,6 +14,7 @@ class QLabel;
 class NotificationCenter;
 class ParkingController;
 class ParkingMapPage;
+class ParkingSimulationService;
 class QPushButton;
 class SettingsPage;
 class QStackedWidget;
@@ -54,6 +55,7 @@ private:
     SettingsPage *m_settingsPage = nullptr;
     DebugPage *m_debugPage = nullptr;
     ParkingController *m_parkingController = nullptr;
+    ParkingSimulationService *m_parkingSimulationService = nullptr;
 };
 
 #endif

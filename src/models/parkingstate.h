@@ -70,6 +70,8 @@ QString slotStateText(SlotState state);
 QString slotStateStyle(SlotState state);
 SlotState slotStateFromText(const QString &text);
 SlotAlarmKind slotAlarmKindFromText(const QString &text, SlotState fallbackState = SlotState::Vacant);
+SlotVisualState deriveSlotVisualState(SlotState state, bool vehicleTypeKnown,
+                                      bool isEv, const QString &alarmText = QString());
 QString slotAlarmText(SlotAlarmKind alarm);
 QString vehicleClassText(VehicleClass vehicleClass);
 QString normalizeParkingSlotId(const QString &rawSlotId);

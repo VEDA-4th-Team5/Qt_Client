@@ -9,6 +9,7 @@
 #include "pages/settingspage.h"
 #include "services/camerasettings.h"
 #include "services/notificationcenter.h"
+#include "simulation/parkingsimulationservice.h"
 
 
 #include <QButtonGroup>
@@ -56,7 +57,9 @@ MainWindow::MainWindow(QWidget *parent)
 {
     buildUi();
     m_parkingController = new ParkingController(clientConfigPath(), clientLocalConfigPath(), this);
+    m_parkingSimulationService = new ParkingSimulationService(m_parkingController, this);
     connectPages();
+    m_parkingSimulationService->seedInitialState();
     m_parkingController->start();
 }
 
@@ -137,7 +140,7 @@ void MainWindow::buildUi()
             this, &MainWindow::updateNotificationIndicator);
     updateNotificationIndicator();
 
-    m_alertBanner = new QLabel(QStringLiteral("System ready | Mock data displayed"), contentWidget);
+    m_alertBanner = new QLabel(QStringLiteral("System ready | Waiting for parking state"), contentWidget);
     m_alertBanner->setAlignment(Qt::AlignCenter);
     m_alertBanner->setMinimumHeight(34);
     contentLayout->addWidget(m_alertBanner);
@@ -205,19 +208,19 @@ void MainWindow::connectPages()
     connect(m_debugPage, &DebugPage::clearAlarmsRequested,
             m_parkingController, &ParkingController::clearAlarms);
     connect(m_debugPage, &DebugPage::toggleMockEvRequested,
-            m_parkingController, &ParkingController::toggleMockEv);
+            m_parkingSimulationService, &ParkingSimulationService::toggleMockEv);
     connect(m_debugPage, &DebugPage::nonEvAlertRequested,
-            m_parkingController, &ParkingController::triggerNonEvAlert);
+            m_parkingSimulationService, &ParkingSimulationService::triggerNonEvAlert);
     connect(m_debugPage, &DebugPage::overtimeAlertRequested,
-            m_parkingController, &ParkingController::triggerOvertimeAlert);
+            m_parkingSimulationService, &ParkingSimulationService::triggerOvertimeAlert);
     connect(m_debugPage, &DebugPage::sensorErrorRequested,
-            m_parkingController, &ParkingController::triggerSensorError);
+            m_parkingSimulationService, &ParkingSimulationService::triggerSensorError);
     connect(m_debugPage, &DebugPage::randomizeParkingRequested,
-            m_parkingController, &ParkingController::randomizeParkingSlots);
+            m_parkingSimulationService, &ParkingSimulationService::randomizeParkingSlots);
     connect(m_debugPage, &DebugPage::sampleMessagesRequested,
-            m_parkingController, &ParkingController::simulateIncomingMessages);
+            m_parkingSimulationService, &ParkingSimulationService::runSampleMessages);
     connect(m_debugPage, &DebugPage::manualMessageRequested,
-            m_parkingController, &ParkingController::processIncomingMessage);
+            m_parkingSimulationService, &ParkingSimulationService::applyManualMessage);
     connect(m_eventsPage, &EventsPage::exportResult, this,
             [this](bool success, const QString &message) {
                 m_parkingController->recordEvent(

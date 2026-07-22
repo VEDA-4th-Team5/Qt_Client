@@ -63,6 +63,10 @@ add_executable(smart_parking_qt_client
     src/services/camerasettings.h
     src/services/notificationcenter.cpp
     src/services/notificationcenter.h
+    src/simulation/parkingmockdata.cpp
+    src/simulation/parkingmockdata.h
+    src/simulation/parkingsimulationservice.cpp
+    src/simulation/parkingsimulationservice.h
     src/api/apiclient.cpp
     src/api/apiclient.h
     src/api/imageloader.cpp
@@ -145,6 +149,36 @@ if (BUILD_TESTING)
         Qt${QT_VERSION_MAJOR}::Network
     )
     add_test(NAME parkingcontroller_retry COMMAND parkingcontroller_retry_test)
+
+    add_executable(parkingsimulationservice_test
+        tests/parkingsimulationservice_test.cpp
+        src/controllers/parkingcontroller.cpp
+        src/controllers/parkingcontroller.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/simulation/parkingmockdata.cpp
+        src/simulation/parkingmockdata.h
+        src/simulation/parkingsimulationservice.cpp
+        src/simulation/parkingsimulationservice.h
+        src/api/apiclient.cpp
+        src/api/apiclient.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
+        src/api/parkingmodels.h
+        src/api/parkingresponseparser.cpp
+        src/api/parkingresponseparser.h
+    )
+    target_include_directories(parkingsimulationservice_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingsimulationservice_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(parkingsimulationservice_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parking_simulation_service COMMAND parkingsimulationservice_test)
 
     add_executable(parkingmappage_add_slot_test
         tests/parkingmappage_add_slot_test.cpp

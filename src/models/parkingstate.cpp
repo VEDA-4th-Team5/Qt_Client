@@ -63,6 +63,29 @@ SlotAlarmKind slotAlarmKindFromText(const QString &text, SlotState fallbackState
     return SlotAlarmKind::None;
 }
 
+SlotVisualState deriveSlotVisualState(SlotState state, bool vehicleTypeKnown,
+                                      bool isEv, const QString &alarmText)
+{
+    SlotVisualState visual;
+    visual.alarm = slotAlarmKindFromText(alarmText, state);
+    visual.alarmAcknowledged = state == SlotState::Acked;
+
+    if (state == SlotState::Vacant) {
+        visual.occupancy = SlotOccupancy::Vacant;
+        return visual;
+    }
+    if (state == SlotState::SensorError) {
+        visual.occupancy = SlotOccupancy::Unknown;
+        return visual;
+    }
+
+    visual.occupancy = SlotOccupancy::Occupied;
+    if (vehicleTypeKnown) {
+        visual.vehicleClass = isEv ? VehicleClass::Electric : VehicleClass::General;
+    }
+    return visual;
+}
+
 QString slotAlarmText(SlotAlarmKind alarm)
 {
     switch (alarm) {
