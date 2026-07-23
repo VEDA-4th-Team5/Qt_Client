@@ -216,6 +216,36 @@ if (BUILD_TESTING)
     )
     add_test(NAME parking_simulation_service COMMAND parkingsimulationservice_test)
 
+    add_executable(parkingeventflow_test
+        tests/parkingeventflow_test.cpp
+        src/controllers/parkingcontroller.cpp
+        src/controllers/parkingcontroller.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/services/notificationcenter.cpp
+        src/services/notificationcenter.h
+        src/services/mqttserviceclient.cpp
+        src/services/mqttserviceclient.h
+        src/api/apiclient.cpp
+        src/api/apiclient.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
+        src/api/parkingmodels.h
+        src/api/parkingresponseparser.cpp
+        src/api/parkingresponseparser.h
+    )
+    target_include_directories(parkingeventflow_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingeventflow_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(parkingeventflow_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parking_event_flow COMMAND parkingeventflow_test)
+
     add_executable(diagnosticsservice_test
         tests/diagnosticsservice_test.cpp
         src/diagnostics/diagnostictypes.h
