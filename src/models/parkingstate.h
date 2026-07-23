@@ -13,7 +13,9 @@ enum class SlotState {
     NonEvAlert,
     OvertimeAlert,
     SensorError,
-    Acked
+    Acked,
+    // 화재 "후보". 확정이 아니며 클라이언트가 자동으로 확정 처리하지 않는다.
+    FireSuspected
 };
 
 enum class SlotOccupancy {
@@ -32,7 +34,8 @@ enum class SlotAlarmKind {
     None,
     NonEvViolation,
     Overstay,
-    SensorError
+    SensorError,
+    FireSuspected
 };
 
 struct SlotVisualState {

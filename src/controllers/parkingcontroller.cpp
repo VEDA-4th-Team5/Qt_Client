@@ -3,9 +3,12 @@
 #include "api/apiclient.h"
 #include "api/imageloader.h"
 #include "api/parkingresponseparser.h"
+#include "services/mqttserviceclient.h"
 
 #include <QDateTime>
 #include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 #include <QSettings>
 #include <QTimer>
 
@@ -43,6 +46,172 @@ ParkingController::ParkingController(const QString &sharedConfigPath,
 void ParkingController::start()
 {
     initializeApiClient();
+    initializeMqttClient();
+}
+
+void ParkingController::initializeMqttClient()
+{
+    QSettings sharedSettings(m_sharedConfigPath, QSettings::IniFormat);
+    QSettings localSettings(m_localConfigPath, QSettings::IniFormat);
+    auto setting = [&](const QString &key, const QVariant &defaultValue) {
+        return localSettings.contains(key) ? localSettings.value(key, defaultValue)
+                                           : sharedSettings.value(key, defaultValue);
+    };
+
+    MqttSettings mqttSettings;
+    mqttSettings.enabled = setting(QStringLiteral("mqtt/enabled"), false).toBool();
+    if (!mqttSettings.enabled) {
+        emit statusMessageChanged(QStringLiteral("MQTT disabled"));
+        return;
+    }
+
+    mqttSettings.host = setting(QStringLiteral("mqtt/host"), QString()).toString().trimmed();
+    mqttSettings.port =
+        static_cast<quint16>(setting(QStringLiteral("mqtt/port"), 1883).toInt());
+    mqttSettings.clientId =
+        setting(QStringLiteral("mqtt/client_id"), QStringLiteral("qt-client")).toString();
+    mqttSettings.reconnectIntervalMs =
+        setting(QStringLiteral("mqtt/reconnect_interval_ms"), 5000).toInt();
+    mqttSettings.topics = setting(QStringLiteral("mqtt/topics"),
+                                  QStringLiteral("parking/fire/#"))
+                              .toString()
+                              .split(QLatin1Char(','), Qt::SkipEmptyParts);
+
+    if (m_mqttClient) {
+        m_mqttClient->stop();
+        disconnect(m_mqttClient, nullptr, this, nullptr);
+        m_mqttClient->deleteLater();
+    }
+
+    m_mqttClient = new MqttServiceClient(mqttSettings, this);
+    connect(m_mqttClient, &MqttServiceClient::messageReceived,
+            this, &ParkingController::handleMqttMessage);
+    connect(m_mqttClient, &MqttServiceClient::connectionChanged, this,
+            [this](const QString &status, bool connected) {
+                emit statusMessageChanged(status);
+                recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("MQTT"),
+                            status,
+                            connected ? QStringLiteral("DONE")
+                                      : QStringLiteral("FAILED"));
+            });
+    m_mqttClient->start();
+}
+
+void ParkingController::handleMqttMessage(const QString &topic,
+                                          const QByteArray &payload)
+{
+    emit statusMessageChanged(QStringLiteral("MQTT RX: ") + topic);
+
+    QJsonParseError parseError{};
+    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("MQTT_PARSE_ERROR"),
+                    topic + QStringLiteral(": ") + parseError.errorString(),
+                    QStringLiteral("REJECTED"));
+        return;
+    }
+
+    const QJsonObject event = document.object();
+    const QString eventType = event.value(QStringLiteral("event_type")).toString();
+
+    if (eventType == QStringLiteral("sensor_fire_suspected")
+        || eventType == QStringLiteral("sensor_fire_cleared")) {
+        applyFireEvent(event);
+        return;
+    }
+
+    recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("MQTT_UNSUPPORTED"),
+                topic + QStringLiteral(": ") + eventType,
+                QStringLiteral("REJECTED"));
+}
+
+void ParkingController::applyFireEvent(const QJsonObject &event)
+{
+    const bool active = event.value(QStringLiteral("active")).toBool();
+    const QString sensorId = event.value(QStringLiteral("source_id")).toString();
+    const QString rawSlotId = event.value(QStringLiteral("slot_id")).toString();
+    const QString rawPayload = event.value(QStringLiteral("raw_payload")).toString();
+
+    // Pi 가 주차면 매핑에 실패해도 알림 자체는 올라온다. 화면에서 지우지 않는다.
+    if (rawSlotId.isEmpty()) {
+        recordEvent(QStringLiteral("UNMAPPED"),
+                    active ? QStringLiteral("FIRE_SUSPECTED")
+                           : QStringLiteral("FIRE_CLEARED"),
+                    QStringLiteral("Fire candidate from unmapped sensor %1 (%2)")
+                        .arg(sensorId, rawPayload),
+                    active ? QStringLiteral("OPEN") : QStringLiteral("CLOSED"));
+        if (active) {
+            emit bannerChanged(
+                QStringLiteral("FIRE SUSPECTED | unmapped sensor %1 | operator must verify")
+                    .arg(sensorId),
+                true);
+        } else {
+            refreshAlert();
+        }
+        return;
+    }
+
+    const QString slotId = normalizeParkingSlotId(rawSlotId);
+    if (!m_state.evSlots.contains(slotId) && !m_state.parkingSlots.contains(slotId)) {
+        recordEvent(slotId, QStringLiteral("FIRE_SUSPECTED"),
+                    QStringLiteral("Fire candidate for unknown slot (sensor %1)")
+                        .arg(sensorId),
+                    QStringLiteral("SKIPPED"));
+        return;
+    }
+
+    if (active) {
+        if (m_state.evSlots.contains(slotId)) {
+            EvSlotInfo &slot = m_state.evSlots[slotId];
+            if (!m_visualBeforeFire.contains(slotId)) {
+                m_visualBeforeFire.insert(slotId, slot.visual);
+                m_evAlarmTextBeforeFire.insert(slotId, slot.alarmText);
+            }
+            slot.visual.alarm = SlotAlarmKind::FireSuspected;
+            slot.visual.alarmAcknowledged = false;
+            slot.alarmText = QStringLiteral("FIRE_SUSPECTED");
+        } else {
+            ParkingSlotInfo &slot = m_state.parkingSlots[slotId];
+            if (!m_visualBeforeFire.contains(slotId)) {
+                m_visualBeforeFire.insert(slotId, slot.visual);
+            }
+            slot.visual.alarm = SlotAlarmKind::FireSuspected;
+            slot.visual.alarmAcknowledged = false;
+        }
+        notifyStateChanged();
+        recordEvent(slotId, QStringLiteral("FIRE_SUSPECTED"),
+                    QStringLiteral("Fire candidate from sensor %1 (%2) - "
+                                   "operator confirmation required")
+                        .arg(sensorId, rawPayload),
+                    QStringLiteral("OPEN"));
+        return;
+    }
+
+    // 해제: 점유 상태는 건드리지 않고 화재 전에 존재하던 경고 상태만 복원한다.
+    if (m_state.evSlots.contains(slotId)) {
+        EvSlotInfo &slot = m_state.evSlots[slotId];
+        if (m_visualBeforeFire.contains(slotId)) {
+            slot.visual = m_visualBeforeFire.take(slotId);
+            slot.alarmText = m_evAlarmTextBeforeFire.take(slotId);
+        } else {
+            slot.visual.alarm = SlotAlarmKind::None;
+            slot.visual.alarmAcknowledged = false;
+            slot.alarmText = QStringLiteral("NORMAL");
+        }
+    } else {
+        ParkingSlotInfo &slot = m_state.parkingSlots[slotId];
+        if (m_visualBeforeFire.contains(slotId)) {
+            slot.visual = m_visualBeforeFire.take(slotId);
+        } else {
+            slot.visual.alarm = SlotAlarmKind::None;
+            slot.visual.alarmAcknowledged = false;
+        }
+    }
+    notifyStateChanged();
+    recordEvent(slotId, QStringLiteral("FIRE_CLEARED"),
+                QStringLiteral("Fire candidate cleared by sensor %1 (%2)")
+                    .arg(sensorId, rawPayload),
+                QStringLiteral("CLOSED"));
 }
 
 void ParkingController::initializeApiClient()
@@ -310,6 +479,8 @@ void ParkingController::applyParkingSlotDetail(const QJsonDocument &document)
 
 void ParkingController::resetSlotsForSnapshot()
 {
+    m_visualBeforeFire.clear();
+    m_evAlarmTextBeforeFire.clear();
     m_state.evSlots.clear(); m_state.parkingSlots.clear(); m_state.slotImages.clear(); m_state.slotPlateNumbers.clear();
     for (int number = 1; number <= 16; ++number) {
         const QString slotId = evSlotId(number);
@@ -338,6 +509,8 @@ void ParkingController::requestSlotDetail(const QString &rawSlotId)
 
 void ParkingController::replaceViewState(const ParkingViewState &state)
 {
+    m_visualBeforeFire.clear();
+    m_evAlarmTextBeforeFire.clear();
     m_state = state;
     notifyStateChanged();
 }
@@ -385,16 +558,32 @@ void ParkingController::notifyStateChanged()
 void ParkingController::refreshAlert()
 {
     QStringList alerts;
+    QStringList fires;
     for (const EvSlotInfo &slot : m_state.evSlots) {
-        if (slot.visual.alarm != SlotAlarmKind::None && !slot.visual.alarmAcknowledged) {
+        if (slot.visual.alarm == SlotAlarmKind::FireSuspected) {
+            fires << slot.slotId;
+        } else if (slot.visual.alarm != SlotAlarmKind::None
+                   && !slot.visual.alarmAcknowledged) {
             alerts << slot.slotId + QLatin1Char(':') + slotAlarmText(slot.visual.alarm);
         }
     }
     for (const ParkingSlotInfo &slot : m_state.parkingSlots) {
-        if (slot.visual.alarm != SlotAlarmKind::None && !slot.visual.alarmAcknowledged) {
+        if (slot.visual.alarm == SlotAlarmKind::FireSuspected) {
+            fires << slot.slotId;
+        } else if (slot.visual.alarm != SlotAlarmKind::None
+                   && !slot.visual.alarmAcknowledged) {
             alerts << slot.slotId + QLatin1Char(':') + slotAlarmText(slot.visual.alarm);
         }
     }
+
+    // 화재 후보는 다른 알람보다 앞에 세운다. 확정 표현은 쓰지 않는다.
+    if (!fires.isEmpty()) {
+        emit bannerChanged(QStringLiteral("FIRE SUSPECTED: %1 | operator must verify")
+                               .arg(fires.join(QStringLiteral(" / "))),
+                           true);
+        return;
+    }
+
     emit bannerChanged(alerts.isEmpty() ? QStringLiteral("Monitoring normal | No active alerts")
                                         : QStringLiteral("Active alerts: %1 | %2").arg(alerts.size()).arg(alerts.join(QStringLiteral(" / "))),
                        !alerts.isEmpty());
@@ -410,7 +599,9 @@ void ParkingController::clearAlarms()
 {
     bool cleared = false;
     for (auto it = m_state.evSlots.begin(); it != m_state.evSlots.end(); ++it) {
-        if (it->visual.alarm != SlotAlarmKind::None && !it->visual.alarmAcknowledged) {
+        if (it->visual.alarm != SlotAlarmKind::None
+            && it->visual.alarm != SlotAlarmKind::FireSuspected
+            && !it->visual.alarmAcknowledged) {
             it->state = SlotState::Acked;
             it->visual.alarmAcknowledged = true;
             it->alarmText = QStringLiteral("ACKED");
@@ -418,7 +609,9 @@ void ParkingController::clearAlarms()
         }
     }
     for (auto it = m_state.parkingSlots.begin(); it != m_state.parkingSlots.end(); ++it) {
-        if (it->visual.alarm != SlotAlarmKind::None && !it->visual.alarmAcknowledged) {
+        if (it->visual.alarm != SlotAlarmKind::None
+            && it->visual.alarm != SlotAlarmKind::FireSuspected
+            && !it->visual.alarmAcknowledged) {
             it->state = SlotState::Acked;
             it->visual.alarmAcknowledged = true;
             cleared = true;

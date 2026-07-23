@@ -327,6 +327,7 @@ QColor stateColor(SlotState state)
     case SlotState::OvertimeAlert: return QColor(QStringLiteral("#fb8c00"));
     case SlotState::SensorError: return QColor(QStringLiteral("#7e57c2"));
     case SlotState::Acked: return QColor(QStringLiteral("#b0bec5"));
+    case SlotState::FireSuspected: return QColor(QStringLiteral("#b71c1c"));
     }
     return QColor(QStringLiteral("#b0bec5"));
 }
@@ -359,6 +360,9 @@ QString compactVehicleText(bool known, const SlotVisualState &visual)
 
 QColor alarmColor(SlotAlarmKind alarm)
 {
+    if (alarm == SlotAlarmKind::FireSuspected) {
+        return QColor(QStringLiteral("#ff1744"));
+    }
     return alarm == SlotAlarmKind::SensorError
         ? QColor(QStringLiteral("#b388ff"))
         : QColor(QStringLiteral("#ff1744"));
@@ -371,6 +375,7 @@ QString compactAlarmText(SlotAlarmKind alarm, bool acknowledged)
     case SlotAlarmKind::NonEvViolation: return QStringLiteral("NON-EV");
     case SlotAlarmKind::Overstay: return QStringLiteral("OVER");
     case SlotAlarmKind::SensorError: return QStringLiteral("SENSOR");
+    case SlotAlarmKind::FireSuspected: return QStringLiteral("FIRE?");
     case SlotAlarmKind::None: return QString();
     }
     return QString();
@@ -524,6 +529,9 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     legendLayout->addWidget(createLegendItem(QStringLiteral("ACTIVE WARNING"),
                                               QColor(QStringLiteral("#ff1744")),
                                               QColor(QStringLiteral("#ff8aa1")), true));
+    legendLayout->addWidget(createLegendItem(QStringLiteral("FIRE CANDIDATE"),
+                                              QColor(QStringLiteral("#b71c1c")),
+                                              QColor(QStringLiteral("#ff8a80")), true));
     legendLayout->addStretch();
     mapLayout->addLayout(legendLayout);
     pageLayout->addWidget(mapGroup, 3);

@@ -11,6 +11,8 @@ class ApiClient;
 class QDateTime;
 class ImageLoader;
 class QJsonDocument;
+class QJsonObject;
+class MqttServiceClient;
 class QTimer;
 
 class ParkingController : public QObject
@@ -58,6 +60,9 @@ signals:
 
 private:
     void initializeApiClient();
+    void initializeMqttClient();
+    void handleMqttMessage(const QString &topic, const QByteArray &payload);
+    void applyFireEvent(const QJsonObject &event);
     void rebuildApiClient();
     void scheduleReconnect(const QString &reason);
     void applyParkingSnapshot(const QJsonDocument &document);
@@ -74,7 +79,12 @@ private:
     ParkingViewState m_state;
     ApiClient *m_apiClient = nullptr;
     ImageLoader *m_imageLoader = nullptr;
+    MqttServiceClient *m_mqttClient = nullptr;
     QTimer *m_reconnectTimer = nullptr;
+    // 화재 후보는 점유 상태와 별도인 경고 축에 표시한다. 해제 시 화재 전에
+    // 존재하던 경고와 ACK 상태까지 복원하기 위해 시각 상태를 보관한다.
+    QHash<QString, SlotVisualState> m_visualBeforeFire;
+    QHash<QString, QString> m_evAlarmTextBeforeFire;
     QUrl m_apiBaseUrl;
     QString m_slotsPath;
     QString m_slotDetailPath;
