@@ -70,6 +70,8 @@ endif()
 
 add_executable(smart_parking_qt_client
     src/main.cpp
+    src/adapters/incomingmessageadapter.cpp
+    src/adapters/incomingmessageadapter.h
     src/mainwindow.cpp
     src/mainwindow.h
     src/controllers/parkingcontroller.cpp
@@ -79,6 +81,8 @@ add_executable(smart_parking_qt_client
     src/diagnostics/diagnosticsservice.h
     src/dialogs/slotevidencedialog.cpp
     src/dialogs/slotevidencedialog.h
+    src/models/monitoringevent.cpp
+    src/models/monitoringevent.h
     src/models/parkingstate.cpp
     src/models/parkingstate.h
     src/models/parkingzonelayout.cpp
@@ -161,8 +165,12 @@ include(CTest)
 if (BUILD_TESTING)
     add_executable(parkingcontroller_retry_test
         tests/parkingcontroller_retry_test.cpp
+        src/adapters/incomingmessageadapter.cpp
+        src/adapters/incomingmessageadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
         src/api/apiclient.cpp
@@ -186,8 +194,12 @@ if (BUILD_TESTING)
 
     add_executable(parkingsimulationservice_test
         tests/parkingsimulationservice_test.cpp
+        src/adapters/incomingmessageadapter.cpp
+        src/adapters/incomingmessageadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
         src/simulation/parkingmockdata.cpp
@@ -216,11 +228,66 @@ if (BUILD_TESTING)
     )
     add_test(NAME parking_simulation_service COMMAND parkingsimulationservice_test)
 
+    add_executable(parkingeventflow_test
+        tests/parkingeventflow_test.cpp
+        src/adapters/incomingmessageadapter.cpp
+        src/adapters/incomingmessageadapter.h
+        src/controllers/parkingcontroller.cpp
+        src/controllers/parkingcontroller.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/services/notificationcenter.cpp
+        src/services/notificationcenter.h
+        src/services/mqttserviceclient.cpp
+        src/services/mqttserviceclient.h
+        src/api/apiclient.cpp
+        src/api/apiclient.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
+        src/api/parkingmodels.h
+        src/api/parkingresponseparser.cpp
+        src/api/parkingresponseparser.h
+    )
+    target_include_directories(parkingeventflow_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingeventflow_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(parkingeventflow_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parking_event_flow COMMAND parkingeventflow_test)
+
+    add_executable(incomingmessageadapter_test
+        tests/incomingmessageadapter_test.cpp
+        src/adapters/incomingmessageadapter.cpp
+        src/adapters/incomingmessageadapter.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/api/parkingmodels.h
+    )
+    target_include_directories(incomingmessageadapter_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(incomingmessageadapter_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(incomingmessageadapter_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME incoming_message_adapter COMMAND incomingmessageadapter_test)
+
     add_executable(diagnosticsservice_test
         tests/diagnosticsservice_test.cpp
         src/diagnostics/diagnostictypes.h
         src/diagnostics/diagnosticsservice.cpp
         src/diagnostics/diagnosticsservice.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
     )
     target_include_directories(diagnosticsservice_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"

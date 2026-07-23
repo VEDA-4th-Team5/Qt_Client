@@ -126,13 +126,13 @@ void DiagnosticsService::markSimulationApplied(const QString &scenario)
               QStringLiteral("SCENARIO_APPLIED"), scenario);
 }
 
-void DiagnosticsService::ingestDomainEvent(const QString &time, const QString &source,
-                                           const QString &eventType, const QString &message,
-                                           const QString &status)
+void DiagnosticsService::ingestDomainEvent(const MonitoringEvent &event)
 {
-    Q_UNUSED(time)
-    appendLog(normalizedLevel(status, eventType), QStringLiteral("EVENT"),
-              eventType, QStringLiteral("%1 | %2 | %3").arg(source, status, message));
+    const QString status = monitoringEventStatusText(event);
+    appendLog(normalizedLevel(status, event.eventType), QStringLiteral("EVENT"),
+              event.eventType,
+              QStringLiteral("%1 | %2 | %3")
+                  .arg(event.sourceId, status, event.message));
 }
 
 void DiagnosticsService::updateDataSource()

@@ -2,6 +2,7 @@
 #define DASHBOARDPAGE_H
 
 #include "diagnostics/diagnostictypes.h"
+#include "models/monitoringevent.h"
 
 #include <QList>
 #include <QStringList>
@@ -23,8 +24,7 @@ public:
                            QWidget *parent = nullptr);
 
     void setSummary(int total, int occupied, int vacant, int sensorErrors);
-    void prependEvent(const QString &time, const QString &zone, const QString &eventType,
-                      const QString &message, const QString &status);
+    void prependEvent(const MonitoringEvent &event);
     void setRtspUrls(const QStringList &lowRtspUrls, const QStringList &highRtspUrls);
 
 signals:

@@ -39,13 +39,11 @@ bool NotificationCenter::hasNotifications() const
     return !m_notifications.isEmpty();
 }
 
-void NotificationCenter::ingestEvent(const QString &time, const QString &sourceId,
-                                     const QString &eventType, const QString &message,
-                                     const QString &status)
+void NotificationCenter::ingestEvent(const MonitoringEvent &event)
 {
-    const QString normalizedType = normalizeEventType(eventType);
-    const QString normalizedStatus = status.trimmed().toUpper();
-    const QString normalizedSource = sourceId.trimmed().toUpper();
+    const QString normalizedType = normalizeEventType(event.eventType);
+    const QString normalizedStatus = monitoringEventStatusText(event);
+    const QString normalizedSource = event.sourceId.trimmed().toUpper();
 
     if (isAcknowledgementEvent(normalizedType, normalizedStatus)) {
         if (acknowledgeMatching(normalizedSource, normalizedType)) {
@@ -60,13 +58,15 @@ void NotificationCenter::ingestEvent(const QString &time, const QString &sourceI
 
     NotificationRecord record;
     record.id = QStringLiteral("N%1").arg(m_nextNotificationId++);
-    record.time = time;
+    record.time = monitoringEventTimeText(event);
     record.sourceId = normalizedSource.isEmpty() ? QStringLiteral("SYSTEM") : normalizedSource;
     record.eventType = normalizedType;
-    record.severity = severityForEvent(normalizedType, normalizedStatus);
+    record.severity = event.severity == EventSeverity::Unknown
+        ? severityForEvent(normalizedType, normalizedStatus)
+        : eventSeverityText(event.severity);
     record.title = titleForEvent(normalizedType);
-    record.message = message;
-    record.status = normalizedStatus.isEmpty() ? status : normalizedStatus;
+    record.message = event.message;
+    record.status = normalizedStatus;
     record.unread = true;
     addOrUpdateNotification(record);
     emit notificationsChanged();

@@ -17,7 +17,7 @@ int main(int argc, char **argv)
 
     int eventCount = 0;
     QObject::connect(&controller, &ParkingController::eventLogged,
-                     &app, [&eventCount]() { ++eventCount; });
+                     &app, [&eventCount](const MonitoringEvent &) { ++eventCount; });
 
     simulation.seedInitialState();
     const ParkingViewState &initialState = controller.state();

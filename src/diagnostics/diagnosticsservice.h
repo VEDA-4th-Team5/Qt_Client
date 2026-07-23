@@ -1,6 +1,7 @@
 #pragma once
 
 #include "diagnostictypes.h"
+#include "models/monitoringevent.h"
 
 #include <QObject>
 
@@ -24,9 +25,7 @@ public slots:
     void setParkingSummary(int slotCount, int activeAlarmCount);
     void markMockStateLoaded(int slotCount);
     void markSimulationApplied(const QString &scenario);
-    void ingestDomainEvent(const QString &time, const QString &source,
-                           const QString &eventType, const QString &message,
-                           const QString &status);
+    void ingestDomainEvent(const MonitoringEvent &event);
 
 signals:
     void apiStateChanged(const ApiDiagnosticState &state);

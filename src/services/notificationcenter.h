@@ -1,6 +1,8 @@
 #ifndef NOTIFICATIONCENTER_H
 #define NOTIFICATIONCENTER_H
 
+#include "models/monitoringevent.h"
+
 #include <QList>
 #include <QObject>
 #include <QString>
@@ -28,9 +30,7 @@ public:
     int unreadCount() const;
     bool hasNotifications() const;
 
-    void ingestEvent(const QString &time, const QString &sourceId,
-                     const QString &eventType, const QString &message,
-                     const QString &status);
+    void ingestEvent(const MonitoringEvent &event);
     void markAllRead();
     void clearAll();
 

@@ -1,6 +1,8 @@
 #ifndef EVENTSPAGE_H
 #define EVENTSPAGE_H
 
+#include "models/monitoringevent.h"
+
 #include <QWidget>
 
 class QTableWidget;
@@ -11,8 +13,7 @@ class EventsPage : public QWidget
 
 public:
     explicit EventsPage(QWidget *parent = nullptr);
-    void appendEvent(const QString &time, const QString &zone, const QString &eventType,
-                     const QString &message, const QString &status);
+    void appendEvent(const MonitoringEvent &event);
 
 signals:
     void exportResult(bool success, const QString &message);

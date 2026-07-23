@@ -2,6 +2,7 @@
 #define PARKINGCONTROLLER_H
 
 #include "diagnostics/diagnostictypes.h"
+#include "models/monitoringevent.h"
 #include "models/parkingstate.h"
 
 #include <QObject>
@@ -49,8 +50,7 @@ signals:
     void stateChanged();
     void bannerChanged(const QString &message, bool hasAlert);
     void statusMessageChanged(const QString &message);
-    void eventLogged(const QString &time, const QString &zone, const QString &eventType,
-                     const QString &message, const QString &status);
+    void eventLogged(const MonitoringEvent &event);
     void slotDetailReady(const QString &slotId);
     void detailError(const QString &message);
     void serverBaseUrlChanged(const QString &baseUrl);
@@ -94,6 +94,7 @@ private:
     int m_currentReconnectDelayMs = 5000;
     bool m_allowInsecureHttp = false;
     bool m_snapshotRequestInFlight = false;
+    quint64 m_nextEventSequence = 1;
     ApiDiagnosticState m_apiDiagnostic;
 };
 

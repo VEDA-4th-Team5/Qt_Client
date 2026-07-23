@@ -40,9 +40,12 @@ int main(int argc, char **argv)
     if (diagnostics.logs().isEmpty()) return 9;
 
     for (int i = 0; i < 1100; ++i) {
-        diagnostics.ingestDomainEvent(
-            QString(), QStringLiteral("SYSTEM"), QStringLiteral("TEST_EVENT"),
-            QString::number(i), QStringLiteral("DONE"));
+        MonitoringEvent event;
+        event.sourceId = QStringLiteral("SYSTEM");
+        event.eventType = QStringLiteral("TEST_EVENT");
+        event.message = QString::number(i);
+        event.status = QStringLiteral("DONE");
+        diagnostics.ingestDomainEvent(event);
     }
     if (diagnostics.logs().size() != 1000) return 10;
     return 0;
