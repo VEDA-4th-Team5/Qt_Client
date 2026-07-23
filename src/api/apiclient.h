@@ -20,8 +20,10 @@ public:
     void getJson(const QString &path);
 
 signals:
-    void jsonReceived(const QString &path, const QJsonDocument &document);
-    void requestFailed(const QString &path, const QString &message);
+    void jsonReceived(const QString &path, const QJsonDocument &document,
+                      int latencyMs, int httpStatus);
+    void requestFailed(const QString &path, const QString &message,
+                       int latencyMs, int httpStatus);
 
 private:
     QUrl requestUrl(const QString &path) const;

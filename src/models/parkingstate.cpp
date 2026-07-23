@@ -17,7 +17,9 @@ SlotState slotStateFromText(const QString &text)
 {
     const QString normalized = text.trimmed().toUpper();
     if (normalized == QStringLiteral("OCCUPIED")) return SlotState::Occupied;
-    if (normalized == QStringLiteral("SENSOR_ERROR") || normalized == QStringLiteral("ERROR")) {
+    if (normalized == QStringLiteral("HALL_SENSOR_ERROR")
+        || normalized == QStringLiteral("SENSOR_ERROR")
+        || normalized == QStringLiteral("ERROR")) {
         return SlotState::SensorError;
     }
     if (normalized == QStringLiteral("NON_EV") || normalized == QStringLiteral("NON_EV_ALERT")) {
@@ -33,6 +35,87 @@ SlotState slotStateFromText(const QString &text)
     return SlotState::Vacant;
 }
 
+SlotAlarmKind slotAlarmKindFromText(const QString &text, SlotState fallbackState)
+{
+    const QString normalized = text.trimmed().toUpper();
+    if (normalized == QStringLiteral("EV_ZONE_VIOLATION")
+        || normalized == QStringLiteral("NON_EV")
+        || normalized == QStringLiteral("NON_EV_ALERT")) {
+        return SlotAlarmKind::NonEvViolation;
+    }
+    if (normalized == QStringLiteral("OVERSTAY")
+        || normalized == QStringLiteral("OVERTIME")
+        || normalized == QStringLiteral("OVERTIME_ALERT")) {
+        return SlotAlarmKind::Overstay;
+    }
+    if (normalized == QStringLiteral("HALL_SENSOR_ERROR")
+        || normalized == QStringLiteral("SENSOR_ERROR")
+        || normalized == QStringLiteral("ERROR")) {
+        return SlotAlarmKind::SensorError;
+    }
+    if (normalized == QStringLiteral("FIRE")
+        || normalized == QStringLiteral("FIRE_SUSPECTED")) {
+        return SlotAlarmKind::FireSuspected;
+    }
+
+    switch (fallbackState) {
+    case SlotState::NonEvAlert: return SlotAlarmKind::NonEvViolation;
+    case SlotState::OvertimeAlert: return SlotAlarmKind::Overstay;
+    case SlotState::SensorError: return SlotAlarmKind::SensorError;
+    case SlotState::FireSuspected: return SlotAlarmKind::FireSuspected;
+    case SlotState::Vacant:
+    case SlotState::Occupied:
+    case SlotState::Acked:
+        return SlotAlarmKind::None;
+    }
+    return SlotAlarmKind::None;
+}
+
+SlotVisualState deriveSlotVisualState(SlotState state, bool vehicleTypeKnown,
+                                      bool isEv, const QString &alarmText)
+{
+    SlotVisualState visual;
+    visual.alarm = slotAlarmKindFromText(alarmText, state);
+    visual.alarmAcknowledged = state == SlotState::Acked;
+
+    if (state == SlotState::Vacant) {
+        visual.occupancy = SlotOccupancy::Vacant;
+        return visual;
+    }
+    if (state == SlotState::SensorError) {
+        visual.occupancy = SlotOccupancy::Unknown;
+        return visual;
+    }
+
+    visual.occupancy = SlotOccupancy::Occupied;
+    if (vehicleTypeKnown) {
+        visual.vehicleClass = isEv ? VehicleClass::Electric : VehicleClass::General;
+    }
+    return visual;
+}
+
+QString slotAlarmText(SlotAlarmKind alarm)
+{
+    switch (alarm) {
+    case SlotAlarmKind::None: return QStringLiteral("NORMAL");
+    case SlotAlarmKind::NonEvViolation: return QStringLiteral("NON-EV");
+    case SlotAlarmKind::Overstay: return QStringLiteral("OVERSTAY");
+    case SlotAlarmKind::SensorError: return QStringLiteral("SENSOR");
+    case SlotAlarmKind::FireSuspected: return QStringLiteral("FIRE?");
+    }
+    return QStringLiteral("NORMAL");
+}
+
+QString vehicleClassText(VehicleClass vehicleClass)
+{
+    switch (vehicleClass) {
+    case VehicleClass::Electric: return QStringLiteral("EV CAR");
+    case VehicleClass::General: return QStringLiteral("GENERAL CAR");
+    case VehicleClass::Unknown: return QStringLiteral("UNKNOWN CAR");
+    }
+    return QStringLiteral("UNKNOWN CAR");
+}
+
 QString slotStateText(SlotState state)
 {
     switch (state) {
@@ -40,7 +123,7 @@ QString slotStateText(SlotState state)
     case SlotState::Occupied: return QStringLiteral("OCCUPIED");
     case SlotState::NonEvAlert: return QStringLiteral("NON_EV_ALERT");
     case SlotState::OvertimeAlert: return QStringLiteral("OVERTIME_ALERT");
-    case SlotState::SensorError: return QStringLiteral("SENSOR_ERROR");
+    case SlotState::SensorError: return QStringLiteral("HALL_SENSOR_ERROR");
     case SlotState::Acked: return QStringLiteral("ACKED");
     case SlotState::FireSuspected: return QStringLiteral("FIRE_SUSPECTED");
     }

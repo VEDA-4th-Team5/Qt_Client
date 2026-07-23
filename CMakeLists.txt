@@ -74,10 +74,15 @@ add_executable(smart_parking_qt_client
     src/mainwindow.h
     src/controllers/parkingcontroller.cpp
     src/controllers/parkingcontroller.h
+    src/diagnostics/diagnostictypes.h
+    src/diagnostics/diagnosticsservice.cpp
+    src/diagnostics/diagnosticsservice.h
     src/dialogs/slotevidencedialog.cpp
     src/dialogs/slotevidencedialog.h
     src/models/parkingstate.cpp
     src/models/parkingstate.h
+    src/models/parkingzonelayout.cpp
+    src/models/parkingzonelayout.h
     src/pages/dashboardpage.cpp
     src/pages/dashboardpage.h
     src/pages/debugpage.cpp
@@ -90,8 +95,14 @@ add_executable(smart_parking_qt_client
     src/pages/settingspage.h
     src/services/camerasettings.cpp
     src/services/camerasettings.h
+    src/services/notificationcenter.cpp
+    src/services/notificationcenter.h
     src/services/mqttserviceclient.cpp
     src/services/mqttserviceclient.h
+    src/simulation/parkingmockdata.cpp
+    src/simulation/parkingmockdata.h
+    src/simulation/parkingsimulationservice.cpp
+    src/simulation/parkingsimulationservice.h
     src/api/apiclient.cpp
     src/api/apiclient.h
     src/api/imageloader.cpp
@@ -172,4 +183,98 @@ if (BUILD_TESTING)
         Qt${QT_VERSION_MAJOR}::Network
     )
     add_test(NAME parkingcontroller_retry COMMAND parkingcontroller_retry_test)
+
+    add_executable(parkingsimulationservice_test
+        tests/parkingsimulationservice_test.cpp
+        src/controllers/parkingcontroller.cpp
+        src/controllers/parkingcontroller.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/simulation/parkingmockdata.cpp
+        src/simulation/parkingmockdata.h
+        src/simulation/parkingsimulationservice.cpp
+        src/simulation/parkingsimulationservice.h
+        src/api/apiclient.cpp
+        src/api/apiclient.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
+        src/api/parkingmodels.h
+        src/api/parkingresponseparser.cpp
+        src/api/parkingresponseparser.h
+        src/services/mqttserviceclient.cpp
+        src/services/mqttserviceclient.h
+    )
+    target_include_directories(parkingsimulationservice_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingsimulationservice_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(parkingsimulationservice_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parking_simulation_service COMMAND parkingsimulationservice_test)
+
+    add_executable(diagnosticsservice_test
+        tests/diagnosticsservice_test.cpp
+        src/diagnostics/diagnostictypes.h
+        src/diagnostics/diagnosticsservice.cpp
+        src/diagnostics/diagnosticsservice.h
+    )
+    target_include_directories(diagnosticsservice_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(diagnosticsservice_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(diagnosticsservice_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME diagnostics_service COMMAND diagnosticsservice_test)
+
+    add_executable(camerasettings_test
+        tests/camerasettings_test.cpp
+        src/services/camerasettings.cpp
+        src/services/camerasettings.h
+    )
+    target_include_directories(camerasettings_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(camerasettings_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(camerasettings_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME camera_settings COMMAND camerasettings_test)
+
+    add_executable(parkingmappage_add_slot_test
+        tests/parkingmappage_add_slot_test.cpp
+        src/pages/parkingmappage.cpp
+        src/pages/parkingmappage.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/models/parkingzonelayout.cpp
+        src/models/parkingzonelayout.h
+    )
+    target_include_directories(parkingmappage_add_slot_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingmappage_add_slot_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(parkingmappage_add_slot_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parkingmappage_add_slot COMMAND parkingmappage_add_slot_test)
+    set(QT_GUI_DIR_VARIABLE "Qt${QT_VERSION_MAJOR}Gui_DIR")
+    get_filename_component(QT_RUNTIME_ROOT
+        "${${QT_GUI_DIR_VARIABLE}}/../../.." ABSOLUTE)
+    set_tests_properties(parkingmappage_add_slot PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
 endif()

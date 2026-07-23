@@ -6,6 +6,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHostAddress>
+#include <QRegularExpression>
 #include <QSettings>
 
 CameraSettings::CameraSettings(QString configPath)
@@ -19,22 +21,23 @@ QString CameraSettings::cameraIp() const
     return settings.value(QStringLiteral("camera/camera_ip")).toString();
 }
 
-bool CameraSettings::saveLastOctet(const QString &lastOctetText, QString &newIp,
-                                   QString &errorMessage) const
+bool CameraSettings::saveCameraIp(const QString &cameraIpText, QString &newIp,
+                                  QString &errorMessage) const
 {
-    bool ok = false;
-    const int lastOctet = lastOctetText.toInt(&ok);
-    if (!ok || lastOctet < 0 || lastOctet > 255) {
-        errorMessage = QStringLiteral("Enter a valid last octet from 0 to 255.");
+    static const QRegularExpression dottedDecimal(
+        QStringLiteral(R"(^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$)"));
+    const QString trimmedIp = cameraIpText.trimmed();
+    QHostAddress address;
+    if (!dottedDecimal.match(trimmedIp).hasMatch()
+        || !address.setAddress(trimmedIp)
+        || address.protocol() != QAbstractSocket::IPv4Protocol
+        || address == QHostAddress::AnyIPv4
+        || address == QHostAddress::Broadcast) {
+        errorMessage = QStringLiteral("Enter a valid full IPv4 address, for example 192.168.10.20.");
         return false;
     }
-    QStringList parts = cameraIp().split(QLatin1Char('.'));
-    if (parts.size() != 4) {
-        parts = {QStringLiteral("172"), QStringLiteral("20"),
-                 QStringLiteral("35"), QStringLiteral("0")};
-    }
-    parts[3] = QString::number(lastOctet);
-    newIp = parts.join(QLatin1Char('.'));
+
+    newIp = address.toString();
     QSettings settings(m_configPath, QSettings::IniFormat);
     settings.setValue(QStringLiteral("camera/camera_ip"), newIp);
     settings.sync();
@@ -90,12 +93,10 @@ QStringList CameraSettings::rtspUrls(const QString &profileOverride) const
     for (int i = 0; i < urls.size(); ++i) {
         QString channel = settings.value(QStringLiteral("camera/channel_ch%1").arg(i + 1), QString::number(i)).toString();
         QString profile = defaultProfile;
-        if (profileOverride.isEmpty()) {
-            profile = settings.value(QStringLiteral("camera/profile_ch%1").arg(i + 1), profile).toString();
-        } else {
-            const QString legacy = settings.value(QStringLiteral("camera/profile_ch%1").arg(i + 1)).toString();
-            const int slash = legacy.indexOf(QLatin1Char('/'));
-            if (slash > 0) channel = legacy.left(slash);
+        const QString channelProfile =
+            settings.value(QStringLiteral("camera/profile_ch%1").arg(i + 1)).toString();
+        if (!channelProfile.isEmpty()) {
+            profile = channelProfile;
         }
         const int slash = profile.indexOf(QLatin1Char('/'));
         if (slash > 0) {

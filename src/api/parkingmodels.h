@@ -17,6 +17,7 @@ struct ParkingSlotSnapshot {
     QString state;
     QString plateNumber;
     bool isEv = false;
+    bool vehicleTypeKnown = false;
     QDateTime occupiedSince;
     int elapsedSeconds = 0;
     QString alarm;

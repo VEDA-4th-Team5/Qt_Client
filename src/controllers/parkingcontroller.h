@@ -1,6 +1,7 @@
 #ifndef PARKINGCONTROLLER_H
 #define PARKINGCONTROLLER_H
 
+#include "diagnostics/diagnostictypes.h"
 #include "models/parkingstate.h"
 
 #include <QObject>
@@ -29,18 +30,17 @@ public:
     SlotState slotState(const QString &slotId) const;
     QString plateNumber(const QString &slotId) const;
     QList<ParkingImageResource> images(const QString &slotId) const;
+    void replaceViewState(const ParkingViewState &state);
+    void applyEvSlotUpdate(const QString &slotId, SlotState state,
+                           const QString &plateNumber, bool isEv,
+                           const QString &occupiedTime, const QString &alarmText);
+    void applyParkingSlotUpdate(const QString &slotId, SlotState state);
 
 public slots:
     void requestSlotDetail(const QString &slotId);
     void updateServerBaseUrl(const QString &baseUrl);
     void reconnectNow();
     void clearAlarms();
-    void toggleMockEv();
-    void triggerNonEvAlert();
-    void triggerOvertimeAlert();
-    void triggerSensorError();
-    void randomizeParkingSlots();
-    void simulateIncomingMessages();
     void processIncomingMessage(const QString &message);
     void recordEvent(const QString &zone, const QString &eventType,
                      const QString &message, const QString &status);
@@ -55,10 +55,10 @@ signals:
     void detailError(const QString &message);
     void serverBaseUrlChanged(const QString &baseUrl);
     void serverConnectionChanged(const QString &status, bool connected);
+    void apiDiagnosticChanged(const ApiDiagnosticState &state);
     void serverConfigurationError(const QString &message);
 
 private:
-    void initializeMockData();
     void initializeApiClient();
     void initializeMqttClient();
     void handleMqttMessage(const QString &topic, const QByteArray &payload);
@@ -68,12 +68,9 @@ private:
     void applyParkingSnapshot(const QJsonDocument &document);
     void applyParkingSlotDetail(const QJsonDocument &document);
     void resetSlotsForSnapshot();
-    void updateEvSlotState(const QString &slotId, SlotState state,
-                           const QString &plateNumber, bool isEv,
-                           const QString &occupiedTime, const QString &alarmText);
-    void updateParkingSlotState(const QString &slotId, SlotState state);
     void notifyStateChanged();
     void refreshAlert();
+    void publishApiDiagnostic();
     QUrl resolveApiUrl(const QUrl &url) const;
     QString occupiedDurationText(const QDateTime &occupiedSince, int elapsedSeconds) const;
 
@@ -84,9 +81,10 @@ private:
     ImageLoader *m_imageLoader = nullptr;
     MqttServiceClient *m_mqttClient = nullptr;
     QTimer *m_reconnectTimer = nullptr;
-    // 화재 후보가 해제되면 직전 주차 상태로 되돌리기 위해 보관한다.
-    // Pi 는 점유 여부를 모르므로 해제를 VACANT 로 단정하면 안 된다.
-    QHash<QString, SlotState> m_stateBeforeFire;
+    // 화재 후보는 점유 상태와 별도인 경고 축에 표시한다. 해제 시 화재 전에
+    // 존재하던 경고와 ACK 상태까지 복원하기 위해 시각 상태를 보관한다.
+    QHash<QString, SlotVisualState> m_visualBeforeFire;
+    QHash<QString, QString> m_evAlarmTextBeforeFire;
     QUrl m_apiBaseUrl;
     QString m_slotsPath;
     QString m_slotDetailPath;
@@ -96,7 +94,7 @@ private:
     int m_currentReconnectDelayMs = 5000;
     bool m_allowInsecureHttp = false;
     bool m_snapshotRequestInFlight = false;
-    int m_mockStep = 0;
+    ApiDiagnosticState m_apiDiagnostic;
 };
 
 #endif

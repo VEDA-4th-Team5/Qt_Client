@@ -14,7 +14,12 @@ Item {
     property bool highQualityEnabled: false
     readonly property string activeRtspUrl: highQualityEnabled && highRtspUrl !== "" ? highRtspUrl : lowRtspUrl
     readonly property string qualityLabel: highQualityEnabled ? "High" : "Low"
-
+    readonly property bool diagnosticConfigured: activeRtspUrl !== ""
+    readonly property string diagnosticStatus: videoItem.status
+    readonly property string diagnosticError: videoItem.errorString
+    readonly property size diagnosticVideoSize: videoItem.videoSize
+    readonly property int diagnosticStartupDelayMs: videoItem.startupDelayMs
+    readonly property double diagnosticFrameWallClockMs: videoItem.frameWallClockMs
     signal clicked()
 
     Rectangle {
@@ -34,7 +39,7 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: root.expanded ? 56 : 48
+            height: root.expanded ? 72 : 64
             color: "#B0000000"
 
             Column {
@@ -57,6 +62,14 @@ Item {
                 Text {
                     text: root.sourceLabel + " | " + videoItem.status + " | " + videoSpec
                     color: videoItem.errorString === "" ? "#aeb9c2" : "#ff8a80"
+                    font.pixelSize: 11
+                    elide: Text.ElideRight
+                    width: parent.width
+                }
+
+                Text {
+                    text: "Frame " + videoItem.frameClockText
+                    color: "#cfd8dc"
                     font.pixelSize: 11
                     elide: Text.ElideRight
                     width: parent.width
