@@ -101,6 +101,8 @@ add_executable(smart_parking_qt_client
     src/services/camerasettings.h
     src/services/notificationcenter.cpp
     src/services/notificationcenter.h
+    src/services/notificationpolicy.cpp
+    src/services/notificationpolicy.h
     src/services/mqttserviceclient.cpp
     src/services/mqttserviceclient.h
     src/simulation/parkingmockdata.cpp
@@ -240,6 +242,8 @@ if (BUILD_TESTING)
         src/models/parkingstate.h
         src/services/notificationcenter.cpp
         src/services/notificationcenter.h
+        src/services/notificationpolicy.cpp
+        src/services/notificationpolicy.h
         src/services/mqttserviceclient.cpp
         src/services/mqttserviceclient.h
         src/api/apiclient.cpp
@@ -268,6 +272,8 @@ if (BUILD_TESTING)
         src/models/monitoringevent.h
         src/services/notificationcenter.cpp
         src/services/notificationcenter.h
+        src/services/notificationpolicy.cpp
+        src/services/notificationpolicy.h
     )
     target_include_directories(notificationcenter_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"

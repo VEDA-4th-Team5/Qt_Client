@@ -1,4 +1,5 @@
 #include "services/notificationcenter.h"
+#include "services/notificationpolicy.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -140,6 +141,45 @@ int main(int argc, char *argv[])
                                  QStringLiteral("slot alarm acknowledged")));
     if (center.notifications().size() != 1) return 26;
     if (center.notifications().constFirst().sourceId != QStringLiteral("SYSTEM")) return 27;
+
+    NotificationPolicy policy;
+    NotificationDecision decision = policy.evaluate(
+        makeEvent(QStringLiteral(" ch2 "),
+                  QStringLiteral(" fire_event "),
+                  QStringLiteral(" open "),
+                  QStringLiteral("fire detected")));
+    if (decision.action != NotificationAction::Upsert) return 28;
+    if (decision.sourceId != QStringLiteral("CH2")) return 29;
+    if (decision.eventType != QStringLiteral("FIRE_ALARM")) return 30;
+    if (decision.status != QStringLiteral("OPEN")) return 31;
+    if (decision.severity != EventSeverity::Critical) return 32;
+    if (decision.title != QStringLiteral("Fire alarm")) return 33;
+
+    decision = policy.evaluate(
+        makeEvent(QStringLiteral("CH2"),
+                  QStringLiteral("FIRE_ALARM"),
+                  QStringLiteral("OPEN"),
+                  QStringLiteral("operator override"),
+                  EventSeverity::Info));
+    if (decision.severity != EventSeverity::Info) return 34;
+
+    decision = policy.evaluate(
+        makeEvent(QStringLiteral("SYSTEM"),
+                  QStringLiteral("RX_ERROR"),
+                  QStringLiteral("REJECTED"),
+                  QStringLiteral("invalid input")));
+    if (decision.action != NotificationAction::Ignore) return 35;
+
+    decision = policy.evaluate(
+        makeEvent(QStringLiteral("CH2"),
+                  QStringLiteral("FIRE_ALARM_ACK"),
+                  QStringLiteral("ACKED"),
+                  QStringLiteral("operator acknowledged")));
+    if (decision.action != NotificationAction::Resolve) return 36;
+    if (!policy.isSameAlertGroup(QStringLiteral("FIRE_ALARM"),
+                                 QStringLiteral("FLAME_DETECTED"))) return 37;
+    if (policy.isSameAlertGroup(QStringLiteral("API_ERROR"),
+                                QStringLiteral("HALL_SENSOR_CLEAR"))) return 38;
 
     return 0;
 }
