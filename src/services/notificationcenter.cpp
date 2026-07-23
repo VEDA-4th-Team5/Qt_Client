@@ -43,7 +43,10 @@ void NotificationCenter::ingestEvent(const MonitoringEvent &event)
 {
     const QString normalizedType = normalizeEventType(event.eventType);
     const QString normalizedStatus = monitoringEventStatusText(event);
-    const QString normalizedSource = event.sourceId.trimmed().toUpper();
+    QString normalizedSource = event.sourceId.trimmed().toUpper();
+    if (normalizedSource.isEmpty()) {
+        normalizedSource = QStringLiteral("SYSTEM");
+    }
 
     if (isAcknowledgementEvent(normalizedType, normalizedStatus)) {
         if (acknowledgeMatching(normalizedSource, normalizedType)) {
@@ -59,7 +62,7 @@ void NotificationCenter::ingestEvent(const MonitoringEvent &event)
     NotificationRecord record;
     record.id = QStringLiteral("N%1").arg(m_nextNotificationId++);
     record.time = monitoringEventTimeText(event);
-    record.sourceId = normalizedSource.isEmpty() ? QStringLiteral("SYSTEM") : normalizedSource;
+    record.sourceId = normalizedSource;
     record.eventType = normalizedType;
     record.severity = event.severity == EventSeverity::Unknown
         ? severityForEvent(normalizedType, normalizedStatus)
@@ -250,9 +253,7 @@ bool NotificationCenter::acknowledgeMatching(const QString &sourceId, const QStr
     bool changed = false;
     for (int i = m_notifications.size() - 1; i >= 0; --i) {
         const NotificationRecord &notification = m_notifications.at(i);
-        const bool sourceMatches = sourceId.isEmpty()
-            || notification.sourceId == sourceId
-            || notification.sourceId == QStringLiteral("SYSTEM");
+        const bool sourceMatches = notification.sourceId == sourceId;
         if (sourceMatches && isSameAlertGroup(notification.eventType, eventType)) {
             m_notifications.removeAt(i);
             changed = true;

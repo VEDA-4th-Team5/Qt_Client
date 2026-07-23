@@ -124,5 +124,22 @@ int main(int argc, char *argv[])
                                  QStringLiteral("camera reconnected")));
     if (center.hasNotifications()) return 24;
 
+    center.ingestEvent(makeEvent(QStringLiteral("SYSTEM"),
+                                 QStringLiteral("API_ERROR"),
+                                 QStringLiteral("FAILED"),
+                                 QStringLiteral("server API unavailable")));
+    center.ingestEvent(makeEvent(QStringLiteral("P-03"),
+                                 QStringLiteral("NON_EV_ALERT"),
+                                 QStringLiteral("OPEN"),
+                                 QStringLiteral("non-EV vehicle detected")));
+    if (center.notifications().size() != 2) return 25;
+
+    center.ingestEvent(makeEvent(QStringLiteral("P-03"),
+                                 QStringLiteral("ALARM_ACK"),
+                                 QStringLiteral("ACKED"),
+                                 QStringLiteral("slot alarm acknowledged")));
+    if (center.notifications().size() != 1) return 26;
+    if (center.notifications().constFirst().sourceId != QStringLiteral("SYSTEM")) return 27;
+
     return 0;
 }
