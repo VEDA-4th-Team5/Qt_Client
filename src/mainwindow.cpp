@@ -225,11 +225,10 @@ void MainWindow::connectPages()
                     : QStringLiteral("background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; border-radius: 4px; font-weight: 700;"));
             });
     connect(m_parkingController, &ParkingController::eventLogged, this,
-            [this](const QString &time, const QString &zone, const QString &eventType,
-                   const QString &message, const QString &status) {
-                m_dashboardPage->prependEvent(time, zone, eventType, message, status);
-                m_eventsPage->appendEvent(time, zone, eventType, message, status);
-                m_notificationCenter->ingestEvent(time, zone, eventType, message, status);
+            [this](const MonitoringEvent &event) {
+                m_dashboardPage->prependEvent(event);
+                m_eventsPage->appendEvent(event);
+                m_notificationCenter->ingestEvent(event);
             });
     connect(m_parkingController, &ParkingController::eventLogged,
             m_diagnosticsService, &DiagnosticsService::ingestDomainEvent);

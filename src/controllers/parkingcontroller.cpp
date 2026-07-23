@@ -592,7 +592,17 @@ void ParkingController::refreshAlert()
 void ParkingController::recordEvent(const QString &zone, const QString &eventType,
                                     const QString &message, const QString &status)
 {
-    emit eventLogged(QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss")), zone, eventType, message, status);
+    MonitoringEvent event;
+    event.occurredAt = QDateTime::currentDateTime();
+    event.id = QStringLiteral("client-%1-%2")
+                   .arg(event.occurredAt.toMSecsSinceEpoch())
+                   .arg(m_nextEventSequence++);
+    event.sourceId = zone;
+    event.eventType = eventType;
+    event.ackState = eventAckStateFromStatus(status);
+    event.message = message;
+    event.status = status;
+    emit eventLogged(event);
 }
 
 void ParkingController::clearAlarms()

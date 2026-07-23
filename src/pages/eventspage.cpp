@@ -33,13 +33,13 @@ EventsPage::EventsPage(QWidget *parent)
     connect(exportButton, &QPushButton::clicked, this, &EventsPage::exportCsv);
 }
 
-void EventsPage::appendEvent(const QString &time, const QString &zone,
-                             const QString &eventType, const QString &message,
-                             const QString &status)
+void EventsPage::appendEvent(const MonitoringEvent &event)
 {
     const int row = m_eventTable->rowCount();
     m_eventTable->insertRow(row);
-    const QStringList values = {time, zone, eventType, message, status};
+    const QStringList values = {
+        monitoringEventTimeText(event), event.sourceId, event.eventType,
+        event.message, monitoringEventStatusText(event)};
     for (int column = 0; column < values.size(); ++column) {
         m_eventTable->setItem(row, column, new QTableWidgetItem(values.at(column)));
     }

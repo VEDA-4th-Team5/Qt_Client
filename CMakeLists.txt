@@ -79,6 +79,8 @@ add_executable(smart_parking_qt_client
     src/diagnostics/diagnosticsservice.h
     src/dialogs/slotevidencedialog.cpp
     src/dialogs/slotevidencedialog.h
+    src/models/monitoringevent.cpp
+    src/models/monitoringevent.h
     src/models/parkingstate.cpp
     src/models/parkingstate.h
     src/models/parkingzonelayout.cpp
@@ -163,6 +165,8 @@ if (BUILD_TESTING)
         tests/parkingcontroller_retry_test.cpp
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
         src/api/apiclient.cpp
@@ -188,6 +192,8 @@ if (BUILD_TESTING)
         tests/parkingsimulationservice_test.cpp
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
         src/simulation/parkingmockdata.cpp
@@ -220,6 +226,8 @@ if (BUILD_TESTING)
         tests/parkingeventflow_test.cpp
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
         src/services/notificationcenter.cpp
@@ -251,6 +259,8 @@ if (BUILD_TESTING)
         src/diagnostics/diagnostictypes.h
         src/diagnostics/diagnosticsservice.cpp
         src/diagnostics/diagnosticsservice.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
     )
     target_include_directories(diagnosticsservice_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"

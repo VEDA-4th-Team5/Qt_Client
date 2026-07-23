@@ -195,12 +195,12 @@ void DashboardPage::setSummary(int total, int occupied, int vacant, int sensorEr
     m_sensorErrorLabel->setText(QString::number(sensorErrors));
 }
 
-void DashboardPage::prependEvent(const QString &time, const QString &zone,
-                                 const QString &eventType, const QString &message,
-                                 const QString &status)
+void DashboardPage::prependEvent(const MonitoringEvent &event)
 {
     m_recentEventTable->insertRow(0);
-    const QStringList values = {time, zone, eventType, message, status};
+    const QStringList values = {
+        monitoringEventTimeText(event), event.sourceId, event.eventType,
+        event.message, monitoringEventStatusText(event)};
     for (int column = 0; column < values.size(); ++column) {
         m_recentEventTable->setItem(0, column, new QTableWidgetItem(values.at(column)));
     }
