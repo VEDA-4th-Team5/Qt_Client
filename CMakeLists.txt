@@ -70,6 +70,8 @@ endif()
 
 add_executable(smart_parking_qt_client
     src/main.cpp
+    src/adapters/incomingmessageadapter.cpp
+    src/adapters/incomingmessageadapter.h
     src/mainwindow.cpp
     src/mainwindow.h
     src/controllers/parkingcontroller.cpp
@@ -163,6 +165,8 @@ include(CTest)
 if (BUILD_TESTING)
     add_executable(parkingcontroller_retry_test
         tests/parkingcontroller_retry_test.cpp
+        src/adapters/incomingmessageadapter.cpp
+        src/adapters/incomingmessageadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
         src/models/monitoringevent.cpp
@@ -190,6 +194,8 @@ if (BUILD_TESTING)
 
     add_executable(parkingsimulationservice_test
         tests/parkingsimulationservice_test.cpp
+        src/adapters/incomingmessageadapter.cpp
+        src/adapters/incomingmessageadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
         src/models/monitoringevent.cpp
@@ -224,6 +230,8 @@ if (BUILD_TESTING)
 
     add_executable(parkingeventflow_test
         tests/parkingeventflow_test.cpp
+        src/adapters/incomingmessageadapter.cpp
+        src/adapters/incomingmessageadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
         src/models/monitoringevent.cpp
@@ -253,6 +261,25 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME parking_event_flow COMMAND parkingeventflow_test)
+
+    add_executable(incomingmessageadapter_test
+        tests/incomingmessageadapter_test.cpp
+        src/adapters/incomingmessageadapter.cpp
+        src/adapters/incomingmessageadapter.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/api/parkingmodels.h
+    )
+    target_include_directories(incomingmessageadapter_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(incomingmessageadapter_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(incomingmessageadapter_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME incoming_message_adapter COMMAND incomingmessageadapter_test)
 
     add_executable(diagnosticsservice_test
         tests/diagnosticsservice_test.cpp
