@@ -101,6 +101,8 @@ add_executable(smart_parking_qt_client
     src/services/camerasettings.h
     src/services/notificationcenter.cpp
     src/services/notificationcenter.h
+    src/services/notificationpolicy.cpp
+    src/services/notificationpolicy.h
     src/services/mqttserviceclient.cpp
     src/services/mqttserviceclient.h
     src/simulation/parkingmockdata.cpp
@@ -240,6 +242,8 @@ if (BUILD_TESTING)
         src/models/parkingstate.h
         src/services/notificationcenter.cpp
         src/services/notificationcenter.h
+        src/services/notificationpolicy.cpp
+        src/services/notificationpolicy.h
         src/services/mqttserviceclient.cpp
         src/services/mqttserviceclient.h
         src/api/apiclient.cpp
@@ -261,6 +265,26 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME parking_event_flow COMMAND parkingeventflow_test)
+
+    add_executable(notificationcenter_test
+        tests/notificationcenter_test.cpp
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/services/notificationcenter.cpp
+        src/services/notificationcenter.h
+        src/services/notificationpolicy.cpp
+        src/services/notificationpolicy.h
+    )
+    target_include_directories(notificationcenter_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(notificationcenter_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(notificationcenter_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME notification_center COMMAND notificationcenter_test)
 
     add_executable(incomingmessageadapter_test
         tests/incomingmessageadapter_test.cpp

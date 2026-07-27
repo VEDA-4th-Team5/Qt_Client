@@ -2,6 +2,7 @@
 #define NOTIFICATIONCENTER_H
 
 #include "models/monitoringevent.h"
+#include "services/notificationpolicy.h"
 
 #include <QList>
 #include <QObject>
@@ -38,15 +39,10 @@ signals:
     void notificationsChanged();
 
 private:
-    QString normalizeEventType(const QString &eventType) const;
-    QString severityForEvent(const QString &eventType, const QString &status) const;
-    QString titleForEvent(const QString &eventType) const;
-    bool isAcknowledgementEvent(const QString &eventType, const QString &status) const;
-    bool isNotifiableEvent(const QString &eventType, const QString &status) const;
-    bool isSameAlertGroup(const QString &left, const QString &right) const;
     bool acknowledgeMatching(const QString &sourceId, const QString &eventType);
     void addOrUpdateNotification(NotificationRecord record);
 
+    NotificationPolicy m_policy;
     QList<NotificationRecord> m_notifications;
     int m_nextNotificationId = 1;
 };
