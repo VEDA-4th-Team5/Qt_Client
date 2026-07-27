@@ -17,6 +17,7 @@ public:
 
 signals:
     void exportResult(bool success, const QString &message);
+    void evidenceRequested(const QString &sourceId);
 
 private slots:
     void exportCsv();

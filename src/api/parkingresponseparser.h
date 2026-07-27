@@ -13,4 +13,7 @@ public:
     static bool parseSlotDetail(const QJsonDocument &document,
                                 ParkingSlotSnapshot &slot,
                                 QString &errorMessage);
+    static bool parseSessionImages(const QJsonDocument &document,
+                                   QList<ParkingImageResource> &images,
+                                   QString &errorMessage);
 };

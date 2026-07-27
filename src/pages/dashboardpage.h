@@ -29,6 +29,7 @@ public:
 
 signals:
     void rtspDiagnosticsChanged(const QList<RtspChannelDiagnostic> &channels);
+    void evidenceRequested(const QString &sourceId);
 
 private slots:
     void handleVideoChannelClicked();

@@ -10,11 +10,17 @@ struct ParkingImageResource {
     QDateTime timestamp;
     QString role;
     QString processing;
+    qint64 imageId = -1;
+    qint64 sessionId = -1;
+    QString enhancementType;
+    QString ocrResult;
+    QString evidenceReason;
 };
 
 struct ParkingSlotSnapshot {
     QString slotId;
     QString state;
+    qint64 sessionId = -1;
     QString plateNumber;
     bool isEv = false;
     bool vehicleTypeKnown = false;

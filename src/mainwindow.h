@@ -9,6 +9,7 @@
 class DashboardPage;
 class DebugPage;
 class DiagnosticsService;
+class EvidencePage;
 class EventsPage;
 class QCloseEvent;
 class QFrame;
@@ -36,11 +37,12 @@ private:
     void buildUi();
     void connectPages();
     void renderParkingState();
-    void showSlotEvidence(const QString &slotId);
     void saveCameraIp(const QString &cameraIpText);
     void updateNotificationIndicator();
     void showNotificationPopup();
     void showEventsPage();
+    bool isEvidenceSlot(const QString &sourceId) const;
+    bool showEvidencePage(const QString &sourceId);
     QString cameraConfigPath() const;
     QString clientConfigPath() const;
     QString clientLocalConfigPath() const;
@@ -54,9 +56,11 @@ private:
     QFrame *m_notificationPopup = nullptr;
     QStackedWidget *m_pages = nullptr;
     QPushButton *m_eventsNavButton = nullptr;
+    QPushButton *m_evidenceNavButton = nullptr;
     DashboardPage *m_dashboardPage = nullptr;
     ParkingMapPage *m_parkingMapPage = nullptr;
     EventsPage *m_eventsPage = nullptr;
+    EvidencePage *m_evidencePage = nullptr;
     SettingsPage *m_settingsPage = nullptr;
     DebugPage *m_debugPage = nullptr;
     DiagnosticsService *m_diagnosticsService = nullptr;

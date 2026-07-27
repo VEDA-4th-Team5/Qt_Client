@@ -243,6 +243,9 @@ void ParkingController::initializeApiClient()
                           QStringLiteral("/api/v1/parking-slots")).toString();
     m_slotDetailPath = setting(QStringLiteral("api/slot_detail_path"),
                                QStringLiteral("/api/v1/parking-slots/{slot_id}")).toString();
+    m_sessionImagesPath = setting(
+        QStringLiteral("api/session_images_path"),
+        QStringLiteral("/api/v1/parking-sessions/{session_id}/images")).toString();
     m_apiTimeoutMs = setting(QStringLiteral("api/timeout_ms"), 5000).toInt();
     m_allowInsecureHttp =
         setting(QStringLiteral("api/allow_insecure_http"), false).toBool();
@@ -265,6 +268,8 @@ void ParkingController::rebuildApiClient()
         m_apiClient->deleteLater();
     }
     if (m_imageLoader) m_imageLoader->deleteLater();
+    m_pendingDetailRequests.clear();
+    m_pendingImageRequests.clear();
 
     m_apiClient = new ApiClient(
         m_apiBaseUrl, m_apiTimeoutMs, m_allowInsecureHttp, this);
@@ -279,8 +284,11 @@ void ParkingController::rebuildApiClient()
                     m_apiDiagnostic.lastLatencyMs = latencyMs;
                     m_apiDiagnostic.lastHttpStatus = httpStatus;
                     applyParkingSnapshot(document);
+                } else if (m_pendingImageRequests.contains(path)) {
+                    applyParkingSessionImages(m_pendingImageRequests.take(path), document);
                 } else {
-                    applyParkingSlotDetail(document);
+                    const QString requestedSlotId = m_pendingDetailRequests.take(path);
+                    applyParkingSlotDetail(requestedSlotId, document);
                 }
             });
     connect(m_apiClient, &ApiClient::requestFailed, this,
@@ -298,6 +306,12 @@ void ParkingController::rebuildApiClient()
                     m_apiDiagnostic.lastHttpStatus = httpStatus;
                     ++m_apiDiagnostic.consecutiveFailures;
                     scheduleReconnect(message);
+                } else if (m_pendingImageRequests.contains(path)) {
+                    const QString slotId = m_pendingImageRequests.take(path);
+                    emit slotDetailFailed(slotId, message);
+                } else if (m_pendingDetailRequests.contains(path)) {
+                    const QString slotId = m_pendingDetailRequests.take(path);
+                    emit slotDetailFailed(slotId, message);
                 } else {
                     emit detailError(message);
                 }
@@ -460,12 +474,14 @@ void ParkingController::publishApiDiagnostic()
     emit apiDiagnosticChanged(m_apiDiagnostic);
 }
 
-void ParkingController::applyParkingSlotDetail(const QJsonDocument &document)
+void ParkingController::applyParkingSlotDetail(
+    const QString &requestedSlotId,
+    const QJsonDocument &document)
 {
     ParkingSlotSnapshot slot;
     QString error;
     if (!ParkingResponseParser::parseSlotDetail(document, slot, error)) {
-        emit detailError(error);
+        emit slotDetailFailed(requestedSlotId, error);
         refreshAlert();
         return;
     }
@@ -475,6 +491,48 @@ void ParkingController::applyParkingSlotDetail(const QJsonDocument &document)
     for (ParkingImageResource image : slot.images) { image.url = resolveApiUrl(image.url); images.append(image); }
     if (images.isEmpty()) m_state.slotImages.remove(slotId); else m_state.slotImages.insert(slotId, images);
     notifyStateChanged();
+
+    if (slot.sessionId <= 0 || !m_apiClient) {
+        if (images.isEmpty()) {
+            m_state.slotImages.remove(slotId);
+        }
+        refreshAlert();
+        emit slotDetailReady(slotId);
+        return;
+    }
+
+    QString path = m_sessionImagesPath;
+    path.replace(QStringLiteral("{session_id}"), QString::number(slot.sessionId));
+    if (m_pendingImageRequests.contains(path)) {
+        return;
+    }
+    m_pendingImageRequests.insert(path, slotId);
+    emit bannerChanged(QStringLiteral("Loading %1 evidence images...").arg(slotId), false);
+    m_apiClient->getJson(path);
+}
+
+void ParkingController::applyParkingSessionImages(
+    const QString &slotId,
+    const QJsonDocument &document)
+{
+    QList<ParkingImageResource> images;
+    QString error;
+    if (!ParkingResponseParser::parseSessionImages(document, images, error)) {
+        emit slotDetailFailed(slotId, error);
+        refreshAlert();
+        return;
+    }
+
+    for (ParkingImageResource &image : images) {
+        image.url = resolveApiUrl(image.url);
+    }
+    if (images.isEmpty()) {
+        m_state.slotImages.remove(slotId);
+    } else {
+        m_state.slotImages.insert(slotId, images);
+    }
+    notifyStateChanged();
+    refreshAlert();
     emit slotDetailReady(slotId);
 }
 
@@ -504,6 +562,11 @@ void ParkingController::requestSlotDetail(const QString &rawSlotId)
     if (!m_apiClient) { emit slotDetailReady(slotId); return; }
     QString compact = slotId; compact.remove(QLatin1Char('-'));
     QString path = m_slotDetailPath; path.replace(QStringLiteral("{slot_id}"), compact);
+    if (m_pendingDetailRequests.contains(path)) {
+        emit statusMessageChanged(QStringLiteral("%1 evidence request is already in progress").arg(slotId));
+        return;
+    }
+    m_pendingDetailRequests.insert(path, slotId);
     emit bannerChanged(QStringLiteral("Loading %1 details...").arg(slotId), false);
     m_apiClient->getJson(path);
 }

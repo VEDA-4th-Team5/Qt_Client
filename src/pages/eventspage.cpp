@@ -6,6 +6,7 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QLabel>
 #include <QPushButton>
 #include <QStringList>
 #include <QTableWidget>
@@ -19,6 +20,7 @@ EventsPage::EventsPage(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
     m_eventTable = new QTableWidget(0, 5, this);
+    m_eventTable->setObjectName(QStringLiteral("eventLogTable"));
     m_eventTable->setHorizontalHeaderLabels({QStringLiteral("Time"), QStringLiteral("Zone"), QStringLiteral("Event"), QStringLiteral("Message"), QStringLiteral("Status")});
     m_eventTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_eventTable->verticalHeader()->setVisible(false);
@@ -26,11 +28,22 @@ EventsPage::EventsPage(QWidget *parent)
     m_eventTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     layout->addWidget(m_eventTable, 1);
     auto *buttonLayout = new QHBoxLayout;
+    auto *hint = new QLabel(
+        QStringLiteral("Double-click a parking event to view its evidence."), this);
+    hint->setStyleSheet(QStringLiteral("color:#607d8b;"));
+    buttonLayout->addWidget(hint);
     buttonLayout->addStretch();
     auto *exportButton = new QPushButton(QStringLiteral("Export CSV"), this);
     buttonLayout->addWidget(exportButton);
     layout->addLayout(buttonLayout);
     connect(exportButton, &QPushButton::clicked, this, &EventsPage::exportCsv);
+    connect(m_eventTable, &QTableWidget::cellDoubleClicked, this,
+            [this](int row, int) {
+                const QTableWidgetItem *sourceItem = m_eventTable->item(row, 1);
+                if (sourceItem && !sourceItem->text().trimmed().isEmpty()) {
+                    emit evidenceRequested(sourceItem->text());
+                }
+            });
 }
 
 void EventsPage::appendEvent(const MonitoringEvent &event)
