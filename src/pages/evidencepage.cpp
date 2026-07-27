@@ -16,6 +16,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QPainter>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
@@ -108,6 +109,31 @@ int slotNumber(const QString &slotId)
     const int number = slotId.section(QLatin1Char('-'), -1).toInt(&ok);
     return ok ? number : 0;
 }
+
+QIcon evidenceHelpIcon()
+{
+    constexpr qreal scale = 2.0;
+    QPixmap pixmap(QSize(22, 22) * scale);
+    pixmap.fill(Qt::transparent);
+    pixmap.setDevicePixelRatio(scale);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    const QColor orange(QStringLiteral("#fb8c00"));
+    QPen outline(orange, 1.8);
+    outline.setCapStyle(Qt::RoundCap);
+    painter.setPen(outline);
+    painter.setBrush(Qt::NoBrush);
+    painter.drawEllipse(QRectF(2.5, 2.5, 17.0, 17.0));
+
+    QFont questionFont = painter.font();
+    questionFont.setBold(true);
+    questionFont.setPointSizeF(11.0);
+    painter.setFont(questionFont);
+    painter.drawText(QRectF(0.0, 0.0, 22.0, 21.0),
+                     Qt::AlignCenter, QStringLiteral("?"));
+    return QIcon(pixmap);
+}
 } // namespace
 
 EvidencePage::EvidencePage(QWidget *parent)
@@ -164,6 +190,19 @@ EvidencePage::EvidencePage(QWidget *parent)
     summaryTextLayout->addWidget(m_summaryLabel);
     summaryTextLayout->addWidget(m_statusLabel);
     summaryLayout->addLayout(summaryTextLayout, 1);
+    auto *helpButton = new QPushButton(QStringLiteral("도움말"), summaryFrame);
+    helpButton->setObjectName(QStringLiteral("evidenceHelpButton"));
+    helpButton->setAccessibleName(QStringLiteral("Evidence 도움말"));
+    helpButton->setCursor(Qt::PointingHandCursor);
+    helpButton->setToolTip(QStringLiteral("Evidence 화면 사용 방법 보기"));
+    helpButton->setIcon(evidenceHelpIcon());
+    helpButton->setIconSize(QSize(22, 22));
+    helpButton->setStyleSheet(QStringLiteral(
+        "QPushButton { background:transparent; color:#455a64; border:none; "
+        "border-radius:5px; padding:5px 8px; font-weight:700; }"
+        "QPushButton:hover { background:#fff3e0; color:#e65100; }"
+        "QPushButton:pressed { background:#ffe0b2; }"));
+    summaryLayout->addWidget(helpButton, 0, Qt::AlignTop);
     contentLayout->addWidget(summaryFrame);
 
     auto *comparisonLayout = new QHBoxLayout;
@@ -238,6 +277,8 @@ EvidencePage::EvidencePage(QWidget *parent)
             this, &EvidencePage::filterSlots);
     connect(refreshButton, &QPushButton::clicked,
             this, &EvidencePage::requestCurrentEvidence);
+    connect(helpButton, &QPushButton::clicked,
+            this, &EvidencePage::showHelpDialog);
     connect(m_captureTable, &QTableWidget::currentCellChanged, this,
             [this](int currentRow, int, int, int) {
                 renderSelectedCapture(currentRow);
@@ -660,6 +701,76 @@ void EvidencePage::clearCaptureCard(
     titleLabel->setText(title);
     metadataLabel->setText(QStringLiteral("No capture metadata"));
     openButton->setEnabled(false);
+}
+
+void EvidencePage::showHelpDialog()
+{
+    if (QDialog *existing = findChild<QDialog *>(
+            QStringLiteral("evidenceHelpDialog"))) {
+        existing->raise();
+        existing->activateWindow();
+        return;
+    }
+
+    auto *dialog = new QDialog(this);
+    dialog->setObjectName(QStringLiteral("evidenceHelpDialog"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(QStringLiteral("Evidence 사용 안내"));
+    dialog->setModal(true);
+    dialog->setMinimumWidth(560);
+
+    auto *layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(22, 20, 22, 18);
+    layout->setSpacing(14);
+
+    auto *titleLabel = new QLabel(QStringLiteral("Evidence 사용 안내"), dialog);
+    titleLabel->setObjectName(QStringLiteral("evidenceHelpTitle"));
+    titleLabel->setStyleSheet(QStringLiteral(
+        "font-size:20px;font-weight:800;color:#263238;"));
+    layout->addWidget(titleLabel);
+
+    auto *introLabel = new QLabel(
+        QStringLiteral("주정차 증거를 확인하는 기본 흐름입니다."), dialog);
+    introLabel->setStyleSheet(QStringLiteral("color:#546e7a;"));
+    layout->addWidget(introLabel);
+
+    auto *stepsFrame = new QFrame(dialog);
+    stepsFrame->setStyleSheet(QStringLiteral(
+        "QFrame { background:#f7f9fa; border:1px solid #d9e0e5; "
+        "border-radius:7px; }"));
+    auto *stepsLayout = new QVBoxLayout(stepsFrame);
+    stepsLayout->setContentsMargins(16, 14, 16, 14);
+    auto *stepsLabel = new QLabel(stepsFrame);
+    stepsLabel->setObjectName(QStringLiteral("evidenceHelpSteps"));
+    stepsLabel->setTextFormat(Qt::RichText);
+    stepsLabel->setWordWrap(true);
+    stepsLabel->setStyleSheet(QStringLiteral(
+        "border:none;color:#263238;line-height:145%;"));
+    stepsLabel->setText(QStringLiteral(
+        "<b>1. 슬롯 선택</b><br>왼쪽 목록에서 확인할 주차 슬롯을 선택합니다.<br><br>"
+        "<b>2. 캡처 비교</b><br><i>First capture</i>와 <i>Latest capture</i>를 비교합니다.<br><br>"
+        "<b>3. 타임라인 확인</b><br>촬영 시간, 사유, OCR 결과와 이미지 종류를 확인합니다.<br><br>"
+        "<b>4. 원본 이미지 열기</b><br><i>Open full image</i>로 원본 크기 사진을 확인합니다."));
+    stepsLayout->addWidget(stepsLabel);
+    layout->addWidget(stepsFrame);
+
+    auto *noteLabel = new QLabel(
+        QStringLiteral("※ 사진이 표시되지 않으면 서버에 저장된 증거가 없거나 아직 이미지가 전달되지 않은 상태입니다.\n"
+                       "   촬영 사유는 서버 metadata가 제공될 때 표시됩니다."),
+        dialog);
+    noteLabel->setObjectName(QStringLiteral("evidenceHelpNote"));
+    noteLabel->setWordWrap(true);
+    noteLabel->setStyleSheet(QStringLiteral(
+        "background:#fff8e1;color:#5d4037;border:1px solid #ffe082;"
+        "border-radius:6px;padding:10px;"));
+    layout->addWidget(noteLabel);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    buttons->setObjectName(QStringLiteral("evidenceHelpButtons"));
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
+    layout->addWidget(buttons);
+
+    dialog->open();
 }
 
 void EvidencePage::showFullImage(EvidenceImageLabel *source, const QString &title)

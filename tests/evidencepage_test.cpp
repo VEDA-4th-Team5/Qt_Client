@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include <QBuffer>
+#include <QDialog>
 #include <QEventLoop>
 #include <QImage>
 #include <QLabel>
@@ -151,6 +152,24 @@ int main(int argc, char **argv)
             Q_ARG(int, 0), Q_ARG(int, 2))) return 17;
     if (eventNavigationCount != 1
         || eventSourceId != QStringLiteral("EV-02")) return 18;
+
+    QPushButton *helpButton = page.findChild<QPushButton *>(
+        QStringLiteral("evidenceHelpButton"));
+    if (!helpButton || helpButton->text() != QStringLiteral("도움말")
+        || helpButton->icon().isNull()) return 19;
+    helpButton->click();
+    QApplication::processEvents();
+    QDialog *helpDialog = page.findChild<QDialog *>(
+        QStringLiteral("evidenceHelpDialog"));
+    if (!helpDialog || !helpDialog->isModal()) return 20;
+    QLabel *helpSteps = helpDialog->findChild<QLabel *>(
+        QStringLiteral("evidenceHelpSteps"));
+    QLabel *helpNote = helpDialog->findChild<QLabel *>(
+        QStringLiteral("evidenceHelpNote"));
+    if (!helpSteps || !helpSteps->text().contains(QStringLiteral("First capture"))) return 21;
+    if (!helpNote || !helpNote->text().contains(QStringLiteral("서버"))) return 22;
+    helpDialog->close();
+    QApplication::processEvents();
 
     return 0;
 }

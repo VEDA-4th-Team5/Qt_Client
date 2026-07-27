@@ -73,6 +73,7 @@ private:
                           QPushButton *openButton,
                           const QString &title,
                           const QString &message);
+    void showHelpDialog();
     void showFullImage(EvidenceImageLabel *source, const QString &title);
 
     QPointer<ImageLoader> m_imageLoader;
