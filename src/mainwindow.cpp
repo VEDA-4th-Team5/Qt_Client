@@ -2,9 +2,9 @@
 
 #include "controllers/parkingcontroller.h"
 #include "diagnostics/diagnosticsservice.h"
-#include "dialogs/slotevidencedialog.h"
 #include "pages/dashboardpage.h"
 #include "pages/debugpage.h"
+#include "pages/evidencepage.h"
 #include "pages/eventspage.h"
 #include "pages/parkingmappage.h"
 #include "pages/settingspage.h"
@@ -132,8 +132,14 @@ void MainWindow::buildUi()
     auto *dashboardButton = addNavButton(QStringLiteral("Dashboard"), 0);
     addNavButton(QStringLiteral("Parking Map"), 1);
     m_eventsNavButton = addNavButton(QStringLiteral("Events"), 2);
-    addNavButton(QStringLiteral("Settings"), 3);
-    addNavButton(QStringLiteral("Debug"), 4);
+    m_evidenceNavButton = addNavButton(QStringLiteral("Evidence"), 3);
+    addNavButton(QStringLiteral("Settings"), 4);
+    addNavButton(QStringLiteral("Debug"), 5);
+    connect(m_evidenceNavButton, &QPushButton::clicked, this, [this]() {
+        if (m_evidencePage) {
+            m_evidencePage->requestCurrentEvidence();
+        }
+    });
     sideLayout->addStretch();
 
     auto *contentWidget = new QWidget(central);
@@ -183,11 +189,13 @@ void MainWindow::buildUi()
                                         m_cameraSettings.rtspUrls(QStringLiteral("profile2")), m_pages);
     m_parkingMapPage = new ParkingMapPage(parkingMapLayoutPath(), m_pages);
     m_eventsPage = new EventsPage(m_pages);
+    m_evidencePage = new EvidencePage(m_pages);
     m_settingsPage = new SettingsPage(m_cameraSettings.configPath(), m_cameraSettings.cameraIp(), m_pages);
     m_debugPage = new DebugPage(m_pages);
     m_pages->addWidget(m_dashboardPage);
     m_pages->addWidget(m_parkingMapPage);
     m_pages->addWidget(m_eventsPage);
+    m_pages->addWidget(m_evidencePage);
     m_pages->addWidget(m_settingsPage);
     m_pages->addWidget(m_debugPage);
     contentLayout->addWidget(m_pages, 1);
@@ -215,6 +223,7 @@ void MainWindow::buildUi()
 
 void MainWindow::connectPages()
 {
+    m_evidencePage->setImageLoader(m_parkingController->imageLoader());
     connect(m_parkingController, &ParkingController::stateChanged,
             this, &MainWindow::renderParkingState);
     connect(m_parkingController, &ParkingController::bannerChanged, this,
@@ -236,6 +245,8 @@ void MainWindow::connectPages()
             m_diagnosticsService, &DiagnosticsService::setApiState);
     connect(m_dashboardPage, &DashboardPage::rtspDiagnosticsChanged,
             m_diagnosticsService, &DiagnosticsService::setRtspChannels);
+    connect(m_dashboardPage, &DashboardPage::evidenceRequested, this,
+            [this](const QString &sourceId) { showEvidencePage(sourceId); });
     connect(m_parkingSimulationService, &ParkingSimulationService::simulationApplied,
             m_diagnosticsService, &DiagnosticsService::markSimulationApplied);
     connect(m_diagnosticsService, &DiagnosticsService::apiStateChanged,
@@ -262,10 +273,23 @@ void MainWindow::connectPages()
     connect(m_parkingController, &ParkingController::statusMessageChanged,
             m_debugPage, &DebugPage::setLastMessage);
     connect(m_parkingController, &ParkingController::slotDetailReady,
-            this, &MainWindow::showSlotEvidence);
+            this, [this](const QString &slotId) {
+                m_evidencePage->setImageLoader(m_parkingController->imageLoader());
+                m_evidencePage->showEvidence(
+                    slotId, m_parkingController->slotState(slotId),
+                    m_parkingController->plateNumber(slotId),
+                    m_parkingController->images(slotId));
+            });
+    connect(m_parkingController, &ParkingController::slotDetailFailed,
+            m_evidencePage, &EvidencePage::showError);
     connect(m_parkingController, &ParkingController::detailError, this,
             [this](const QString &message) {
-                QMessageBox::warning(this, QStringLiteral("Parking detail"), message);
+                m_evidencePage->showError(QString(), message);
+            });
+    connect(m_evidencePage, &EvidencePage::evidenceRequested, this,
+            [this](const QString &slotId) {
+                m_evidencePage->setImageLoader(m_parkingController->imageLoader());
+                m_parkingController->requestSlotDetail(slotId);
             });
     connect(m_debugPage, &DebugPage::clearAlarmsRequested,
             m_parkingController, &ParkingController::clearAlarms);
@@ -292,6 +316,8 @@ void MainWindow::connectPages()
                     success ? QStringLiteral("EXPORT_CSV") : QStringLiteral("EXPORT_ERROR"),
                     message, success ? QStringLiteral("DONE") : QStringLiteral("FAILED"));
             });
+    connect(m_eventsPage, &EventsPage::evidenceRequested, this,
+            [this](const QString &sourceId) { showEvidencePage(sourceId); });
     connect(m_settingsPage, &SettingsPage::saveCameraIpRequested,
             this, &MainWindow::saveCameraIp);
     connect(m_settingsPage, &SettingsPage::saveServerBaseUrlRequested,
@@ -312,6 +338,7 @@ void MainWindow::renderParkingState()
 {
     const ParkingViewState &state = m_parkingController->state();
     m_parkingMapPage->render(state);
+    m_evidencePage->render(state);
     int occupied = 0;
     int vacant = 0;
     int sensorErrors = 0;
@@ -338,22 +365,6 @@ void MainWindow::renderParkingState()
         m_diagnosticsService->setParkingSummary(
             state.evSlots.size() + state.parkingSlots.size(), activeAlarms);
     }
-}
-
-void MainWindow::showSlotEvidence(const QString &slotId)
-{
-    const QList<ParkingImageResource> images = m_parkingController->images(slotId);
-    if (images.isEmpty()) {
-        QMessageBox::information(
-            this, QStringLiteral("Parking detail"),
-            QStringLiteral("%1 has no image data.").arg(slotId));
-        return;
-    }
-    auto *dialog = new SlotEvidenceDialog(
-        slotId, m_parkingController->slotState(slotId),
-        m_parkingController->plateNumber(slotId), images,
-        m_parkingController->imageLoader(), this);
-    dialog->show();
 }
 
 void MainWindow::updateNotificationIndicator()
@@ -403,7 +414,8 @@ void MainWindow::showNotificationPopup()
         "QListWidget::item { border-bottom: 1px solid #eceff1; padding: 7px; }"
         "QListWidget::item:selected { background: #fff3e0; color: #17212b; }"
         "QPushButton { background: #263238; color: white; border: none; border-radius: 4px; padding: 7px 10px; font-weight: 700; }"
-        "QPushButton:hover { background: #37474f; }"));
+        "QPushButton:hover { background: #37474f; }"
+        "QPushButton:disabled { background: #cfd8dc; color: #78909c; }"));
     connect(popup, &QObject::destroyed, this, [this]() {
         m_notificationPopup = nullptr;
     });
@@ -440,6 +452,10 @@ void MainWindow::showNotificationPopup()
     detailLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     layout->addWidget(detailLabel);
 
+    auto *evidenceButton = new QPushButton(QStringLiteral("View evidence"), popup);
+    evidenceButton->setObjectName(QStringLiteral("notificationEvidenceButton"));
+    evidenceButton->setEnabled(false);
+
     if (notifications.isEmpty()) {
         auto *item = new QListWidgetItem(QStringLiteral("No important notifications are currently open."), list);
         item->setFlags(Qt::NoItemFlags);
@@ -457,21 +473,34 @@ void MainWindow::showNotificationPopup()
             item->setData(Qt::UserRole, i);
             item->setSizeHint(QSize(0, 56));
         }
-        list->setCurrentRow(0);
-        detailLabel->setText(formatNotificationDetail(notifications.first()));
-        connect(list, &QListWidget::itemClicked, popup,
-                [detailLabel, notifications](QListWidgetItem *item) {
+        auto updateNotificationSelection =
+            [this, detailLabel, evidenceButton, notifications](QListWidgetItem *item) {
                     if (!item) return;
                     const int index = item->data(Qt::UserRole).toInt();
                     if (index < 0 || index >= notifications.size()) return;
-                    detailLabel->setText(formatNotificationDetail(notifications.at(index)));
+                    const NotificationRecord &notification = notifications.at(index);
+                    detailLabel->setText(formatNotificationDetail(notification));
+                    const bool available = isEvidenceSlot(notification.sourceId);
+                    evidenceButton->setEnabled(available);
+                    evidenceButton->setToolTip(
+                        available
+                            ? QStringLiteral("Open %1 evidence").arg(notification.sourceId)
+                            : QStringLiteral("This notification is not mapped to a parking slot"));
+                };
+        connect(list, &QListWidget::currentItemChanged, popup,
+                [updateNotificationSelection](QListWidgetItem *current,
+                                              QListWidgetItem *) {
+                    updateNotificationSelection(current);
                 });
+        list->setCurrentRow(0);
+        updateNotificationSelection(list->currentItem());
     }
 
     auto *buttonLayout = new QHBoxLayout;
     buttonLayout->addStretch();
     auto *eventsButton = new QPushButton(QStringLiteral("View all events"), popup);
     auto *closeButton = new QPushButton(QStringLiteral("Close"), popup);
+    buttonLayout->addWidget(evidenceButton);
     buttonLayout->addWidget(eventsButton);
     buttonLayout->addWidget(closeButton);
     layout->addLayout(buttonLayout);
@@ -480,6 +509,16 @@ void MainWindow::showNotificationPopup()
         popup->close();
         showEventsPage();
     });
+    connect(evidenceButton, &QPushButton::clicked, this,
+            [this, popup, list, notifications]() {
+                const QListWidgetItem *item = list->currentItem();
+                if (!item) return;
+                const int index = item->data(Qt::UserRole).toInt();
+                if (index < 0 || index >= notifications.size()) return;
+                const QString sourceId = notifications.at(index).sourceId;
+                popup->close();
+                showEvidencePage(sourceId);
+            });
     connect(closeButton, &QPushButton::clicked, popup, &QFrame::close);
 
     popup->adjustSize();
@@ -502,6 +541,32 @@ void MainWindow::showEventsPage()
     if (m_eventsNavButton) {
         m_eventsNavButton->setChecked(true);
     }
+}
+
+bool MainWindow::isEvidenceSlot(const QString &sourceId) const
+{
+    if (!m_parkingController) {
+        return false;
+    }
+    const QString slotId = normalizeParkingSlotId(sourceId);
+    const ParkingViewState &state = m_parkingController->state();
+    return state.evSlots.contains(slotId) || state.parkingSlots.contains(slotId);
+}
+
+bool MainWindow::showEvidencePage(const QString &sourceId)
+{
+    if (!m_pages || !m_evidencePage || !isEvidenceSlot(sourceId)) {
+        return false;
+    }
+    const QString slotId = normalizeParkingSlotId(sourceId);
+    if (!m_evidencePage->selectSlot(slotId)) {
+        return false;
+    }
+    m_pages->setCurrentWidget(m_evidencePage);
+    if (m_evidenceNavButton) {
+        m_evidenceNavButton->setChecked(true);
+    }
+    return true;
 }
 
 QString MainWindow::cameraConfigPath() const

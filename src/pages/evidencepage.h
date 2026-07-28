@@ -1,0 +1,101 @@
+#ifndef EVIDENCEPAGE_H
+#define EVIDENCEPAGE_H
+
+#include "api/parkingmodels.h"
+#include "models/parkingstate.h"
+
+#include <QList>
+#include <QHash>
+#include <QPixmap>
+#include <QPointer>
+#include <QVector>
+#include <QWidget>
+
+class EvidenceImageLabel;
+class ImageLoader;
+class QLabel;
+class QLineEdit;
+class QListWidget;
+class QListWidgetItem;
+class QPushButton;
+class QTableWidget;
+
+class EvidencePage : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit EvidencePage(QWidget *parent = nullptr);
+
+    void setImageLoader(ImageLoader *imageLoader);
+    void render(const ParkingViewState &state);
+    void showEvidence(const QString &slotId, SlotState state,
+                      const QString &plateNumber,
+                      const QList<ParkingImageResource> &images);
+    void showLoading(const QString &slotId);
+    void showError(const QString &slotId, const QString &message);
+    bool selectSlot(const QString &slotId);
+    QString currentSlotId() const;
+    int captureCount() const;
+
+public slots:
+    void requestCurrentEvidence();
+
+signals:
+    void evidenceRequested(const QString &slotId);
+
+private:
+    struct CaptureGroup {
+        qint64 imageId = -1;
+        QDateTime timestamp;
+        QString reason;
+        QString ocrResult;
+        QList<ParkingImageResource> variants;
+    };
+
+    static QVector<CaptureGroup> buildCaptureGroups(
+        const QList<ParkingImageResource> &images);
+    void handleSlotChanged(QListWidgetItem *current);
+    void filterSlots(const QString &text);
+    void renderCaptureTable();
+    void renderFirstCapture();
+    void renderSelectedCapture(int row);
+    void renderCaptureCard(const CaptureGroup *capture,
+                           const QString &heading,
+                           EvidenceImageLabel *imageLabel,
+                           QLabel *titleLabel,
+                           QLabel *metadataLabel,
+                           QPushButton *openButton,
+                           const QString &requestRole);
+    void clearCaptureCard(EvidenceImageLabel *imageLabel,
+                          QLabel *titleLabel,
+                          QLabel *metadataLabel,
+                          QPushButton *openButton,
+                          const QString &title,
+                          const QString &message);
+    void showHelpDialog();
+    void showFullImage(EvidenceImageLabel *source, const QString &title);
+
+    QPointer<ImageLoader> m_imageLoader;
+    QListWidget *m_slotList = nullptr;
+    QLineEdit *m_slotSearch = nullptr;
+    QLabel *m_summaryLabel = nullptr;
+    QLabel *m_statusLabel = nullptr;
+    EvidenceImageLabel *m_firstImageLabel = nullptr;
+    EvidenceImageLabel *m_selectedImageLabel = nullptr;
+    QLabel *m_firstTitleLabel = nullptr;
+    QLabel *m_selectedTitleLabel = nullptr;
+    QLabel *m_firstMetadataLabel = nullptr;
+    QLabel *m_selectedMetadataLabel = nullptr;
+    QPushButton *m_firstOpenButton = nullptr;
+    QPushButton *m_selectedOpenButton = nullptr;
+    QTableWidget *m_captureTable = nullptr;
+    QString m_currentSlotId;
+    QString m_plateNumber;
+    QVector<CaptureGroup> m_captures;
+    QHash<QString, EvidenceImageLabel *> m_requestTargets;
+    quint64 m_requestGeneration = 0;
+    quint64 m_requestSequence = 0;
+};
+
+#endif

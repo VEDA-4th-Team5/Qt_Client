@@ -6,6 +6,7 @@
 #include "models/parkingstate.h"
 
 #include <QObject>
+#include <QHash>
 #include <QUrl>
 
 class ApiClient;
@@ -52,6 +53,7 @@ signals:
     void statusMessageChanged(const QString &message);
     void eventLogged(const MonitoringEvent &event);
     void slotDetailReady(const QString &slotId);
+    void slotDetailFailed(const QString &slotId, const QString &message);
     void detailError(const QString &message);
     void serverBaseUrlChanged(const QString &baseUrl);
     void serverConnectionChanged(const QString &status, bool connected);
@@ -66,7 +68,10 @@ private:
     void rebuildApiClient();
     void scheduleReconnect(const QString &reason);
     void applyParkingSnapshot(const QJsonDocument &document);
-    void applyParkingSlotDetail(const QJsonDocument &document);
+    void applyParkingSlotDetail(const QString &requestedSlotId,
+                                const QJsonDocument &document);
+    void applyParkingSessionImages(const QString &slotId,
+                                   const QJsonDocument &document);
     void resetSlotsForSnapshot();
     void notifyStateChanged();
     void refreshAlert();
@@ -88,6 +93,9 @@ private:
     QUrl m_apiBaseUrl;
     QString m_slotsPath;
     QString m_slotDetailPath;
+    QString m_sessionImagesPath;
+    QHash<QString, QString> m_pendingDetailRequests;
+    QHash<QString, QString> m_pendingImageRequests;
     int m_apiTimeoutMs = 5000;
     int m_reconnectIntervalMs = 5000;
     int m_maxReconnectIntervalMs = 60000;

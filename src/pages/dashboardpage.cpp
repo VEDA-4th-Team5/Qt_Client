@@ -54,6 +54,7 @@ DashboardPage::DashboardPage(const QStringList &lowRtspUrls,
     pageLayout->addLayout(topLayout, 4);
 
     m_recentEventTable = new QTableWidget(0, 5, this);
+    m_recentEventTable->setObjectName(QStringLiteral("recentEventTable"));
     m_recentEventTable->setHorizontalHeaderLabels({QStringLiteral("Time"), QStringLiteral("Zone"), QStringLiteral("Event"), QStringLiteral("Message"), QStringLiteral("Status")});
     m_recentEventTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     m_recentEventTable->verticalHeader()->setVisible(false);
@@ -61,6 +62,10 @@ DashboardPage::DashboardPage(const QStringList &lowRtspUrls,
     m_recentEventTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     auto *recentGroup = new QGroupBox(QStringLiteral("Recent Events"), this);
     auto *recentLayout = new QVBoxLayout(recentGroup);
+    auto *recentHint = new QLabel(
+        QStringLiteral("Double-click a parking event to view evidence."), recentGroup);
+    recentHint->setStyleSheet(QStringLiteral("color:#607d8b;"));
+    recentLayout->addWidget(recentHint);
     recentLayout->addWidget(m_recentEventTable);
     pageLayout->addWidget(recentGroup, 1);
     startDelayedVideoStreams();
@@ -71,6 +76,13 @@ DashboardPage::DashboardPage(const QStringList &lowRtspUrls,
             this, &DashboardPage::publishRtspDiagnostics);
     m_diagnosticTimer->start();
     QTimer::singleShot(0, this, &DashboardPage::publishRtspDiagnostics);
+    connect(m_recentEventTable, &QTableWidget::cellDoubleClicked, this,
+            [this](int row, int) {
+                const QTableWidgetItem *sourceItem = m_recentEventTable->item(row, 1);
+                if (sourceItem && !sourceItem->text().trimmed().isEmpty()) {
+                    emit evidenceRequested(sourceItem->text());
+                }
+            });
 }
 
 QWidget *DashboardPage::createVideoChannel(int channelIndex, const QString &channel,

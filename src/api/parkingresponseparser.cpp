@@ -49,6 +49,31 @@ ParkingImageResource imageFromObject(const QJsonObject &image,
         image,
         {QStringLiteral("captured_at"), QStringLiteral("processed_at"), QStringLiteral("timestamp")});
     resource.timestamp = QDateTime::fromString(timestamp, Qt::ISODate);
+    const QJsonValue imageId = image.value(QStringLiteral("image_id"));
+    if (!imageId.isNull() && !imageId.isUndefined()) {
+        resource.imageId = imageId.toVariant().toLongLong();
+    }
+    const QJsonValue sessionId = image.value(QStringLiteral("session_id"));
+    if (!sessionId.isNull() && !sessionId.isUndefined()) {
+        resource.sessionId = sessionId.toVariant().toLongLong();
+    }
+    resource.enhancementType = firstString(
+        image, {QStringLiteral("enhancement_type"), QStringLiteral("enhancementType")});
+    resource.ocrResult = firstString(
+        image, {QStringLiteral("ocr_result"), QStringLiteral("ocrResult")});
+    resource.evidenceReason = firstString(
+        image, {QStringLiteral("evidence_reason"), QStringLiteral("capture_reason"),
+                QStringLiteral("reason")}).toUpper();
+    return resource;
+}
+
+ParkingImageResource sessionImageVariant(const QJsonObject &item,
+                                         const QString &urlKey,
+                                         const QString &processing)
+{
+    ParkingImageResource resource = imageFromObject(
+        item, QStringLiteral("EVIDENCE"), processing);
+    resource.url = QUrl(item.value(urlKey).toString());
     return resource;
 }
 
@@ -70,11 +95,19 @@ bool parseSlotObject(const QJsonObject &item,
     const QJsonObject session = firstObject(
         item, {QStringLiteral("active_session"), QStringLiteral("activeSession")});
     const QJsonObject &details = session.isEmpty() ? item : session;
+    QJsonValue sessionId = details.value(QStringLiteral("session_id"));
+    if (sessionId.isNull() || sessionId.isUndefined()) {
+        sessionId = details.value(QStringLiteral("sessionId"));
+    }
+    if (!sessionId.isNull() && !sessionId.isUndefined()) {
+        parsed.sessionId = sessionId.toVariant().toLongLong();
+    }
 
     parsed.plateNumber = firstString(
         details, {QStringLiteral("plate_number"), QStringLiteral("plateNumber")});
     const QString vehicleType = firstString(
-        details, {QStringLiteral("vehicle_type"), QStringLiteral("vehicleType")}).toUpper();
+        details, {QStringLiteral("vehicle_type"), QStringLiteral("vehicleType"),
+                  QStringLiteral("ev_status")}).toUpper();
     QJsonValue isEvValue = item.value(QStringLiteral("is_ev"));
     if (!isEvValue.isBool()) {
         isEvValue = details.value(QStringLiteral("is_ev"));
@@ -202,4 +235,44 @@ bool ParkingResponseParser::parseSlotDetail(const QJsonDocument &document,
         return false;
     }
     return parseSlotObject(document.object(), slot, errorMessage);
+}
+
+bool ParkingResponseParser::parseSessionImages(
+    const QJsonDocument &document,
+    QList<ParkingImageResource> &images,
+    QString &errorMessage)
+{
+    if (!document.isObject()) {
+        errorMessage = QStringLiteral("Parking session images must be a JSON object");
+        return false;
+    }
+
+    const QJsonValue itemsValue = document.object().value(QStringLiteral("items"));
+    if (!itemsValue.isArray()) {
+        errorMessage = QStringLiteral("Parking session images response is missing items array");
+        return false;
+    }
+
+    QList<ParkingImageResource> parsed;
+    for (const QJsonValue &value : itemsValue.toArray()) {
+        if (!value.isObject()) {
+            errorMessage = QStringLiteral("Parking session image item must be an object");
+            return false;
+        }
+        const QJsonObject item = value.toObject();
+        ParkingImageResource original = sessionImageVariant(
+            item, QStringLiteral("original_url"), QStringLiteral("ORIGINAL"));
+        if (!original.url.isEmpty()) {
+            parsed.append(original);
+        }
+        ParkingImageResource enhanced = sessionImageVariant(
+            item, QStringLiteral("enhanced_url"), QStringLiteral("ENHANCED"));
+        if (!enhanced.url.isEmpty()) {
+            parsed.append(enhanced);
+        }
+    }
+
+    images = parsed;
+    errorMessage.clear();
+    return true;
 }

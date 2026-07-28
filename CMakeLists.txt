@@ -91,6 +91,8 @@ add_executable(smart_parking_qt_client
     src/pages/dashboardpage.h
     src/pages/debugpage.cpp
     src/pages/debugpage.h
+    src/pages/evidencepage.cpp
+    src/pages/evidencepage.h
     src/pages/eventspage.cpp
     src/pages/eventspage.h
     src/pages/parkingmappage.cpp
@@ -341,6 +343,49 @@ if (BUILD_TESTING)
     )
     add_test(NAME camera_settings COMMAND camerasettings_test)
 
+    add_executable(parkingresponseparser_evidence_test
+        tests/parkingresponseparser_evidence_test.cpp
+        src/api/parkingmodels.h
+        src/api/parkingresponseparser.cpp
+        src/api/parkingresponseparser.h
+    )
+    target_include_directories(parkingresponseparser_evidence_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingresponseparser_evidence_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(parkingresponseparser_evidence_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parkingresponseparser_evidence COMMAND parkingresponseparser_evidence_test)
+
+    add_executable(evidencepage_test
+        tests/evidencepage_test.cpp
+        src/pages/evidencepage.cpp
+        src/pages/evidencepage.h
+        src/pages/eventspage.cpp
+        src/pages/eventspage.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
+        src/api/parkingmodels.h
+    )
+    target_include_directories(evidencepage_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(evidencepage_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(evidencepage_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME evidencepage COMMAND evidencepage_test)
+
     add_executable(parkingmappage_add_slot_test
         tests/parkingmappage_add_slot_test.cpp
         src/pages/parkingmappage.cpp
@@ -364,6 +409,11 @@ if (BUILD_TESTING)
     get_filename_component(QT_RUNTIME_ROOT
         "${${QT_GUI_DIR_VARIABLE}}/../../.." ABSOLUTE)
     set_tests_properties(parkingmappage_add_slot PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
+    set_tests_properties(evidencepage PROPERTIES
         ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
         TIMEOUT 30
