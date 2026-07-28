@@ -27,6 +27,7 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QKeySequence>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
@@ -445,6 +446,8 @@ bool sameZoneLayout(const ParkingZoneLayout &left, const ParkingZoneLayout &righ
         && left.hallSensorId == right.hallSensorId
         && left.enabled == right.enabled;
 }
+
+constexpr int kUndoHistoryLimit = 30;
 }
 
 ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
@@ -462,6 +465,11 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     auto *toolbarLayout = new QHBoxLayout;
     m_editToggleButton = new QPushButton(QStringLiteral("Edit layout"), mapGroup);
     m_editToggleButton->setCheckable(true);
+    m_undoButton = new QPushButton(QStringLiteral("Undo"), mapGroup);
+    m_undoButton->setObjectName(QStringLiteral("undoLayoutButton"));
+    m_undoButton->setShortcut(QKeySequence(QKeySequence::Undo));
+    m_undoButton->setToolTip(QStringLiteral("Undo last layout edit (Ctrl+Z)"));
+    m_undoButton->setEnabled(false);
     m_editChannelNamesButton = new QPushButton(QStringLiteral("Channel names"), mapGroup);
     m_editChannelNamesButton->setObjectName(QStringLiteral("editChannelNamesButton"));
     m_editChannelNamesButton->setEnabled(false);
@@ -473,6 +481,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_layoutStatusLabel = new QLabel(QStringLiteral("-"), mapGroup);
     m_layoutStatusLabel->setStyleSheet(QStringLiteral("color: #607d8b; font-size: 11px;"));
     toolbarLayout->addWidget(m_editToggleButton);
+    toolbarLayout->addWidget(m_undoButton);
     toolbarLayout->addWidget(m_editChannelNamesButton);
     toolbarLayout->addWidget(addGeneralButton);
     toolbarLayout->addWidget(addEvButton);
@@ -669,6 +678,8 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
             this, &ParkingMapPage::handleZoneTableClicked);
     connect(m_editToggleButton, &QPushButton::toggled,
             this, &ParkingMapPage::setEditMode);
+    connect(m_undoButton, &QPushButton::clicked,
+            this, &ParkingMapPage::undoLastLayoutChange);
     connect(m_editChannelNamesButton, &QPushButton::clicked,
             this, &ParkingMapPage::editChannelDisplayNames);
     connect(addGeneralButton, &QPushButton::clicked,
@@ -697,6 +708,10 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
                 this, &ParkingMapPage::applyEditorFields);
     }
     for (QSlider *slider : {m_widthSlider, m_heightSlider, m_rotationSlider}) {
+        connect(slider, &QSlider::sliderPressed,
+                this, &ParkingMapPage::beginEditorSliderGesture);
+        connect(slider, &QSlider::sliderReleased,
+                this, &ParkingMapPage::endEditorSliderGesture);
         connect(slider, &QSlider::valueChanged, this, [this]() {
             updateGeometrySliderLabels();
             applyEditorFields();
@@ -742,9 +757,110 @@ void ParkingMapPage::render(const ParkingViewState &state)
     updateEditorFromSelection();
 }
 
+ParkingMapPage::LayoutSnapshot ParkingMapPage::captureLayoutSnapshot() const
+{
+    LayoutSnapshot snapshot;
+    snapshot.zones = m_zones;
+    snapshot.channelDisplayNames = m_channelDisplayNames;
+    snapshot.selectedZoneId = selectedZoneId();
+    return snapshot;
+}
+
+void ParkingMapPage::pushUndoSnapshot(const LayoutSnapshot &snapshot)
+{
+    if (m_undoHistory.size() >= kUndoHistoryLimit) {
+        m_undoHistory.removeFirst();
+    }
+    m_undoHistory.append(snapshot);
+    updateUndoButtonState();
+}
+
+void ParkingMapPage::pushCurrentLayoutToUndoHistory()
+{
+    pushUndoSnapshot(captureLayoutSnapshot());
+}
+
+void ParkingMapPage::clearUndoHistory()
+{
+    m_undoHistory.clear();
+    m_hasPendingDragSnapshot = false;
+    m_editorSliderGestureActive = false;
+    m_editorSliderSnapshotRecorded = false;
+    m_cleanLayoutSnapshot = captureLayoutSnapshot();
+    updateUndoButtonState();
+}
+
+void ParkingMapPage::restoreLayoutSnapshot(const LayoutSnapshot &snapshot)
+{
+    m_zones = snapshot.zones;
+    m_channelDisplayNames = snapshot.channelDisplayNames;
+    m_hasPendingDragSnapshot = false;
+    m_editorSliderGestureActive = false;
+    m_editorSliderSnapshotRecorded = false;
+
+    rebuildScene();
+    updateZoneTable();
+    if (!snapshot.selectedZoneId.isEmpty()
+        && zoneIndexById(snapshot.selectedZoneId) >= 0) {
+        selectZoneById(snapshot.selectedZoneId);
+    } else {
+        updateEditorFromSelection();
+    }
+}
+
+bool ParkingMapPage::layoutMatchesCleanSnapshot() const
+{
+    if (m_channelDisplayNames != m_cleanLayoutSnapshot.channelDisplayNames
+        || m_zones.size() != m_cleanLayoutSnapshot.zones.size()) {
+        return false;
+    }
+    for (int index = 0; index < m_zones.size(); ++index) {
+        if (!sameZoneLayout(m_zones.at(index), m_cleanLayoutSnapshot.zones.at(index))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void ParkingMapPage::updateUndoButtonState()
+{
+    if (m_undoButton) {
+        m_undoButton->setEnabled(!m_undoHistory.isEmpty());
+    }
+}
+
+void ParkingMapPage::beginEditorSliderGesture()
+{
+    if (m_updatingEditor || !m_editMode) return;
+    m_editorSliderSnapshot = captureLayoutSnapshot();
+    m_editorSliderGestureActive = true;
+    m_editorSliderSnapshotRecorded = false;
+}
+
+void ParkingMapPage::endEditorSliderGesture()
+{
+    m_editorSliderGestureActive = false;
+    m_editorSliderSnapshotRecorded = false;
+}
+
+void ParkingMapPage::undoLastLayoutChange()
+{
+    if (m_undoHistory.isEmpty()) return;
+
+    const LayoutSnapshot snapshot = m_undoHistory.takeLast();
+    restoreLayoutSnapshot(snapshot);
+    updateUndoButtonState();
+    const bool matchesCleanSnapshot = layoutMatchesCleanSnapshot();
+    setLayoutDirty(!matchesCleanSnapshot,
+                   matchesCleanSnapshot
+                       ? QStringLiteral("Restored saved layout")
+                       : QStringLiteral("Undo applied"));
+}
+
 void ParkingMapPage::addGeneralZone()
 {
     syncZonesFromItems();
+    pushCurrentLayoutToUndoHistory();
     ParkingZoneLayout zone;
     zone.zoneId = nextZoneId(QStringLiteral("P"));
     zone.zoneType = QStringLiteral("GENERAL");
@@ -770,6 +886,7 @@ void ParkingMapPage::addGeneralZone()
 void ParkingMapPage::addEvZone()
 {
     syncZonesFromItems();
+    pushCurrentLayoutToUndoHistory();
     ParkingZoneLayout zone;
     zone.zoneId = nextZoneId(QStringLiteral("EV"));
     zone.zoneType = QStringLiteral("EV");
@@ -795,9 +912,11 @@ void ParkingMapPage::addEvZone()
 
 void ParkingMapPage::deleteSelectedZone()
 {
+    syncZonesFromItems();
     const QString zoneId = selectedZoneId();
     const int index = zoneIndexById(zoneId);
     if (index < 0) return;
+    pushCurrentLayoutToUndoHistory();
     m_zones.removeAt(index);
     rebuildScene();
     updateZoneTable();
@@ -828,6 +947,7 @@ bool ParkingMapPage::saveLayoutNow(QString *errorMessage)
     }
 
     if (errorMessage) errorMessage->clear();
+    clearUndoHistory();
     setLayoutDirty(false, QStringLiteral("Saved local layout"));
     emit layoutSaveResult(
         true,
@@ -847,7 +967,20 @@ void ParkingMapPage::reloadLayout()
 
 void ParkingMapPage::resetDefaultLayout()
 {
-    m_zones = defaultParkingZoneLayout();
+    syncZonesFromItems();
+    const QList<ParkingZoneLayout> defaultZones = defaultParkingZoneLayout();
+    if (m_channelDisplayNames.isEmpty() && m_zones.size() == defaultZones.size()) {
+        bool alreadyDefault = true;
+        for (int index = 0; index < m_zones.size(); ++index) {
+            if (!sameZoneLayout(m_zones.at(index), defaultZones.at(index))) {
+                alreadyDefault = false;
+                break;
+            }
+        }
+        if (alreadyDefault) return;
+    }
+    pushCurrentLayoutToUndoHistory();
+    m_zones = defaultZones;
     m_channelDisplayNames.clear();
     rebuildScene();
     updateZoneTable();
@@ -921,6 +1054,14 @@ void ParkingMapPage::applyEditorFields()
     }
     applyZoneTypeRules(&zone, previousChannel != zone.cameraChannel ? QString() : preferredIva);
     if (sameZoneLayout(previousZone, zone)) return;
+    if (m_editorSliderGestureActive) {
+        if (!m_editorSliderSnapshotRecorded) {
+            pushUndoSnapshot(m_editorSliderSnapshot);
+            m_editorSliderSnapshotRecorded = true;
+        }
+    } else {
+        pushCurrentLayoutToUndoHistory();
+    }
     m_zones[index] = zone;
 
     if (oldZoneId != zone.zoneId) {
@@ -960,12 +1101,14 @@ void ParkingMapPage::loadLayout()
                                  &loadedChannelDisplayNames, &error)) {
         m_zones = loadedZones;
         m_channelDisplayNames = loadedChannelDisplayNames;
+        clearUndoHistory();
         setLayoutDirty(false, QStringLiteral("Loaded local layout"));
         return;
     }
 
     m_zones = defaultParkingZoneLayout();
     m_channelDisplayNames.clear();
+    clearUndoHistory();
     setLayoutDirty(false, QStringLiteral("Loaded default layout"));
 }
 
@@ -988,6 +1131,7 @@ bool ParkingMapPage::setChannelDisplayName(const QString &channel, const QString
     const QString previousDisplayName = m_channelDisplayNames.value(normalizedChannel);
     if (previousDisplayName == normalizedDisplayName) return false;
 
+    pushCurrentLayoutToUndoHistory();
     if (normalizedDisplayName.isEmpty()) {
         m_channelDisplayNames.remove(normalizedChannel);
     } else {
@@ -1046,6 +1190,7 @@ void ParkingMapPage::editChannelDisplayNames()
     }
     if (updatedNames == m_channelDisplayNames) return;
 
+    pushCurrentLayoutToUndoHistory();
     m_channelDisplayNames = updatedNames;
     rebuildScene();
     updateZoneTable();
@@ -1206,11 +1351,14 @@ SlotVisualState ParkingMapPage::visualStateForZone(const QString &zoneId, bool *
 
 void ParkingMapPage::handleZoneItemDragStarted(const QString &zoneId)
 {
-    Q_UNUSED(zoneId)
     if (m_rebuildingScene) return;
     if (!m_editMode && m_editToggleButton) {
         m_editToggleButton->setChecked(true);
     }
+    if (zoneIndexById(zoneId) < 0) return;
+    syncZonesFromItems();
+    m_pendingDragSnapshot = captureLayoutSnapshot();
+    m_hasPendingDragSnapshot = true;
 }
 
 void ParkingMapPage::handleZoneItemMoved(const QString &zoneId)
@@ -1230,7 +1378,16 @@ void ParkingMapPage::handleZoneItemMoved(const QString &zoneId)
         zone.cameraChannel = detectedChannel;
     }
     applyZoneTypeRules(&zone);
-    if (sameZoneLayout(previousZone, zone)) return;
+    if (sameZoneLayout(previousZone, zone)) {
+        m_hasPendingDragSnapshot = false;
+        return;
+    }
+    if (m_hasPendingDragSnapshot) {
+        pushUndoSnapshot(m_pendingDragSnapshot);
+    } else {
+        pushCurrentLayoutToUndoHistory();
+    }
+    m_hasPendingDragSnapshot = false;
     m_zones[index] = zone;
 
     updateZoneVisual(zone.zoneId);
@@ -1265,26 +1422,30 @@ void ParkingMapPage::showZoneContextMenu(const QString &zoneId, const QPoint &sc
 
 void ParkingMapPage::resetSelectedZoneShape()
 {
+    syncZonesFromItems();
     const QString selectedId = selectedZoneId();
     const int index = zoneIndexById(selectedId);
     if (index < 0) return;
 
-    ParkingZoneLayout &zone = m_zones[index];
-    QGraphicsRectItem *item = m_zoneItems.value(zone.zoneId);
+    const ParkingZoneLayout previousZone = m_zones.at(index);
+    QGraphicsRectItem *item = m_zoneItems.value(previousZone.zoneId);
     const bool itemAlreadyDefault = !item
         || (item->rect().width() == 84.0
             && item->rect().height() == 58.0
             && item->rotation() == 0.0);
-    if (zone.rect.width() == 84.0
-        && zone.rect.height() == 58.0
-        && zone.rotation == 0.0
+    if (previousZone.rect.width() == 84.0
+        && previousZone.rect.height() == 58.0
+        && previousZone.rotation == 0.0
         && itemAlreadyDefault) {
         return;
     }
 
+    pushCurrentLayoutToUndoHistory();
+    ParkingZoneLayout zone = previousZone;
     const QPointF position = item ? item->pos() : zone.rect.topLeft();
     zone.rect = QRectF(position.x(), position.y(), 84, 58);
     zone.rotation = 0.0;
+    m_zones[index] = zone;
     if (item) {
         item->setPos(position);
         item->setRect(QRectF(0, 0, zone.rect.width(), zone.rect.height()));

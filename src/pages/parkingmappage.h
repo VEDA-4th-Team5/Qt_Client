@@ -50,6 +50,7 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private slots:
+    void undoLastLayoutChange();
     void addGeneralZone();
     void addEvZone();
     void deleteSelectedZone();
@@ -65,7 +66,22 @@ private slots:
     void editChannelDisplayNames();
 
 private:
+    struct LayoutSnapshot {
+        QList<ParkingZoneLayout> zones;
+        ParkingChannelDisplayNames channelDisplayNames;
+        QString selectedZoneId;
+    };
+
     void loadLayout();
+    LayoutSnapshot captureLayoutSnapshot() const;
+    void pushUndoSnapshot(const LayoutSnapshot &snapshot);
+    void pushCurrentLayoutToUndoHistory();
+    void clearUndoHistory();
+    void restoreLayoutSnapshot(const LayoutSnapshot &snapshot);
+    bool layoutMatchesCleanSnapshot() const;
+    void updateUndoButtonState();
+    void beginEditorSliderGesture();
+    void endEditorSliderGesture();
     QString exampleLayoutPath() const;
     QString nextZoneId(const QString &prefix) const;
     QRectF nextZoneRectForChannel(const QString &channel) const;
@@ -107,6 +123,13 @@ private:
     bool m_updatingEditor = false;
     bool m_rebuildingScene = false;
     bool m_layoutDirty = false;
+    QList<LayoutSnapshot> m_undoHistory;
+    LayoutSnapshot m_pendingDragSnapshot;
+    LayoutSnapshot m_editorSliderSnapshot;
+    LayoutSnapshot m_cleanLayoutSnapshot;
+    bool m_hasPendingDragSnapshot = false;
+    bool m_editorSliderGestureActive = false;
+    bool m_editorSliderSnapshotRecorded = false;
 
     QGraphicsScene *m_scene = nullptr;
     QGraphicsView *m_mapView = nullptr;
@@ -126,6 +149,7 @@ private:
     QLabel *m_selectedMetaLabel = nullptr;
     QLabel *m_selectedStateLabel = nullptr;
     QPushButton *m_editToggleButton = nullptr;
+    QPushButton *m_undoButton = nullptr;
     QPushButton *m_editChannelNamesButton = nullptr;
     QPushButton *m_deleteButton = nullptr;
     QLineEdit *m_zoneIdEdit = nullptr;
