@@ -386,6 +386,24 @@ if (BUILD_TESTING)
     )
     add_test(NAME evidencepage COMMAND evidencepage_test)
 
+    add_executable(eventspage_filter_test
+        tests/eventspage_filter_test.cpp
+        src/pages/eventspage.cpp
+        src/pages/eventspage.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+    )
+    target_include_directories(eventspage_filter_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(eventspage_filter_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(eventspage_filter_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME eventspage_filter COMMAND eventspage_filter_test)
+
     add_executable(parkingmappage_add_slot_test
         tests/parkingmappage_add_slot_test.cpp
         src/pages/parkingmappage.cpp

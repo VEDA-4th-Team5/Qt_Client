@@ -6,6 +6,10 @@
 #include <QWidget>
 
 class QTableWidget;
+class QComboBox;
+class QLabel;
+class QLineEdit;
+class QPushButton;
 
 class EventsPage : public QWidget
 {
@@ -20,10 +24,20 @@ signals:
     void evidenceRequested(const QString &sourceId);
 
 private slots:
+    void applyFilters();
     void exportCsv();
+    void resetFilters();
 
 private:
+    void addFilterOption(QComboBox *comboBox, const QString &value);
+
     QTableWidget *m_eventTable = nullptr;
+    QLineEdit *m_searchEdit = nullptr;
+    QComboBox *m_zoneFilter = nullptr;
+    QComboBox *m_eventTypeFilter = nullptr;
+    QComboBox *m_statusFilter = nullptr;
+    QPushButton *m_resetFilterButton = nullptr;
+    QLabel *m_filterResultLabel = nullptr;
 };
 
 #endif
