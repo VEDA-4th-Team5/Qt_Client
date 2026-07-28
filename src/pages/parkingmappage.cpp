@@ -4,11 +4,14 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCursor>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileInfo>
 #include <QFont>
+#include <QFontMetrics>
 #include <QFormLayout>
 #include <QGraphicsItem>
 #include <QGraphicsEllipseItem>
@@ -64,6 +67,14 @@ bool isIvaAreaId(const QString &value)
         || value == QStringLiteral("IVA2")
         || value == QStringLiteral("IVA3")
         || value == QStringLiteral("IVA4");
+}
+
+bool isCameraChannelId(const QString &value)
+{
+    return value == QStringLiteral("CH1")
+        || value == QStringLiteral("CH2")
+        || value == QStringLiteral("CH3")
+        || value == QStringLiteral("CH4");
 }
 
 QString displayIvaText(const QString &ivaAreaId)
@@ -422,14 +433,6 @@ QRectF channelPanelRect(const QString &channel)
     return QRectF(30, 36, 420, 220);
 }
 
-QString channelTitle(const QString &channel)
-{
-    if (channel == QStringLiteral("CH2")) return QStringLiteral("CH2 | IVA1-IVA4");
-    if (channel == QStringLiteral("CH3")) return QStringLiteral("CH3 | IVA1-IVA4");
-    if (channel == QStringLiteral("CH4")) return QStringLiteral("CH4 | IVA1-IVA4");
-    return QStringLiteral("CH1 | IVA1-IVA4");
-}
-
 bool sameZoneLayout(const ParkingZoneLayout &left, const ParkingZoneLayout &right)
 {
     return left.zoneId == right.zoneId
@@ -459,6 +462,9 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     auto *toolbarLayout = new QHBoxLayout;
     m_editToggleButton = new QPushButton(QStringLiteral("Edit layout"), mapGroup);
     m_editToggleButton->setCheckable(true);
+    m_editChannelNamesButton = new QPushButton(QStringLiteral("Channel names"), mapGroup);
+    m_editChannelNamesButton->setObjectName(QStringLiteral("editChannelNamesButton"));
+    m_editChannelNamesButton->setEnabled(false);
     auto *addGeneralButton = new QPushButton(QStringLiteral("Add General Slot"), mapGroup);
     auto *addEvButton = new QPushButton(QStringLiteral("Add EV Slot"), mapGroup);
     auto *saveButton = new QPushButton(QStringLiteral("Save layout"), mapGroup);
@@ -467,6 +473,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_layoutStatusLabel = new QLabel(QStringLiteral("-"), mapGroup);
     m_layoutStatusLabel->setStyleSheet(QStringLiteral("color: #607d8b; font-size: 11px;"));
     toolbarLayout->addWidget(m_editToggleButton);
+    toolbarLayout->addWidget(m_editChannelNamesButton);
     toolbarLayout->addWidget(addGeneralButton);
     toolbarLayout->addWidget(addEvButton);
     toolbarLayout->addWidget(saveButton);
@@ -662,6 +669,8 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
             this, &ParkingMapPage::handleZoneTableClicked);
     connect(m_editToggleButton, &QPushButton::toggled,
             this, &ParkingMapPage::setEditMode);
+    connect(m_editChannelNamesButton, &QPushButton::clicked,
+            this, &ParkingMapPage::editChannelDisplayNames);
     connect(addGeneralButton, &QPushButton::clicked,
             this, &ParkingMapPage::addGeneralZone);
     connect(addEvButton, &QPushButton::clicked,
@@ -808,7 +817,7 @@ bool ParkingMapPage::saveLayoutNow(QString *errorMessage)
 {
     syncZonesFromItems();
     QString error;
-    if (!saveParkingZoneLayout(m_layoutPath, m_zones, &error)) {
+    if (!saveParkingZoneLayout(m_layoutPath, m_zones, m_channelDisplayNames, &error)) {
         if (errorMessage) *errorMessage = error;
         if (m_layoutStatusLabel) {
             m_layoutStatusLabel->setText(
@@ -839,6 +848,7 @@ void ParkingMapPage::reloadLayout()
 void ParkingMapPage::resetDefaultLayout()
 {
     m_zones = defaultParkingZoneLayout();
+    m_channelDisplayNames.clear();
     rebuildScene();
     updateZoneTable();
     updateEditorFromSelection();
@@ -932,6 +942,7 @@ void ParkingMapPage::setEditMode(bool enabled)
 {
     m_editMode = enabled;
     m_editToggleButton->setText(enabled ? QStringLiteral("Finish edit") : QStringLiteral("Edit layout"));
+    m_editChannelNamesButton->setEnabled(enabled);
     syncItemsEditable();
     updateEditorFromSelection();
     if (!m_layoutDirty) {
@@ -943,15 +954,112 @@ void ParkingMapPage::loadLayout()
 {
     QString error;
     QList<ParkingZoneLayout> loadedZones;
+    ParkingChannelDisplayNames loadedChannelDisplayNames;
     if (QFile::exists(m_layoutPath)
-        && loadParkingZoneLayout(m_layoutPath, &loadedZones, &error)) {
+        && loadParkingZoneLayout(m_layoutPath, &loadedZones,
+                                 &loadedChannelDisplayNames, &error)) {
         m_zones = loadedZones;
+        m_channelDisplayNames = loadedChannelDisplayNames;
         setLayoutDirty(false, QStringLiteral("Loaded local layout"));
         return;
     }
 
     m_zones = defaultParkingZoneLayout();
+    m_channelDisplayNames.clear();
     setLayoutDirty(false, QStringLiteral("Loaded default layout"));
+}
+
+QString ParkingMapPage::channelDisplayName(const QString &channel) const
+{
+    const QString normalizedChannel = channel.trimmed().toUpper();
+    if (!isCameraChannelId(normalizedChannel)) return QString();
+    return m_channelDisplayNames.value(normalizedChannel, normalizedChannel);
+}
+
+bool ParkingMapPage::setChannelDisplayName(const QString &channel, const QString &displayName)
+{
+    const QString normalizedChannel = channel.trimmed().toUpper();
+    if (!isCameraChannelId(normalizedChannel)) return false;
+
+    QString normalizedDisplayName = displayName.trimmed();
+    if (normalizedDisplayName.compare(normalizedChannel, Qt::CaseInsensitive) == 0) {
+        normalizedDisplayName.clear();
+    }
+    const QString previousDisplayName = m_channelDisplayNames.value(normalizedChannel);
+    if (previousDisplayName == normalizedDisplayName) return false;
+
+    if (normalizedDisplayName.isEmpty()) {
+        m_channelDisplayNames.remove(normalizedChannel);
+    } else {
+        m_channelDisplayNames.insert(normalizedChannel, normalizedDisplayName);
+    }
+    rebuildScene();
+    updateZoneTable();
+    updateEditorFromSelection();
+    markLayoutDirty(QStringLiteral("%1 display name updated").arg(normalizedChannel));
+    return true;
+}
+
+void ParkingMapPage::editChannelDisplayNames()
+{
+    if (!m_editMode) return;
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Edit channel display names"));
+    dialog.setMinimumWidth(430);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *description = new QLabel(
+        QStringLiteral("Display names are local UI labels. Internal CH1-CH4 and IVA1-IVA4 IDs remain unchanged."),
+        &dialog);
+    description->setWordWrap(true);
+    description->setStyleSheet(QStringLiteral("color: #54636d;"));
+    layout->addWidget(description);
+
+    auto *form = new QFormLayout;
+    QHash<QString, QLineEdit *> edits;
+    for (int channelNumber = 1; channelNumber <= 4; ++channelNumber) {
+        const QString channel = QStringLiteral("CH%1").arg(channelNumber);
+        auto *edit = new QLineEdit(m_channelDisplayNames.value(channel), &dialog);
+        edit->setObjectName(QStringLiteral("channelDisplayName_%1").arg(channel));
+        edit->setPlaceholderText(QStringLiteral("Optional local display name"));
+        edit->setMaxLength(32);
+        form->addRow(channel, edit);
+        edits.insert(channel, edit);
+    }
+    layout->addLayout(form);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel,
+                                         Qt::Horizontal, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    ParkingChannelDisplayNames updatedNames;
+    for (auto it = edits.constBegin(); it != edits.constEnd(); ++it) {
+        const QString displayName = it.value()->text().trimmed();
+        if (!displayName.isEmpty()
+            && displayName.compare(it.key(), Qt::CaseInsensitive) != 0) {
+            updatedNames.insert(it.key(), displayName);
+        }
+    }
+    if (updatedNames == m_channelDisplayNames) return;
+
+    m_channelDisplayNames = updatedNames;
+    rebuildScene();
+    updateZoneTable();
+    updateEditorFromSelection();
+    markLayoutDirty(QStringLiteral("Channel display names updated"));
+}
+
+QString ParkingMapPage::channelPanelTitle(const QString &channel) const
+{
+    const QString displayName = m_channelDisplayNames.value(channel).trimmed();
+    if (displayName.isEmpty()) {
+        return QStringLiteral("%1 | IVA1-IVA4").arg(channel);
+    }
+    return QStringLiteral("%1 | %2 | IVA1-IVA4").arg(channel, displayName);
 }
 
 QString ParkingMapPage::exampleLayoutPath() const
@@ -1311,12 +1419,16 @@ void ParkingMapPage::rebuildScene()
         const QRectF panel = channelPanelRect(channel);
         m_scene->addRect(panel, QPen(QColor(QStringLiteral("#5f6c75")), 2),
                          QBrush(QColor(QStringLiteral("#242a2f"))));
-        auto *title = m_scene->addSimpleText(channelTitle(channel));
         QFont titleFont;
         titleFont.setPointSize(10);
         titleFont.setBold(true);
+        const QString fullTitle = channelPanelTitle(channel);
+        const QString visibleTitle = QFontMetrics(titleFont).elidedText(
+            fullTitle, Qt::ElideRight, qRound(panel.width() - 24.0));
+        auto *title = m_scene->addSimpleText(visibleTitle);
         title->setFont(titleFont);
         title->setBrush(QColor(QStringLiteral("#f4f8fb")));
+        title->setToolTip(fullTitle);
         title->setPos(panel.x() + 12, panel.y() + 10);
         m_scene->addRect(QRectF(panel.x() + 18, panel.y() + 124, panel.width() - 36, 22),
                          QPen(QColor(QStringLiteral("#56626b")), 1, Qt::DashLine),

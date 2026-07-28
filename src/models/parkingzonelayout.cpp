@@ -114,6 +114,44 @@ ParkingZoneLayout zoneFromJson(const QJsonObject &object)
     }
     return zone;
 }
+
+bool isCameraChannelId(const QString &value)
+{
+    return value == QStringLiteral("CH1")
+        || value == QStringLiteral("CH2")
+        || value == QStringLiteral("CH3")
+        || value == QStringLiteral("CH4");
+}
+
+ParkingChannelDisplayNames channelDisplayNamesFromJson(const QJsonObject &root)
+{
+    ParkingChannelDisplayNames names;
+    const QJsonObject object = root.value(QStringLiteral("channel_display_names")).toObject();
+    for (auto it = object.constBegin(); it != object.constEnd(); ++it) {
+        const QString channel = it.key().trimmed().toUpper();
+        const QString displayName = it.value().toString().trimmed();
+        if (isCameraChannelId(channel)
+            && !displayName.isEmpty()
+            && displayName.compare(channel, Qt::CaseInsensitive) != 0) {
+            names.insert(channel, displayName);
+        }
+    }
+    return names;
+}
+
+QJsonObject channelDisplayNamesToJson(const ParkingChannelDisplayNames &names)
+{
+    QJsonObject object;
+    for (int channelNumber = 1; channelNumber <= 4; ++channelNumber) {
+        const QString channel = QStringLiteral("CH%1").arg(channelNumber);
+        const QString displayName = names.value(channel).trimmed();
+        if (!displayName.isEmpty()
+            && displayName.compare(channel, Qt::CaseInsensitive) != 0) {
+            object.insert(channel, displayName);
+        }
+    }
+    return object;
+}
 }
 
 QList<ParkingZoneLayout> defaultParkingZoneLayout()
@@ -127,6 +165,13 @@ QList<ParkingZoneLayout> defaultParkingZoneLayout()
 }
 
 bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones, QString *errorMessage)
+{
+    return loadParkingZoneLayout(path, zones, nullptr, errorMessage);
+}
+
+bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones,
+                           ParkingChannelDisplayNames *channelDisplayNames,
+                           QString *errorMessage)
 {
     if (!zones) {
         if (errorMessage) *errorMessage = QStringLiteral("Output zone list is null.");
@@ -145,7 +190,8 @@ bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones,
         return false;
     }
 
-    const QJsonArray zoneArray = document.object().value(QStringLiteral("zones")).toArray();
+    const QJsonObject root = document.object();
+    const QJsonArray zoneArray = root.value(QStringLiteral("zones")).toArray();
     QList<ParkingZoneLayout> loadedZones;
     for (const QJsonValue &value : zoneArray) {
         if (!value.isObject()) continue;
@@ -161,10 +207,20 @@ bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones,
     }
 
     *zones = loadedZones;
+    if (channelDisplayNames) {
+        *channelDisplayNames = channelDisplayNamesFromJson(root);
+    }
     return true;
 }
 
 bool saveParkingZoneLayout(const QString &path, const QList<ParkingZoneLayout> &zones, QString *errorMessage)
+{
+    return saveParkingZoneLayout(path, zones, ParkingChannelDisplayNames(), errorMessage);
+}
+
+bool saveParkingZoneLayout(const QString &path, const QList<ParkingZoneLayout> &zones,
+                           const ParkingChannelDisplayNames &channelDisplayNames,
+                           QString *errorMessage)
 {
     const QFileInfo fileInfo(path);
     QDir dir = fileInfo.dir();
@@ -174,9 +230,11 @@ bool saveParkingZoneLayout(const QString &path, const QList<ParkingZoneLayout> &
     }
 
     QJsonObject root;
-    root.insert(QStringLiteral("version"), 1);
+    root.insert(QStringLiteral("version"), 2);
     root.insert(QStringLiteral("canvas_width"), 920);
     root.insert(QStringLiteral("canvas_height"), 560);
+    root.insert(QStringLiteral("channel_display_names"),
+                channelDisplayNamesToJson(channelDisplayNames));
     QJsonArray zoneArray;
     for (const ParkingZoneLayout &zone : zones) {
         zoneArray.append(zoneToJson(zone));

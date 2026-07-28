@@ -1,7 +1,8 @@
 ﻿{
-    "version":  1,
+    "version":  2,
     "canvas_width":  920,
     "canvas_height":  560,
+    "channel_display_names":  {},
     "zones":  [
                   {
                       "zone_id":  "EV-01",

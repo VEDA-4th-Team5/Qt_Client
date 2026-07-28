@@ -38,6 +38,8 @@ public:
     void render(const ParkingViewState &state);
     bool hasUnsavedLayoutChanges() const { return m_layoutDirty; }
     bool saveLayoutNow(QString *errorMessage = nullptr);
+    QString channelDisplayName(const QString &channel) const;
+    bool setChannelDisplayName(const QString &channel, const QString &displayName);
 
 signals:
     void layoutSaveResult(bool success, const QString &message);
@@ -60,6 +62,7 @@ private slots:
     void handleZoneItemMoved(const QString &zoneId);
     void applyEditorFields();
     void setEditMode(bool enabled);
+    void editChannelDisplayNames();
 
 private:
     void loadLayout();
@@ -92,11 +95,13 @@ private:
     void syncItemsEditable();
     void markLayoutDirty(const QString &detail = QString());
     void setLayoutDirty(bool dirty, const QString &status = QString());
+    QString channelPanelTitle(const QString &channel) const;
     QWidget *createLegendItem(const QString &label, const QColor &fill,
                               const QColor &border, bool circular = false);
 
     QString m_layoutPath;
     QList<ParkingZoneLayout> m_zones;
+    ParkingChannelDisplayNames m_channelDisplayNames;
     ParkingViewState m_lastState;
     bool m_editMode = false;
     bool m_updatingEditor = false;
@@ -121,6 +126,7 @@ private:
     QLabel *m_selectedMetaLabel = nullptr;
     QLabel *m_selectedStateLabel = nullptr;
     QPushButton *m_editToggleButton = nullptr;
+    QPushButton *m_editChannelNamesButton = nullptr;
     QPushButton *m_deleteButton = nullptr;
     QLineEdit *m_zoneIdEdit = nullptr;
     QLineEdit *m_displayNameEdit = nullptr;
