@@ -23,6 +23,7 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QGraphicsSimpleTextItem>
 #include <QGraphicsView>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -426,6 +427,39 @@ QString displayStateText(bool known, SlotState state)
     return known ? slotStateText(state) : QStringLiteral("WAITING DATA");
 }
 
+QString maskedPlateText(const QString &rawPlate)
+{
+    const QString plate = rawPlate.trimmed();
+    const QString normalized = plate.toUpper();
+    if (plate.isEmpty() || plate == QStringLiteral("-")
+        || normalized == QStringLiteral("UNKNOWN")
+        || normalized == QStringLiteral("N/A")) {
+        return QStringLiteral("-");
+    }
+    if (plate.size() <= 4) {
+        return QString(plate.size(), QLatin1Char('*'));
+    }
+    return plate.left(2)
+        + QString(plate.size() - 4, QLatin1Char('*'))
+        + plate.right(2);
+}
+
+QString runtimeDataStatusStyle(bool available)
+{
+    return QStringLiteral(
+        "QLabel { color: %1; font-weight: 800; }")
+        .arg(available ? QStringLiteral("#1b5e20") : QStringLiteral("#607d8b"));
+}
+
+QString runtimeAlarmStateStyle(bool known, SlotAlarmKind alarm, bool acknowledged)
+{
+    QString color = QStringLiteral("#607d8b");
+    if (known && alarm != SlotAlarmKind::None) {
+        color = acknowledged ? QStringLiteral("#546e7a") : QStringLiteral("#c62828");
+    }
+    return QStringLiteral("QLabel { color: %1; font-weight: 900; }").arg(color);
+}
+
 QRectF channelPanelRect(const QString &channel)
 {
     if (channel == QStringLiteral("CH2")) return QRectF(470, 36, 420, 220);
@@ -584,9 +618,11 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     mappingLayout->addWidget(m_zoneTable);
     rightLayout->addWidget(mappingGroup, 2);
 
-    auto *editorGroup = new QGroupBox(QStringLiteral("Selected Slot Detail"), rightPanel);
-    auto *editorLayout = new QFormLayout(editorGroup);
-    auto *selectedHeader = new QWidget(editorGroup);
+    auto *runtimeGroup = new QGroupBox(QStringLiteral("Runtime Status"), rightPanel);
+    runtimeGroup->setObjectName(QStringLiteral("runtimeStatusGroup"));
+    auto *runtimeLayout = new QVBoxLayout(runtimeGroup);
+    runtimeLayout->setSpacing(8);
+    auto *selectedHeader = new QWidget(runtimeGroup);
     auto *selectedHeaderLayout = new QVBoxLayout(selectedHeader);
     selectedHeaderLayout->setContentsMargins(0, 0, 0, 8);
     selectedHeaderLayout->setSpacing(4);
@@ -595,6 +631,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_selectedTitleLabel = new QLabel(QStringLiteral("No slot selected"), selectedHeader);
     m_selectedTitleLabel->setStyleSheet(QStringLiteral("color: #202124; font-size: 15px; font-weight: 900;"));
     m_selectedStateLabel = new QLabel(QStringLiteral("WAITING"), selectedHeader);
+    m_selectedStateLabel->setObjectName(QStringLiteral("selectedSlotStateLabel"));
     m_selectedStateLabel->setAlignment(Qt::AlignCenter);
     m_selectedStateLabel->setStyleSheet(statePillStyle(false, SlotState::Vacant));
     selectedTitleRow->addWidget(m_selectedTitleLabel, 1);
@@ -604,7 +641,44 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_selectedMetaLabel->setWordWrap(true);
     selectedHeaderLayout->addLayout(selectedTitleRow);
     selectedHeaderLayout->addWidget(m_selectedMetaLabel);
-    editorLayout->addRow(selectedHeader);
+    runtimeLayout->addWidget(selectedHeader);
+
+    auto *runtimeGrid = new QGridLayout;
+    runtimeGrid->setHorizontalSpacing(10);
+    runtimeGrid->setVerticalSpacing(5);
+    auto makeRuntimeValue = [runtimeGroup](const QString &objectName) {
+        auto *label = new QLabel(QStringLiteral("-"), runtimeGroup);
+        label->setObjectName(objectName);
+        label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        label->setStyleSheet(QStringLiteral("color: #263238; font-weight: 800;"));
+        return label;
+    };
+    m_runtimeDataStatusLabel = makeRuntimeValue(QStringLiteral("runtimeDataStatusLabel"));
+    m_runtimeVehicleLabel = makeRuntimeValue(QStringLiteral("runtimeVehicleLabel"));
+    m_runtimePlateLabel = makeRuntimeValue(QStringLiteral("runtimePlateLabel"));
+    m_runtimeOccupiedTimeLabel = makeRuntimeValue(QStringLiteral("runtimeOccupiedTimeLabel"));
+    m_runtimeAlarmLabel = makeRuntimeValue(QStringLiteral("runtimeAlarmLabel"));
+    m_runtimeAlarmStateLabel = makeRuntimeValue(QStringLiteral("runtimeAlarmStateLabel"));
+    auto addRuntimeField = [runtimeGrid, runtimeGroup](int row, int column,
+                                                       const QString &title, QLabel *value) {
+        auto *titleLabel = new QLabel(title, runtimeGroup);
+        titleLabel->setStyleSheet(QStringLiteral("color: #607d8b; font-size: 11px;"));
+        runtimeGrid->addWidget(titleLabel, row, column * 2);
+        runtimeGrid->addWidget(value, row, (column * 2) + 1);
+    };
+    addRuntimeField(0, 0, QStringLiteral("Runtime data"), m_runtimeDataStatusLabel);
+    addRuntimeField(0, 1, QStringLiteral("Vehicle"), m_runtimeVehicleLabel);
+    addRuntimeField(1, 0, QStringLiteral("Plate"), m_runtimePlateLabel);
+    addRuntimeField(1, 1, QStringLiteral("Occupied"), m_runtimeOccupiedTimeLabel);
+    addRuntimeField(2, 0, QStringLiteral("Alarm"), m_runtimeAlarmLabel);
+    addRuntimeField(2, 1, QStringLiteral("Alarm state"), m_runtimeAlarmStateLabel);
+    runtimeGrid->setColumnStretch(1, 1);
+    runtimeGrid->setColumnStretch(3, 1);
+    runtimeLayout->addLayout(runtimeGrid);
+    rightLayout->insertWidget(0, runtimeGroup);
+
+    auto *editorGroup = new QGroupBox(QStringLiteral("Layout Editor"), rightPanel);
+    auto *editorLayout = new QFormLayout(editorGroup);
     m_zoneIdEdit = new QLineEdit(editorGroup);
     m_displayNameEdit = new QLineEdit(editorGroup);
     m_zoneTypeCombo = new QComboBox(editorGroup);
@@ -669,7 +743,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     editorLayout->addRow(QStringLiteral("Rotation"), rotationControl);
     editorLayout->addRow(QString(), m_enabledCheck);
     editorLayout->addRow(QString(), m_deleteButton);
-    rightLayout->insertWidget(0, editorGroup, 1);
+    rightLayout->insertWidget(1, editorGroup, 1);
     pageLayout->addWidget(rightPanel, 2);
 
     connect(m_scene, &QGraphicsScene::selectionChanged,
@@ -1833,8 +1907,116 @@ void ParkingMapPage::updateAlarmPulse()
     }
 }
 
+void ParkingMapPage::updateRuntimeStatusFromSelection()
+{
+    const ParkingZoneLayout *zone = selectedZone();
+    if (!zone) {
+        if (m_selectedTitleLabel) m_selectedTitleLabel->setText(QStringLiteral("No slot selected"));
+        if (m_selectedStateLabel) {
+            m_selectedStateLabel->setText(QStringLiteral("WAITING"));
+            m_selectedStateLabel->setStyleSheet(statePillStyle(false, SlotState::Vacant));
+        }
+        if (m_selectedMetaLabel) m_selectedMetaLabel->setText(QStringLiteral("No active selection"));
+        if (m_runtimeDataStatusLabel) {
+            m_runtimeDataStatusLabel->setText(QStringLiteral("WAITING DATA"));
+            m_runtimeDataStatusLabel->setStyleSheet(runtimeDataStatusStyle(false));
+        }
+        if (m_runtimeVehicleLabel) m_runtimeVehicleLabel->setText(QStringLiteral("-"));
+        if (m_runtimePlateLabel) m_runtimePlateLabel->setText(QStringLiteral("-"));
+        if (m_runtimeOccupiedTimeLabel) m_runtimeOccupiedTimeLabel->setText(QStringLiteral("-"));
+        if (m_runtimeAlarmLabel) m_runtimeAlarmLabel->setText(QStringLiteral("-"));
+        if (m_runtimeAlarmStateLabel) {
+            m_runtimeAlarmStateLabel->setText(QStringLiteral("-"));
+            m_runtimeAlarmStateLabel->setStyleSheet(
+                runtimeAlarmStateStyle(false, SlotAlarmKind::None, false));
+        }
+        return;
+    }
+
+    SlotState selectedState = SlotState::Vacant;
+    const bool selectedKnown = stateForZone(zone->zoneId, &selectedState);
+    bool selectedVisualKnown = false;
+    const SlotVisualState selectedVisual = visualStateForZone(zone->zoneId, &selectedVisualKnown);
+    const bool runtimeKnown = selectedKnown && selectedVisualKnown;
+
+    if (m_selectedTitleLabel) {
+        m_selectedTitleLabel->setText(zone->displayName.isEmpty() ? zone->zoneId : zone->displayName);
+    }
+    if (m_selectedStateLabel) {
+        m_selectedStateLabel->setText(displayStateText(selectedKnown, selectedState));
+        m_selectedStateLabel->setStyleSheet(statePillStyle(selectedKnown, selectedState));
+    }
+    if (m_selectedMetaLabel) {
+        m_selectedMetaLabel->setText(
+            QStringLiteral("%1 | %2 | %3 | %4")
+                .arg(zone->zoneType,
+                     zone->cameraChannel,
+                     displayIvaText(zone->ivaAreaId),
+                     zone->hallSensorId.isEmpty() ? QStringLiteral("HALL-")
+                                                  : zone->hallSensorId));
+    }
+    if (m_runtimeDataStatusLabel) {
+        m_runtimeDataStatusLabel->setText(runtimeKnown ? QStringLiteral("AVAILABLE")
+                                                       : QStringLiteral("WAITING DATA"));
+        m_runtimeDataStatusLabel->setStyleSheet(runtimeDataStatusStyle(runtimeKnown));
+    }
+
+    if (!runtimeKnown) {
+        if (m_runtimeVehicleLabel) m_runtimeVehicleLabel->setText(QStringLiteral("-"));
+        if (m_runtimePlateLabel) m_runtimePlateLabel->setText(QStringLiteral("-"));
+        if (m_runtimeOccupiedTimeLabel) m_runtimeOccupiedTimeLabel->setText(QStringLiteral("-"));
+        if (m_runtimeAlarmLabel) m_runtimeAlarmLabel->setText(QStringLiteral("-"));
+        if (m_runtimeAlarmStateLabel) {
+            m_runtimeAlarmStateLabel->setText(QStringLiteral("-"));
+            m_runtimeAlarmStateLabel->setStyleSheet(
+                runtimeAlarmStateStyle(false, SlotAlarmKind::None, false));
+        }
+        return;
+    }
+
+    if (m_runtimeVehicleLabel) {
+        m_runtimeVehicleLabel->setText(compactVehicleText(true, selectedVisual));
+    }
+
+    const bool occupied = selectedVisual.occupancy == SlotOccupancy::Occupied;
+    const bool evRuntime = zone->zoneType == QStringLiteral("EV")
+        && m_lastState.evSlots.contains(zone->zoneId);
+    if (evRuntime) {
+        const EvSlotInfo slot = m_lastState.evSlots.value(zone->zoneId);
+        if (m_runtimePlateLabel) {
+            m_runtimePlateLabel->setText(occupied ? maskedPlateText(slot.plateNumber)
+                                                  : QStringLiteral("-"));
+        }
+        if (m_runtimeOccupiedTimeLabel) {
+            const QString occupiedTime = slot.occupiedTime.trimmed();
+            m_runtimeOccupiedTimeLabel->setText(
+                occupied && !occupiedTime.isEmpty() && occupiedTime != QStringLiteral("-")
+                    ? occupiedTime
+                    : QStringLiteral("-"));
+        }
+    } else {
+        if (m_runtimePlateLabel) m_runtimePlateLabel->setText(QStringLiteral("N/A"));
+        if (m_runtimeOccupiedTimeLabel) m_runtimeOccupiedTimeLabel->setText(QStringLiteral("N/A"));
+    }
+
+    if (m_runtimeAlarmLabel) {
+        m_runtimeAlarmLabel->setText(slotAlarmText(selectedVisual.alarm));
+    }
+    if (m_runtimeAlarmStateLabel) {
+        const QString alarmState = selectedVisual.alarm == SlotAlarmKind::None
+            ? QStringLiteral("NONE")
+            : (selectedVisual.alarmAcknowledged ? QStringLiteral("ACK")
+                                                : QStringLiteral("ACTIVE"));
+        m_runtimeAlarmStateLabel->setText(alarmState);
+        m_runtimeAlarmStateLabel->setStyleSheet(
+            runtimeAlarmStateStyle(true, selectedVisual.alarm,
+                                   selectedVisual.alarmAcknowledged));
+    }
+}
+
 void ParkingMapPage::updateEditorFromSelection()
 {
+    updateRuntimeStatusFromSelection();
     m_updatingEditor = true;
     const ParkingZoneLayout *zone = selectedZone();
     const bool hasSelection = zone != nullptr;
@@ -1852,43 +2034,11 @@ void ParkingMapPage::updateEditorFromSelection()
         m_displayNameEdit->clear();
         if (m_ivaAreaCombo) m_ivaAreaCombo->setCurrentText(QStringLiteral("N/A"));
         m_hallSensorEdit->clear();
-        if (m_selectedTitleLabel) m_selectedTitleLabel->setText(QStringLiteral("No slot selected"));
-        if (m_selectedStateLabel) {
-            m_selectedStateLabel->setText(QStringLiteral("WAITING"));
-            m_selectedStateLabel->setStyleSheet(statePillStyle(false, SlotState::Vacant));
-        }
-        if (m_selectedMetaLabel) m_selectedMetaLabel->setText(QStringLiteral("No active selection"));
         if (m_widthValueLabel) m_widthValueLabel->setText(QStringLiteral("-"));
         if (m_heightValueLabel) m_heightValueLabel->setText(QStringLiteral("-"));
         if (m_rotationValueLabel) m_rotationValueLabel->setText(QStringLiteral("-"));
         m_updatingEditor = false;
         return;
-    }
-
-    SlotState selectedState = SlotState::Vacant;
-    const bool selectedKnown = stateForZone(zone->zoneId, &selectedState);
-    bool selectedVisualKnown = false;
-    const SlotVisualState selectedVisual = visualStateForZone(zone->zoneId, &selectedVisualKnown);
-    if (m_selectedTitleLabel) {
-        m_selectedTitleLabel->setText(zone->displayName.isEmpty() ? zone->zoneId : zone->displayName);
-    }
-    if (m_selectedStateLabel) {
-        m_selectedStateLabel->setText(displayStateText(selectedKnown, selectedState));
-        m_selectedStateLabel->setStyleSheet(statePillStyle(selectedKnown, selectedState));
-    }
-    if (m_selectedMetaLabel) {
-        QString details = QStringLiteral("%1 | %2 | %3 | %4 | %5")
-                                         .arg(zone->zoneType,
-                                              zone->cameraChannel,
-                                              displayIvaText(zone->ivaAreaId),
-                                              zone->hallSensorId.isEmpty() ? QStringLiteral("HALL-") : zone->hallSensorId,
-                                              compactVehicleText(selectedVisualKnown, selectedVisual));
-        if (selectedVisual.alarm != SlotAlarmKind::None) {
-            details += QStringLiteral(" | %1%2")
-                           .arg(slotAlarmText(selectedVisual.alarm),
-                                selectedVisual.alarmAcknowledged ? QStringLiteral(" ACK") : QStringLiteral(" ACTIVE"));
-        }
-        m_selectedMetaLabel->setText(details);
     }
 
     const QSignalBlocker blockZoneId(m_zoneIdEdit);

@@ -103,6 +103,7 @@ private:
     void updateAllZoneVisuals();
     void updateAlarmAnimationState();
     void updateAlarmPulse();
+    void updateRuntimeStatusFromSelection();
     void updateEditorFromSelection();
     void updateZoneTable();
     void scrollMapToOrigin();
@@ -148,6 +149,12 @@ private:
     QLabel *m_selectedTitleLabel = nullptr;
     QLabel *m_selectedMetaLabel = nullptr;
     QLabel *m_selectedStateLabel = nullptr;
+    QLabel *m_runtimeDataStatusLabel = nullptr;
+    QLabel *m_runtimeVehicleLabel = nullptr;
+    QLabel *m_runtimePlateLabel = nullptr;
+    QLabel *m_runtimeOccupiedTimeLabel = nullptr;
+    QLabel *m_runtimeAlarmLabel = nullptr;
+    QLabel *m_runtimeAlarmStateLabel = nullptr;
     QPushButton *m_editToggleButton = nullptr;
     QPushButton *m_undoButton = nullptr;
     QPushButton *m_editChannelNamesButton = nullptr;

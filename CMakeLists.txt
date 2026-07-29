@@ -463,6 +463,26 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME parkingmappage_undo COMMAND parkingmappage_undo_test)
+
+    add_executable(parkingmappage_ev_status_test
+        tests/parkingmappage_ev_status_test.cpp
+        src/pages/parkingmappage.cpp
+        src/pages/parkingmappage.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/models/parkingzonelayout.cpp
+        src/models/parkingzonelayout.h
+    )
+    target_include_directories(parkingmappage_ev_status_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingmappage_ev_status_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(parkingmappage_ev_status_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parkingmappage_ev_status COMMAND parkingmappage_ev_status_test)
     set(QT_GUI_DIR_VARIABLE "Qt${QT_VERSION_MAJOR}Gui_DIR")
     get_filename_component(QT_RUNTIME_ROOT
         "${${QT_GUI_DIR_VARIABLE}}/../../.." ABSOLUTE)
@@ -477,6 +497,11 @@ if (BUILD_TESTING)
         TIMEOUT 30
     )
     set_tests_properties(parkingmappage_undo PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
+    set_tests_properties(parkingmappage_ev_status PROPERTIES
         ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
         TIMEOUT 30
