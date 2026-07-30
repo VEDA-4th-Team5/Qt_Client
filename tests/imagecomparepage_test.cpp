@@ -66,17 +66,22 @@ int main(int argc, char **argv)
 
     const QByteArray originalPng = pngBytes(QColor(QStringLiteral("#1976d2")));
     const QByteArray enhancedPng = pngBytes(QColor(QStringLiteral("#ff8f00")));
-    if (originalPng.isEmpty() || enhancedPng.isEmpty()) return 6;
+    const QByteArray laterCapturePng = pngBytes(QColor(QStringLiteral("#2e7d32")));
+    if (originalPng.isEmpty() || enhancedPng.isEmpty()
+        || laterCapturePng.isEmpty()) return 6;
 
     QTcpServer imageServer;
     if (!imageServer.listen(QHostAddress::LocalHost, 0)) return 7;
     QObject::connect(&imageServer, &QTcpServer::newConnection, [&]() {
         while (QTcpSocket *socket = imageServer.nextPendingConnection()) {
             QObject::connect(socket, &QTcpSocket::readyRead, socket,
-                             [socket, originalPng, enhancedPng]() {
+                             [socket, originalPng, enhancedPng,
+                              laterCapturePng]() {
                 const QByteArray request = socket->readAll();
-                const QByteArray body = request.contains("enhanced")
-                    ? enhancedPng : originalPng;
+                const QByteArray body = request.contains("legacy/after")
+                    ? laterCapturePng
+                    : (request.contains("enhanced")
+                           ? enhancedPng : originalPng);
                 const QByteArray header =
                     "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: "
                     + QByteArray::number(body.size())
@@ -140,14 +145,25 @@ int main(int argc, char **argv)
         QStringLiteral("imageCompareOriginalTitle"));
     QLabel *enhancedTitle = page.findChild<QLabel *>(
         QStringLiteral("imageCompareEnhancedTitle"));
+    QLabel *originalImage = page.findChild<QLabel *>(
+        QStringLiteral("imageCompareOriginalImage"));
+    QLabel *enhancedImage = page.findChild<QLabel *>(
+        QStringLiteral("imageCompareEnhancedImage"));
     if (!originalTitle || !originalTitle->text().startsWith(
             QStringLiteral("Original"))) return 12;
     if (!enhancedTitle || !enhancedTitle->text().startsWith(
             QStringLiteral("Enhanced"))) return 13;
+    if (!originalImage || !enhancedImage) return 18;
 
     QTimer::singleShot(3000, &imageLoadLoop, &QEventLoop::quit);
     imageLoadLoop.exec();
     if (loadedImageCount != 2) return 14;
+    const QPixmap displayedOriginal = originalImage->pixmap(Qt::ReturnByValue);
+    const QPixmap displayedEnhanced = enhancedImage->pixmap(Qt::ReturnByValue);
+    if (displayedOriginal.isNull() || displayedEnhanced.isNull()
+        || displayedOriginal.cacheKey() == displayedEnhanced.cacheKey()) {
+        return 19;
+    }
     QPushButton *originalOpen = page.findChild<QPushButton *>(
         QStringLiteral("imageCompareOriginalOpenButton"));
     QPushButton *enhancedOpen = page.findChild<QPushButton *>(
@@ -158,11 +174,18 @@ int main(int argc, char **argv)
     ParkingImageResource originalOnly = latestOriginal;
     originalOnly.imageId = 30;
     originalOnly.url = QUrl(imageBaseUrl + QStringLiteral("30/original"));
+    int originalOnlyLoadedImageCount = 0;
+    QEventLoop originalOnlyLoadLoop;
+    const QMetaObject::Connection originalOnlyConnection = QObject::connect(
+        &imageLoader, &ImageLoader::imageLoaded,
+        [&](const QString &, const QPixmap &) {
+            if (++originalOnlyLoadedImageCount >= 1) {
+                originalOnlyLoadLoop.quit();
+            }
+        });
     page.showComparison(QStringLiteral("EV-02"), SlotState::Occupied,
                         QStringLiteral("34B7788"), {originalOnly});
     if (page.captureCount() != 1 || page.selectedImageId() != 30) return 16;
-    QLabel *enhancedImage = page.findChild<QLabel *>(
-        QStringLiteral("imageCompareEnhancedImage"));
     QLabel *status = page.findChild<QLabel *>(
         QStringLiteral("imageCompareStatusLabel"));
     if (!enhancedImage
@@ -172,6 +195,50 @@ int main(int argc, char **argv)
         || !status->text().contains(QStringLiteral("no enhanced image"),
                                     Qt::CaseInsensitive)
         || enhancedOpen->isEnabled()) return 17;
+    QTimer::singleShot(3000, &originalOnlyLoadLoop, &QEventLoop::quit);
+    originalOnlyLoadLoop.exec();
+    QObject::disconnect(originalOnlyConnection);
+    if (originalOnlyLoadedImageCount != 1) return 25;
+
+    ParkingImageResource legacyBefore;
+    legacyBefore.role = QStringLiteral("VEHICLE");
+    legacyBefore.processing = QStringLiteral("ORIGINAL");
+    legacyBefore.url = QUrl(imageBaseUrl + QStringLiteral("legacy/before"));
+    legacyBefore.timestamp = QDateTime::fromString(
+        QStringLiteral("2026-07-29T11:00:00+09:00"), Qt::ISODate);
+    ParkingImageResource legacyAfter = legacyBefore;
+    legacyAfter.url = QUrl(imageBaseUrl + QStringLiteral("legacy/after"));
+    // Matching role/timestamp still does not establish capture identity.
+    legacyAfter.timestamp = legacyBefore.timestamp;
+
+    int legacyLoadedImageCount = 0;
+    QEventLoop legacyLoadLoop;
+    QObject::connect(&imageLoader, &ImageLoader::imageLoaded,
+                     [&](const QString &, const QPixmap &) {
+        if (++legacyLoadedImageCount >= 1) legacyLoadLoop.quit();
+    });
+    page.showComparison(QStringLiteral("EV-02"), SlotState::Occupied,
+                        QStringLiteral("34B7788"),
+                        {legacyBefore, legacyAfter});
+    if (page.captureCount() != 2 || table->rowCount() != 2
+        || table->currentRow() != 1) return 20;
+    if (!table->item(1, 3)
+        || table->item(1, 3)->text() != QStringLiteral("READY")
+        || !table->item(1, 4)
+        || table->item(1, 4)->text() != QStringLiteral("N/A")) return 21;
+    if (!enhancedImage->text().contains(QStringLiteral("not available"),
+                                        Qt::CaseInsensitive)
+        || enhancedOpen->isEnabled()) return 22;
+
+    QTimer::singleShot(3000, &legacyLoadLoop, &QEventLoop::quit);
+    legacyLoadLoop.exec();
+    if (legacyLoadedImageCount != 1) return 23;
+    const QPixmap displayedLaterCapture =
+        originalImage->pixmap(Qt::ReturnByValue);
+    if (displayedLaterCapture.isNull()
+        || displayedLaterCapture.cacheKey() == displayedOriginal.cacheKey()) {
+        return 24;
+    }
 
     return 0;
 }

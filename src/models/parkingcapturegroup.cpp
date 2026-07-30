@@ -14,11 +14,10 @@ QVector<ParkingCaptureGroup> buildParkingCaptureGroups(
         QString key;
         if (image.imageId >= 0) {
             key = QStringLiteral("id:%1").arg(image.imageId);
-        } else if (!image.role.isEmpty()) {
-            key = QStringLiteral("role:%1").arg(image.role.toUpper());
-        } else if (image.timestamp.isValid()) {
-            key = QStringLiteral("time:%1").arg(image.timestamp.toMSecsSinceEpoch());
         } else {
+            // Role and timestamp describe an image but do not prove that two
+            // resources are processing variants of the same capture. Keep
+            // identity-less legacy resources separate instead of guessing.
             key = QStringLiteral("item:%1").arg(index);
         }
 
