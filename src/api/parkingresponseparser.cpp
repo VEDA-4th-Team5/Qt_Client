@@ -73,6 +73,10 @@ ParkingImageResource sessionImageVariant(const QJsonObject &item,
 {
     ParkingImageResource resource = imageFromObject(
         item, QStringLiteral("EVIDENCE"), processing);
+    // original_url/enhanced_url is the authoritative variant discriminator for
+    // the session-images contract. A row-level compatibility field must not
+    // relabel both URLs as the same processing variant.
+    resource.processing = processing;
     resource.url = QUrl(item.value(urlKey).toString());
     return resource;
 }
@@ -159,13 +163,10 @@ bool parseSlotObject(const QJsonObject &item,
             }
         }
         if (images.value(QStringLiteral("after")).isObject()) {
-            ParkingImageResource image = imageFromObject(
+            const ParkingImageResource image = imageFromObject(
                 images.value(QStringLiteral("after")).toObject(),
                 QStringLiteral("VEHICLE"),
-                QStringLiteral("ENHANCED"));
-            if (image.processing.isEmpty()) {
-                image.processing = images.value(QStringLiteral("method")).toString().toUpper();
-            }
+                QStringLiteral("ORIGINAL"));
             if (!image.url.isEmpty()) {
                 parsed.images.append(image);
             }

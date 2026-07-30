@@ -3,6 +3,7 @@
 
 #include <QCoreApplication>
 #include <QList>
+#include <QMetaObject>
 #include <QTemporaryDir>
 
 int main(int argc, char **argv)
@@ -61,6 +62,55 @@ int main(int argc, char **argv)
     if (events.constLast().status != QStringLiteral("ACKED")) return 24;
     if (events.constLast().ackState != EventAckState::Acknowledged) return 25;
     if (notifications.hasNotifications()) return 26;
+
+    ParkingViewState liveState;
+    EvSlotInfo fireSlot;
+    fireSlot.slotId = QStringLiteral("EV-01");
+    fireSlot.state = SlotState::Occupied;
+    fireSlot.alarmText = QStringLiteral("NORMAL");
+    fireSlot.visual.occupancy = SlotOccupancy::Occupied;
+    fireSlot.visual.vehicleClass = VehicleClass::Electric;
+    liveState.evSlots.insert(fireSlot.slotId, fireSlot);
+    controller.replaceViewState(liveState);
+
+    const QByteArray suspectedPayload = R"JSON({
+        "event_type": "sensor_fire_suspected",
+        "source_id": "fire_sensor_01",
+        "slot_id": "EV-01",
+        "raw_payload": "FIRE:1"
+    })JSON";
+    if (!QMetaObject::invokeMethod(
+            &controller, "handleMqttMessage", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("parking/fire/fire_sensor_01")),
+            Q_ARG(QByteArray, suspectedPayload))) return 27;
+    if (events.constLast().eventType != QStringLiteral("FIRE_SUSPECTED")) return 28;
+    if (events.constLast().status != QStringLiteral("OPEN")) return 29;
+    if (controller.state().evSlots.value(QStringLiteral("EV-01")).visual.alarm
+        != SlotAlarmKind::FireSuspected) return 30;
+    if (notifications.notifications().size() != 1) return 31;
+    const NotificationRecord mqttFire = notifications.notifications().constFirst();
+    if (mqttFire.sourceId != QStringLiteral("EV-01")) return 32;
+    if (mqttFire.eventType != QStringLiteral("FIRE_SUSPECTED")) return 33;
+    if (mqttFire.severity != QStringLiteral("CRITICAL")) return 34;
+    if (mqttFire.title != QStringLiteral("Fire suspected")) return 35;
+
+    const QByteArray clearedPayload = R"JSON({
+        "event_type": "sensor_fire_cleared",
+        "source_id": "fire_sensor_01",
+        "slot_id": "EV-01",
+        "raw_payload": "FIRE:0"
+    })JSON";
+    if (!QMetaObject::invokeMethod(
+            &controller, "handleMqttMessage", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("parking/fire/fire_sensor_01")),
+            Q_ARG(QByteArray, clearedPayload))) return 36;
+    if (events.constLast().eventType != QStringLiteral("FIRE_CLEARED")) return 37;
+    if (events.constLast().status != QStringLiteral("CLOSED")) return 38;
+    if (notifications.hasNotifications()) return 39;
+    const EvSlotInfo restoredSlot =
+        controller.state().evSlots.value(QStringLiteral("EV-01"));
+    if (restoredSlot.visual.alarm != SlotAlarmKind::None) return 40;
+    if (restoredSlot.visual.occupancy != SlotOccupancy::Occupied) return 41;
 
     return 0;
 }

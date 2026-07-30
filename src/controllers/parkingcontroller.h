@@ -60,10 +60,12 @@ signals:
     void apiDiagnosticChanged(const ApiDiagnosticState &state);
     void serverConfigurationError(const QString &message);
 
+private slots:
+    void handleMqttMessage(const QString &topic, const QByteArray &payload);
+
 private:
     void initializeApiClient();
     void initializeMqttClient();
-    void handleMqttMessage(const QString &topic, const QByteArray &payload);
     void applyFireEvent(const QJsonObject &event);
     void rebuildApiClient();
     void scheduleReconnect(const QString &reason);

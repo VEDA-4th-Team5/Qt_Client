@@ -92,17 +92,6 @@ QString captureReasonText(const QString &reason)
     return text;
 }
 
-const ParkingImageResource *preferredVariant(
-    const QList<ParkingImageResource> &variants)
-{
-    for (const ParkingImageResource &variant : variants) {
-        if (variant.processing.compare(QStringLiteral("ORIGINAL"), Qt::CaseInsensitive) == 0) {
-            return &variant;
-        }
-    }
-    return variants.isEmpty() ? nullptr : &variants.first();
-}
-
 int slotNumber(const QString &slotId)
 {
     bool ok = false;
@@ -408,7 +397,7 @@ void EvidencePage::showEvidence(
     m_plateNumber = plateNumber.isEmpty() ? QStringLiteral("-") : plateNumber;
     ++m_requestGeneration;
     m_requestTargets.clear();
-    m_captures = buildCaptureGroups(images);
+    m_captures = buildParkingCaptureGroups(images);
     m_summaryLabel->setText(QStringLiteral("%1  |  %2  |  Plate: %3")
                                 .arg(slotId, slotStateText(state), m_plateNumber));
     m_statusLabel->setText(
@@ -502,66 +491,6 @@ void EvidencePage::requestCurrentEvidence()
     emit evidenceRequested(m_currentSlotId);
 }
 
-QVector<EvidencePage::CaptureGroup> EvidencePage::buildCaptureGroups(
-    const QList<ParkingImageResource> &images)
-{
-    QVector<CaptureGroup> groups;
-    QHash<QString, int> groupIndexes;
-    for (int index = 0; index < images.size(); ++index) {
-        const ParkingImageResource &image = images.at(index);
-        QString key;
-        if (image.imageId >= 0) {
-            key = QStringLiteral("id:%1").arg(image.imageId);
-        } else if (!image.role.isEmpty()) {
-            key = QStringLiteral("role:%1").arg(image.role.toUpper());
-        } else if (image.timestamp.isValid()) {
-            key = QStringLiteral("time:%1").arg(image.timestamp.toMSecsSinceEpoch());
-        } else {
-            key = QStringLiteral("item:%1").arg(index);
-        }
-
-        int groupIndex = groupIndexes.value(key, -1);
-        if (groupIndex < 0) {
-            CaptureGroup capture;
-            capture.imageId = image.imageId;
-            capture.timestamp = image.timestamp;
-            capture.reason = image.evidenceReason.isEmpty() ? image.role.toUpper()
-                                                             : image.evidenceReason;
-            capture.ocrResult = image.ocrResult;
-            groupIndex = groups.size();
-            groups.append(capture);
-            groupIndexes.insert(key, groupIndex);
-        }
-        CaptureGroup &capture = groups[groupIndex];
-        capture.variants.append(image);
-        if (!capture.timestamp.isValid() && image.timestamp.isValid()) {
-            capture.timestamp = image.timestamp;
-        }
-        if (capture.ocrResult.isEmpty()) {
-            capture.ocrResult = image.ocrResult;
-        }
-        if ((capture.reason.isEmpty() || capture.reason == QStringLiteral("EVIDENCE"))
-            && !image.evidenceReason.isEmpty()) {
-            capture.reason = image.evidenceReason;
-        }
-    }
-
-    std::stable_sort(groups.begin(), groups.end(),
-                     [](const CaptureGroup &left, const CaptureGroup &right) {
-        if (left.timestamp.isValid() != right.timestamp.isValid()) {
-            return left.timestamp.isValid();
-        }
-        if (left.timestamp.isValid() && left.timestamp != right.timestamp) {
-            return left.timestamp < right.timestamp;
-        }
-        if (left.imageId >= 0 && right.imageId >= 0) {
-            return left.imageId < right.imageId;
-        }
-        return false;
-    });
-    return groups;
-}
-
 void EvidencePage::handleSlotChanged(QListWidgetItem *current)
 {
     if (!current) {
@@ -586,7 +515,7 @@ void EvidencePage::renderCaptureTable()
     QSignalBlocker blocker(m_captureTable);
     m_captureTable->setRowCount(m_captures.size());
     for (int row = 0; row < m_captures.size(); ++row) {
-        const CaptureGroup &capture = m_captures.at(row);
+        const ParkingCaptureGroup &capture = m_captures.at(row);
         QStringList variants;
         for (const ParkingImageResource &variant : capture.variants) {
             const QString name = variant.processing.isEmpty()
@@ -616,7 +545,8 @@ void EvidencePage::renderCaptureTable()
 
 void EvidencePage::renderFirstCapture()
 {
-    const CaptureGroup *capture = m_captures.isEmpty() ? nullptr : &m_captures.first();
+    const ParkingCaptureGroup *capture = m_captures.isEmpty()
+        ? nullptr : &m_captures.first();
     renderCaptureCard(capture, QStringLiteral("First capture"), m_firstImageLabel,
                       m_firstTitleLabel, m_firstMetadataLabel,
                       m_firstOpenButton, QStringLiteral("first"));
@@ -641,7 +571,7 @@ void EvidencePage::renderSelectedCapture(int row)
 }
 
 void EvidencePage::renderCaptureCard(
-    const CaptureGroup *capture,
+    const ParkingCaptureGroup *capture,
     const QString &heading,
     EvidenceImageLabel *imageLabel,
     QLabel *titleLabel,
@@ -654,7 +584,8 @@ void EvidencePage::renderCaptureCard(
                          heading, QStringLiteral("No capture available"));
         return;
     }
-    const ParkingImageResource *variant = preferredVariant(capture->variants);
+    const ParkingImageResource *variant =
+        preferredParkingCaptureVariant(*capture);
     const QString reason = captureReasonText(capture->reason);
     titleLabel->setText(QStringLiteral("%1 · %2").arg(heading, reason));
     QString metadata = QStringLiteral("%1  |  OCR: %2")

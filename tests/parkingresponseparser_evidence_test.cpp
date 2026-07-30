@@ -36,6 +36,7 @@ int main(int argc, char **argv)
               "session_id": 7,
               "original_url": "/api/v1/images/9/original",
               "enhanced_url": "/api/v1/images/9/enhanced",
+              "processing": "ORIGINAL",
               "enhancement_type": "CLAHE",
               "ocr_result": "12A3456",
               "captured_at": "2026-07-27T09:00:01+09:00"
@@ -60,6 +61,37 @@ int main(int argc, char **argv)
     if (images.at(0).ocrResult != QStringLiteral("12A3456")) return 11;
     if (images.at(2).evidenceReason != QStringLiteral("OVERSTAY_EVIDENCE")) return 12;
     if (images.at(2).url != QUrl(QStringLiteral("/api/v1/images/10/original"))) return 13;
+
+    const QJsonDocument legacyTimeline = QJsonDocument::fromJson(R"JSON(
+        {
+          "slot_id": "EV02",
+          "parking_status": "OCCUPIED",
+          "images": {
+            "before": {
+              "url": "/api/v1/legacy/before",
+              "captured_at": "2026-07-27T09:00:00+09:00"
+            },
+            "after": {
+              "url": "/api/v1/legacy/after",
+              "captured_at": "2026-07-27T09:01:00+09:00"
+            }
+          }
+        }
+    )JSON");
+    ParkingSlotSnapshot legacySlot;
+    if (!ParkingResponseParser::parseSlotDetail(
+            legacyTimeline, legacySlot, error)) return 14;
+    if (legacySlot.images.size() != 2) return 15;
+    if (legacySlot.images.at(0).processing != QStringLiteral("ORIGINAL")
+        || legacySlot.images.at(1).processing != QStringLiteral("ORIGINAL")) {
+        return 16;
+    }
+    if (legacySlot.images.at(0).url
+            != QUrl(QStringLiteral("/api/v1/legacy/before"))
+        || legacySlot.images.at(1).url
+            != QUrl(QStringLiteral("/api/v1/legacy/after"))) {
+        return 17;
+    }
 
     return 0;
 }

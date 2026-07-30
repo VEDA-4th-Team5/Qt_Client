@@ -57,6 +57,7 @@ QString NotificationPolicy::normalizeEventType(const QString &eventType) const
 EventSeverity NotificationPolicy::defaultSeverityForEvent(const QString &eventType) const
 {
     if (eventType == QStringLiteral("FIRE_ALARM")
+        || eventType == QStringLiteral("FIRE_SUSPECTED")
         || eventType == QStringLiteral("FLAME_DETECTED")) {
         return EventSeverity::Critical;
     }
@@ -77,6 +78,9 @@ QString NotificationPolicy::titleForEvent(const QString &eventType) const
 {
     if (eventType == QStringLiteral("FIRE_ALARM")) {
         return QStringLiteral("Fire alarm");
+    }
+    if (eventType == QStringLiteral("FIRE_SUSPECTED")) {
+        return QStringLiteral("Fire suspected");
     }
     if (eventType == QStringLiteral("FLAME_DETECTED")) {
         return QStringLiteral("Flame detected");
@@ -130,6 +134,7 @@ bool NotificationPolicy::isNotifiableEvent(const QString &eventType,
 
     static const QStringList explicitTypes = {
         QStringLiteral("FIRE_ALARM"),
+        QStringLiteral("FIRE_SUSPECTED"),
         QStringLiteral("FLAME_DETECTED"),
         QStringLiteral("HALL_SENSOR_ERROR"),
         QStringLiteral("HALL_SENSOR_CHANGED"),

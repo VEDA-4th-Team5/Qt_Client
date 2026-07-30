@@ -6,6 +6,7 @@
 #include "pages/debugpage.h"
 #include "pages/evidencepage.h"
 #include "pages/eventspage.h"
+#include "pages/imagecomparepage.h"
 #include "pages/parkingmappage.h"
 #include "pages/settingspage.h"
 #include "services/camerasettings.h"
@@ -133,11 +134,18 @@ void MainWindow::buildUi()
     addNavButton(QStringLiteral("Parking Map"), 1);
     m_eventsNavButton = addNavButton(QStringLiteral("Events"), 2);
     m_evidenceNavButton = addNavButton(QStringLiteral("Evidence"), 3);
-    addNavButton(QStringLiteral("Settings"), 4);
-    addNavButton(QStringLiteral("Debug"), 5);
+    m_imageCompareNavButton = addNavButton(
+        QStringLiteral("Image Compare"), 4);
+    addNavButton(QStringLiteral("Settings"), 5);
+    addNavButton(QStringLiteral("Debug"), 6);
     connect(m_evidenceNavButton, &QPushButton::clicked, this, [this]() {
         if (m_evidencePage) {
             m_evidencePage->requestCurrentEvidence();
+        }
+    });
+    connect(m_imageCompareNavButton, &QPushButton::clicked, this, [this]() {
+        if (m_imageComparePage) {
+            m_imageComparePage->requestCurrentComparison();
         }
     });
     sideLayout->addStretch();
@@ -190,12 +198,14 @@ void MainWindow::buildUi()
     m_parkingMapPage = new ParkingMapPage(parkingMapLayoutPath(), m_pages);
     m_eventsPage = new EventsPage(m_pages);
     m_evidencePage = new EvidencePage(m_pages);
+    m_imageComparePage = new ImageComparePage(m_pages);
     m_settingsPage = new SettingsPage(m_cameraSettings.configPath(), m_cameraSettings.cameraIp(), m_pages);
     m_debugPage = new DebugPage(m_pages);
     m_pages->addWidget(m_dashboardPage);
     m_pages->addWidget(m_parkingMapPage);
     m_pages->addWidget(m_eventsPage);
     m_pages->addWidget(m_evidencePage);
+    m_pages->addWidget(m_imageComparePage);
     m_pages->addWidget(m_settingsPage);
     m_pages->addWidget(m_debugPage);
     contentLayout->addWidget(m_pages, 1);
@@ -224,6 +234,7 @@ void MainWindow::buildUi()
 void MainWindow::connectPages()
 {
     m_evidencePage->setImageLoader(m_parkingController->imageLoader());
+    m_imageComparePage->setImageLoader(m_parkingController->imageLoader());
     connect(m_parkingController, &ParkingController::stateChanged,
             this, &MainWindow::renderParkingState);
     connect(m_parkingController, &ParkingController::bannerChanged, this,
@@ -274,21 +285,47 @@ void MainWindow::connectPages()
             m_debugPage, &DebugPage::setLastMessage);
     connect(m_parkingController, &ParkingController::slotDetailReady,
             this, [this](const QString &slotId) {
-                m_evidencePage->setImageLoader(m_parkingController->imageLoader());
-                m_evidencePage->showEvidence(
-                    slotId, m_parkingController->slotState(slotId),
-                    m_parkingController->plateNumber(slotId),
-                    m_parkingController->images(slotId));
+                if (m_pages->currentWidget() == m_evidencePage) {
+                    m_evidencePage->setImageLoader(
+                        m_parkingController->imageLoader());
+                    m_evidencePage->showEvidence(
+                        slotId, m_parkingController->slotState(slotId),
+                        m_parkingController->plateNumber(slotId),
+                        m_parkingController->images(slotId));
+                } else if (m_pages->currentWidget() == m_imageComparePage) {
+                    m_imageComparePage->setImageLoader(
+                        m_parkingController->imageLoader());
+                    m_imageComparePage->showComparison(
+                        slotId, m_parkingController->slotState(slotId),
+                        m_parkingController->plateNumber(slotId),
+                        m_parkingController->images(slotId));
+                }
             });
     connect(m_parkingController, &ParkingController::slotDetailFailed,
-            m_evidencePage, &EvidencePage::showError);
+            this, [this](const QString &slotId, const QString &message) {
+                if (m_pages->currentWidget() == m_evidencePage) {
+                    m_evidencePage->showError(slotId, message);
+                } else if (m_pages->currentWidget() == m_imageComparePage) {
+                    m_imageComparePage->showError(slotId, message);
+                }
+            });
     connect(m_parkingController, &ParkingController::detailError, this,
             [this](const QString &message) {
-                m_evidencePage->showError(QString(), message);
+                if (m_pages->currentWidget() == m_evidencePage) {
+                    m_evidencePage->showError(QString(), message);
+                } else if (m_pages->currentWidget() == m_imageComparePage) {
+                    m_imageComparePage->showError(QString(), message);
+                }
             });
     connect(m_evidencePage, &EvidencePage::evidenceRequested, this,
             [this](const QString &slotId) {
                 m_evidencePage->setImageLoader(m_parkingController->imageLoader());
+                m_parkingController->requestSlotDetail(slotId);
+            });
+    connect(m_imageComparePage, &ImageComparePage::comparisonRequested, this,
+            [this](const QString &slotId) {
+                m_imageComparePage->setImageLoader(
+                    m_parkingController->imageLoader());
                 m_parkingController->requestSlotDetail(slotId);
             });
     connect(m_debugPage, &DebugPage::clearAlarmsRequested,
@@ -339,6 +376,7 @@ void MainWindow::renderParkingState()
     const ParkingViewState &state = m_parkingController->state();
     m_parkingMapPage->render(state);
     m_evidencePage->render(state);
+    m_imageComparePage->render(state);
     int occupied = 0;
     int vacant = 0;
     int sensorErrors = 0;

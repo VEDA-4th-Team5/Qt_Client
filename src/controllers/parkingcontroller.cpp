@@ -59,6 +59,16 @@ void ParkingController::initializeMqttClient()
                                            : sharedSettings.value(key, defaultValue);
     };
 
+    // Settings can be reloaded while the application is running. Tear down the
+    // client first so a disabled or changed broker cannot keep retrying with a
+    // stale host captured by the previous MqttSettings instance.
+    if (m_mqttClient) {
+        m_mqttClient->stop();
+        disconnect(m_mqttClient, nullptr, this, nullptr);
+        m_mqttClient->deleteLater();
+        m_mqttClient = nullptr;
+    }
+
     MqttSettings mqttSettings;
     mqttSettings.enabled = setting(QStringLiteral("mqtt/enabled"), false).toBool();
     if (!mqttSettings.enabled) {
@@ -67,6 +77,15 @@ void ParkingController::initializeMqttClient()
     }
 
     mqttSettings.host = setting(QStringLiteral("mqtt/host"), QString()).toString().trimmed();
+    const bool followApiHost =
+        setting(QStringLiteral("mqtt/follow_api_host"), true).toBool();
+    if (followApiHost) {
+        const QUrl apiUrl(
+            setting(QStringLiteral("api/base_url"), QString()).toString().trimmed());
+        if (apiUrl.isValid() && !apiUrl.host().isEmpty()) {
+            mqttSettings.host = apiUrl.host();
+        }
+    }
     mqttSettings.port =
         static_cast<quint16>(setting(QStringLiteral("mqtt/port"), 1883).toInt());
     mqttSettings.clientId =
@@ -77,12 +96,6 @@ void ParkingController::initializeMqttClient()
                                   QStringLiteral("parking/fire/#"))
                               .toString()
                               .split(QLatin1Char(','), Qt::SkipEmptyParts);
-
-    if (m_mqttClient) {
-        m_mqttClient->stop();
-        disconnect(m_mqttClient, nullptr, this, nullptr);
-        m_mqttClient->deleteLater();
-    }
 
     m_mqttClient = new MqttServiceClient(mqttSettings, this);
     connect(m_mqttClient, &MqttServiceClient::messageReceived,
@@ -128,7 +141,10 @@ void ParkingController::handleMqttMessage(const QString &topic,
 
 void ParkingController::applyFireEvent(const QJsonObject &event)
 {
-    const bool active = event.value(QStringLiteral("active")).toBool();
+    // The event type already distinguishes activation from clearing. Do not
+    // depend on an optional compatibility field such as "active".
+    const bool active = event.value(QStringLiteral("event_type")).toString()
+        == QStringLiteral("sensor_fire_suspected");
     const QString sensorId = event.value(QStringLiteral("source_id")).toString();
     const QString rawSlotId = event.value(QStringLiteral("slot_id")).toString();
     const QString rawPayload = event.value(QStringLiteral("raw_payload")).toString();
@@ -386,6 +402,11 @@ void ParkingController::updateServerBaseUrl(const QString &baseUrl)
     QSettings localSettings(m_localConfigPath, QSettings::IniFormat);
     localSettings.setValue(QStringLiteral("api/enabled"), true);
     localSettings.setValue(QStringLiteral("api/base_url"), normalized);
+    // The deployed Mosquitto broker runs on the same Pi as the HTTP API. Keep
+    // the effective broker address in sync with the full URL entered by the
+    // user instead of preserving a host from a previous subnet.
+    localSettings.setValue(QStringLiteral("mqtt/follow_api_host"), true);
+    localSettings.setValue(QStringLiteral("mqtt/host"), url.host());
     localSettings.sync();
     if (localSettings.status() != QSettings::NoError) {
         emit serverConfigurationError(
@@ -399,6 +420,7 @@ void ParkingController::updateServerBaseUrl(const QString &baseUrl)
                                    | QUrl::RemoveFragment),
                 QStringLiteral("DONE"));
     initializeApiClient();
+    initializeMqttClient();
 }
 void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
 {

@@ -45,7 +45,7 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     grid->addWidget(new QLabel(QStringLiteral("Server connection"), group), 4, 0);
     grid->addWidget(m_serverConnectionLabel, 4, 1);
     grid->addWidget(new QLabel(QStringLiteral("Network addressing"), group), 5, 0);
-    grid->addWidget(new QLabel(QStringLiteral("Enter complete addresses. No subnet or IP prefix is assumed."), group), 5, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Enter complete addresses. MQTT follows the Server API host; no subnet or IP prefix is assumed."), group), 5, 1);
     grid->addWidget(new QLabel(QStringLiteral("Server address save target"), group), 6, 0);
     grid->addWidget(new QLabel(QStringLiteral("client_config.local.ini (this PC override)"), group), 6, 1);
     grid->addWidget(new QLabel(QStringLiteral("Channel source"), group), 7, 0);
