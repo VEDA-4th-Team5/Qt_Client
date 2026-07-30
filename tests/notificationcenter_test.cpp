@@ -181,5 +181,23 @@ int main(int argc, char *argv[])
     if (policy.isSameAlertGroup(QStringLiteral("API_ERROR"),
                                 QStringLiteral("HALL_SENSOR_CLEAR"))) return 38;
 
+    center.clearAll();
+    center.ingestEvent(makeEvent(QStringLiteral("EV-01"),
+                                 QStringLiteral("FIRE_SUSPECTED"),
+                                 QStringLiteral("OPEN"),
+                                 QStringLiteral("fire candidate requires verification")));
+    if (center.notifications().size() != 1) return 39;
+    const NotificationRecord fireSuspected = center.notifications().constFirst();
+    if (fireSuspected.eventType != QStringLiteral("FIRE_SUSPECTED")) return 40;
+    if (fireSuspected.severity != QStringLiteral("CRITICAL")) return 41;
+    if (fireSuspected.title != QStringLiteral("Fire suspected")) return 42;
+    if (center.unreadCount() != 1) return 43;
+
+    center.ingestEvent(makeEvent(QStringLiteral("EV-01"),
+                                 QStringLiteral("FIRE_CLEARED"),
+                                 QStringLiteral("CLOSED"),
+                                 QStringLiteral("fire candidate cleared")));
+    if (center.hasNotifications()) return 44;
+
     return 0;
 }

@@ -128,7 +128,10 @@ void ParkingController::handleMqttMessage(const QString &topic,
 
 void ParkingController::applyFireEvent(const QJsonObject &event)
 {
-    const bool active = event.value(QStringLiteral("active")).toBool();
+    // The event type already distinguishes activation from clearing. Do not
+    // depend on an optional compatibility field such as "active".
+    const bool active = event.value(QStringLiteral("event_type")).toString()
+        == QStringLiteral("sensor_fire_suspected");
     const QString sensorId = event.value(QStringLiteral("source_id")).toString();
     const QString rawSlotId = event.value(QStringLiteral("slot_id")).toString();
     const QString rawPayload = event.value(QStringLiteral("raw_payload")).toString();
