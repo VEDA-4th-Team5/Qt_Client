@@ -208,6 +208,26 @@ if (BUILD_TESTING)
     )
     add_test(NAME parkingcontroller_retry COMMAND parkingcontroller_retry_test)
 
+    add_executable(mqttserviceclient_test
+        tests/mqttserviceclient_test.cpp
+        src/services/mqttserviceclient.cpp
+        src/services/mqttserviceclient.h
+    )
+    target_include_directories(mqttserviceclient_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(mqttserviceclient_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(mqttserviceclient_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME mqtt_service_client COMMAND mqttserviceclient_test success)
+    add_test(NAME mqtt_service_client_rejected
+        COMMAND mqttserviceclient_test rejected)
+    add_test(NAME mqtt_settings_topics
+        COMMAND mqttserviceclient_test settings)
+
     add_executable(parkingsimulationservice_test
         tests/parkingsimulationservice_test.cpp
         src/adapters/incomingmessageadapter.cpp

@@ -12,11 +12,31 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTimer>
+#include <QUuid>
 
 namespace {
 constexpr int kSeenServerEventLimit = 256;
+constexpr int kPortableMqttClientIdMaxLength = 23;
+constexpr int kGeneratedMqttClientIdSuffixLength = 12;
+
+QString generatedMqttClientId(QString prefix)
+{
+    prefix = prefix.trimmed();
+    prefix.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")),
+                   QStringLiteral("-"));
+    if (prefix.isEmpty()) prefix = QStringLiteral("qt-client");
+
+    const int maxPrefixLength = kPortableMqttClientIdMaxLength
+        - 1 - kGeneratedMqttClientIdSuffixLength;
+    prefix = prefix.left(maxPrefixLength);
+    QString suffix = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    suffix.remove(QLatin1Char('-'));
+    return prefix + QLatin1Char('-')
+        + suffix.left(kGeneratedMqttClientIdSuffixLength);
+}
 
 bool isEvSlotId(const QString &slotId)
 {
@@ -176,17 +196,52 @@ void ParkingController::initializeMqttClient()
     }
     mqttSettings.port =
         static_cast<quint16>(setting(QStringLiteral("mqtt/port"), 1883).toInt());
-    mqttSettings.clientId =
-        setting(QStringLiteral("mqtt/client_id"), QStringLiteral("qt-client")).toString();
+    const QString persistedClientId =
+        localSettings.value(QStringLiteral("mqtt/client_id")).toString().trimmed();
+    const bool needsGeneratedClientId = persistedClientId.isEmpty()
+        || persistedClientId.compare(QStringLiteral("qt-client"),
+                                     Qt::CaseInsensitive) == 0;
+    if (needsGeneratedClientId) {
+        const QString sharedPrefix =
+            sharedSettings.value(QStringLiteral("mqtt/client_id"),
+                                 QStringLiteral("qt-client")).toString();
+        mqttSettings.clientId = generatedMqttClientId(sharedPrefix);
+        localSettings.setValue(QStringLiteral("mqtt/client_id"),
+                               mqttSettings.clientId);
+        localSettings.sync();
+        if (localSettings.status() == QSettings::NoError) {
+            recordEvent(QStringLiteral("SYSTEM"),
+                        QStringLiteral("MQTT_CLIENT_ID_INITIALIZED"),
+                        QStringLiteral("Generated workstation MQTT client ID: ")
+                            + mqttSettings.clientId,
+                        QStringLiteral("DONE"));
+        } else {
+            recordEvent(QStringLiteral("SYSTEM"),
+                        QStringLiteral("MQTT_CLIENT_ID_PERSIST_ERROR"),
+                        QStringLiteral("Could not persist generated MQTT client ID"),
+                        QStringLiteral("FAILED"));
+        }
+    } else {
+        mqttSettings.clientId = persistedClientId;
+    }
     mqttSettings.reconnectIntervalMs =
         setting(QStringLiteral("mqtt/reconnect_interval_ms"), 5000).toInt();
-    mqttSettings.topics = setting(
-                              QStringLiteral("mqtt/topics"),
-                              QStringLiteral("parking/fire/+,"
-                                             "parking/v1/events/+,"
-                                             "parking/v1/state/+"))
-                              .toString()
-                              .split(QLatin1Char(','), Qt::SkipEmptyParts);
+    const QStringList defaultTopics{
+        QStringLiteral("parking/fire/+"),
+        QStringLiteral("parking/v1/events/+"),
+        QStringLiteral("parking/v1/state/+")};
+    const QString topicsKey = QStringLiteral("mqtt/topics");
+    const bool hasLocalTopics = localSettings.contains(topicsKey);
+    mqttSettings.topics = MqttSettings::normalizedTopics(
+        hasLocalTopics ? localSettings.value(topicsKey)
+                       : sharedSettings.value(topicsKey));
+    if (mqttSettings.topics.isEmpty() && hasLocalTopics) {
+        mqttSettings.topics = MqttSettings::normalizedTopics(
+            sharedSettings.value(topicsKey));
+    }
+    if (mqttSettings.topics.isEmpty()) {
+        mqttSettings.topics = defaultTopics;
+    }
 
     m_mqttClient = new MqttServiceClient(mqttSettings, this);
     connect(m_mqttClient, &MqttServiceClient::messageReceived,

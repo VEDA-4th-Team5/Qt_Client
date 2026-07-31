@@ -112,6 +112,27 @@ QByteArray buildPingReqPacket()
 
 }  // namespace
 
+QStringList MqttSettings::normalizedTopics(const QVariant &value)
+{
+    QStringList serializedValues = value.toStringList();
+    if (serializedValues.isEmpty() && !value.toString().isEmpty()) {
+        serializedValues.append(value.toString());
+    }
+
+    QStringList topics;
+    for (const QString &serializedValue : serializedValues) {
+        const QStringList candidates =
+            serializedValue.split(QLatin1Char(','), Qt::SkipEmptyParts);
+        for (const QString &candidate : candidates) {
+            const QString topic = candidate.trimmed();
+            if (!topic.isEmpty() && !topics.contains(topic)) {
+                topics.append(topic);
+            }
+        }
+    }
+    return topics;
+}
+
 MqttServiceClient::MqttServiceClient(const MqttSettings &settings,
                                      QObject *parent)
     : QObject(parent)
@@ -162,6 +183,9 @@ void MqttServiceClient::onSocketConnected()
 void MqttServiceClient::onSocketDisconnected()
 {
     if (m_keepAliveTimer) m_keepAliveTimer->stop();
+    m_pendingSubscriptions.clear();
+    m_expectedSubscriptionCount = 0;
+    m_activeSubscriptionCount = 0;
     emit connectionChanged(QStringLiteral("MQTT disconnected"), false);
     scheduleReconnect();
 }
@@ -216,6 +240,8 @@ void MqttServiceClient::handlePacket(quint8 fixedHeaderByte, const QByteArray &b
         handlePublish(fixedHeaderByte, body);
         break;
     case 9:   // SUBACK
+        handleSubAck(body);
+        break;
     case 13:  // PINGRESP
     default:
         break;  // 우리 흐름에선 내용을 더 볼 필요가 없다
@@ -238,10 +264,64 @@ void MqttServiceClient::handleConnAck(const QByteArray &body)
     }
 
     emit connectionChanged(
-        QStringLiteral("MQTT connected: %1:%2").arg(m_settings.host).arg(m_settings.port),
+        QStringLiteral("MQTT connected: %1:%2 | client_id=%3")
+            .arg(m_settings.host).arg(m_settings.port).arg(m_settings.clientId),
         true);
     subscribeAll();
     startKeepAlive();
+}
+
+void MqttServiceClient::handleSubAck(const QByteArray &body)
+{
+    if (body.size() != 3) {
+        emit connectionChanged(QStringLiteral("MQTT SUBACK malformed"), false);
+        m_socket->abort();
+        return;
+    }
+
+    const quint16 packetId =
+        (static_cast<quint8>(body.at(0)) << 8)
+        | static_cast<quint8>(body.at(1));
+    const auto pending = m_pendingSubscriptions.find(packetId);
+    if (pending == m_pendingSubscriptions.end()) {
+        emit connectionChanged(
+            QStringLiteral("MQTT SUBACK has unknown packet id: %1").arg(packetId),
+            false);
+        return;
+    }
+
+    const QString topic = pending.value();
+    m_pendingSubscriptions.erase(pending);
+    const quint8 grantedQos = static_cast<quint8>(body.at(2));
+    if (grantedQos == 0x80) {
+        emit connectionChanged(
+            QStringLiteral("MQTT subscription rejected: %1").arg(topic), false);
+        m_socket->abort();
+        return;
+    }
+    if (grantedQos > 2) {
+        emit connectionChanged(
+            QStringLiteral("MQTT SUBACK invalid QoS %1: %2")
+                .arg(grantedQos).arg(topic),
+            false);
+        m_socket->abort();
+        return;
+    }
+
+    ++m_activeSubscriptionCount;
+    emit connectionChanged(
+        QStringLiteral("MQTT subscribed: %1 (QoS %2)")
+            .arg(topic).arg(grantedQos),
+        true);
+    if (m_pendingSubscriptions.isEmpty()
+        && m_activeSubscriptionCount == m_expectedSubscriptionCount) {
+        emit connectionChanged(
+            QStringLiteral("MQTT ready: %1/%2 subscriptions | client_id=%3")
+                .arg(m_activeSubscriptionCount)
+                .arg(m_expectedSubscriptionCount)
+                .arg(m_settings.clientId),
+            true);
+    }
 }
 
 void MqttServiceClient::handlePublish(quint8 fixedHeaderByte, const QByteArray &body)
@@ -276,6 +356,9 @@ void MqttServiceClient::handlePublish(quint8 fixedHeaderByte, const QByteArray &
 
 void MqttServiceClient::subscribeAll()
 {
+    m_pendingSubscriptions.clear();
+    m_expectedSubscriptionCount = 0;
+    m_activeSubscriptionCount = 0;
     for (const QString &topic : m_settings.topics) {
         const QString trimmed = topic.trimmed();
         if (trimmed.isEmpty()) continue;
@@ -283,8 +366,15 @@ void MqttServiceClient::subscribeAll()
         const quint16 packetId = m_nextPacketId++;
         if (m_nextPacketId == 0) m_nextPacketId = 1;  // 0은 예약값, wraparound 방지
 
+        m_pendingSubscriptions.insert(packetId, trimmed);
+        ++m_expectedSubscriptionCount;
         m_socket->write(buildSubscribePacket(packetId, trimmed, kRequestedQos));
         emit connectionChanged(QStringLiteral("MQTT subscribing: %1").arg(trimmed), true);
+    }
+    if (m_expectedSubscriptionCount == 0) {
+        emit connectionChanged(
+            QStringLiteral("MQTT connected but no subscriptions are configured"),
+            false);
     }
 }
 

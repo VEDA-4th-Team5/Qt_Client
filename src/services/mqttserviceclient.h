@@ -2,9 +2,11 @@
 #define MQTTSERVICECLIENT_H
 
 #include <QByteArray>
+#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QVariant>
 
 class QTcpSocket;
 class QTimer;
@@ -16,6 +18,8 @@ struct MqttSettings {
     QStringList topics;
     QString clientId;
     int reconnectIntervalMs = 5000;
+
+    static QStringList normalizedTopics(const QVariant &value);
 };
 
 // Service 계층의 MQTT 수신 담당이다. Pi 가 발행하는 실시간 알림을 구독만 하고,
@@ -52,6 +56,7 @@ private:
     void startKeepAlive();
     void handlePacket(quint8 fixedHeaderByte, const QByteArray &body);
     void handleConnAck(const QByteArray &body);
+    void handleSubAck(const QByteArray &body);
     void handlePublish(quint8 fixedHeaderByte, const QByteArray &body);
 
     MqttSettings m_settings;
@@ -59,6 +64,9 @@ private:
     QTimer *m_keepAliveTimer = nullptr;
     QTcpSocket *m_socket = nullptr;
     QByteArray m_readBuffer;
+    QHash<quint16, QString> m_pendingSubscriptions;
+    int m_expectedSubscriptionCount = 0;
+    int m_activeSubscriptionCount = 0;
     quint16 m_nextPacketId = 1;
 };
 
