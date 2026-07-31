@@ -36,7 +36,8 @@ public:
     void stop();
 
 signals:
-    void messageReceived(const QString &topic, const QByteArray &payload);
+    void messageReceived(const QString &topic, const QByteArray &payload,
+                         bool retained);
     void connectionChanged(const QString &status, bool connected);
 
 private slots:

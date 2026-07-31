@@ -72,6 +72,10 @@ add_executable(smart_parking_qt_client
     src/main.cpp
     src/adapters/incomingmessageadapter.cpp
     src/adapters/incomingmessageadapter.h
+    src/adapters/serverfireeventadapter.cpp
+    src/adapters/serverfireeventadapter.h
+    src/adapters/serverparkingeventadapter.cpp
+    src/adapters/serverparkingeventadapter.h
     src/mainwindow.cpp
     src/mainwindow.h
     src/controllers/parkingcontroller.cpp
@@ -175,6 +179,10 @@ if (BUILD_TESTING)
         tests/parkingcontroller_retry_test.cpp
         src/adapters/incomingmessageadapter.cpp
         src/adapters/incomingmessageadapter.h
+        src/adapters/serverfireeventadapter.cpp
+        src/adapters/serverfireeventadapter.h
+        src/adapters/serverparkingeventadapter.cpp
+        src/adapters/serverparkingeventadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
         src/models/monitoringevent.cpp
@@ -204,6 +212,10 @@ if (BUILD_TESTING)
         tests/parkingsimulationservice_test.cpp
         src/adapters/incomingmessageadapter.cpp
         src/adapters/incomingmessageadapter.h
+        src/adapters/serverfireeventadapter.cpp
+        src/adapters/serverfireeventadapter.h
+        src/adapters/serverparkingeventadapter.cpp
+        src/adapters/serverparkingeventadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
         src/models/monitoringevent.cpp
@@ -240,6 +252,10 @@ if (BUILD_TESTING)
         tests/parkingeventflow_test.cpp
         src/adapters/incomingmessageadapter.cpp
         src/adapters/incomingmessageadapter.h
+        src/adapters/serverfireeventadapter.cpp
+        src/adapters/serverfireeventadapter.h
+        src/adapters/serverparkingeventadapter.cpp
+        src/adapters/serverparkingeventadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
         src/models/monitoringevent.cpp

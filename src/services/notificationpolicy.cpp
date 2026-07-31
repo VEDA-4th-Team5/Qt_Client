@@ -184,6 +184,10 @@ bool NotificationPolicy::isSameAlertGroup(const QString &left,
             || normalizedLeft.contains(QStringLiteral("ALERT"))
             || normalizedLeft.endsWith(QStringLiteral("_ERROR"));
     }
+    if (normalizedRight == QStringLiteral("SLOT_VACATED")) {
+        return normalizedLeft == QStringLiteral("NON_EV_ALERT")
+            || normalizedLeft == QStringLiteral("OVERTIME_ALERT");
+    }
     if (normalizedRight == QStringLiteral("CAMERA_RECONNECTED")) {
         return normalizedLeft == QStringLiteral("CAMERA_DISCONNECTED");
     }

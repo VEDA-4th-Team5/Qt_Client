@@ -12,6 +12,7 @@ Item {
     property bool expanded: typeof channelExpanded === "undefined" ? false : channelExpanded
     property bool streamEnabled: typeof channelStreamEnabled === "undefined" ? false : channelStreamEnabled
     property bool highQualityEnabled: false
+    property bool fireAlarmActive: false
     readonly property string activeRtspUrl: highQualityEnabled && highRtspUrl !== "" ? highRtspUrl : lowRtspUrl
     readonly property string qualityLabel: highQualityEnabled ? "High" : "Low"
     readonly property bool diagnosticConfigured: activeRtspUrl !== ""
@@ -25,8 +26,9 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: "#000000"
-        border.color: mouseArea.containsMouse ? "#64b5f6" : "#3a4148"
-        border.width: mouseArea.containsMouse ? 2 : 1
+        border.color: root.fireAlarmActive ? "#ff1744"
+                                          : mouseArea.containsMouse ? "#64b5f6" : "#3a4148"
+        border.width: root.fireAlarmActive ? 4 : mouseArea.containsMouse ? 2 : 1
         clip: true
 
         RtspVideoItem {
@@ -83,6 +85,44 @@ Item {
             text: !root.streamEnabled ? "Waiting" : root.activeRtspUrl === "" ? "RTSP URL NOT SET" : videoItem.status
             color: "#8d9aa5"
             font.pixelSize: 13
+        }
+
+        Rectangle {
+            id: fireOverlay
+            anchors.fill: parent
+            visible: root.fireAlarmActive
+            color: "transparent"
+            border.color: "#ff1744"
+            border.width: root.expanded ? 8 : 5
+            opacity: 1.0
+
+            SequentialAnimation on opacity {
+                running: root.fireAlarmActive
+                loops: Animation.Infinite
+                NumberAnimation { to: 0.45; duration: 420 }
+                NumberAnimation { to: 1.0; duration: 420 }
+            }
+
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: root.expanded ? 86 : 74
+                width: fireLabel.implicitWidth + 28
+                height: fireLabel.implicitHeight + 14
+                radius: 5
+                color: "#E6B71C1C"
+                border.color: "#ff8a80"
+                border.width: 2
+
+                Text {
+                    id: fireLabel
+                    anchors.centerIn: parent
+                    text: "⚠ FIRE SUSPECTED"
+                    color: "white"
+                    font.bold: true
+                    font.pixelSize: root.expanded ? 22 : 15
+                }
+            }
         }
 
         Text {

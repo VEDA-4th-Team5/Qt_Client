@@ -247,6 +247,7 @@ void MqttServiceClient::handleConnAck(const QByteArray &body)
 void MqttServiceClient::handlePublish(quint8 fixedHeaderByte, const QByteArray &body)
 {
     const quint8 qos = (fixedHeaderByte >> 1) & 0x03;
+    const bool retained = (fixedHeaderByte & 0x01) != 0;
 
     if (body.size() < 2) return;
     const quint16 topicLen = (static_cast<quint8>(body.at(0)) << 8) |
@@ -270,7 +271,7 @@ void MqttServiceClient::handlePublish(quint8 fixedHeaderByte, const QByteArray &
         m_socket->write(buildPubAckPacket(packetId));
     }
 
-    emit messageReceived(topic, payload);
+    emit messageReceived(topic, payload, retained);
 }
 
 void MqttServiceClient::subscribeAll()

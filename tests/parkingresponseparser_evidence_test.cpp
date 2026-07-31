@@ -14,7 +14,7 @@ int main(int argc, char **argv)
           "active_session": {
             "session_id": 7,
             "plate_number": "12A3456",
-            "ev_status": "EV",
+            "ev_status": "PHEV",
             "entry_time": "2026-07-27T09:00:00+09:00"
           }
         }

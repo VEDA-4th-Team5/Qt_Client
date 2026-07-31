@@ -43,13 +43,15 @@ int main(int argc, char **argv)
     if (controller.slotState(QStringLiteral("EV-01")) != SlotState::NonEvAlert) return 13;
     if (controller.slotState(QStringLiteral("EV-02")) != SlotState::OvertimeAlert) return 14;
     if (controller.slotState(QStringLiteral("P-03")) != SlotState::SensorError) return 15;
+    if (controller.state().fireChannels
+        != QSet<QString>{QStringLiteral("CH2")}) return 16;
 
     if (slotStateFromText(QStringLiteral("FIRE_SUSPECTED"))
-        != SlotState::FireSuspected) return 16;
+        != SlotState::Vacant) return 17;
     const SlotVisualState fireVisual = deriveSlotVisualState(
         SlotState::Occupied, false, false, QStringLiteral("FIRE_SUSPECTED"));
-    if (fireVisual.alarm != SlotAlarmKind::FireSuspected) return 17;
-    if (slotAlarmText(fireVisual.alarm) != QStringLiteral("FIRE?")) return 18;
+    if (fireVisual.alarm != SlotAlarmKind::None) return 18;
+    if (slotAlarmText(fireVisual.alarm) != QStringLiteral("NORMAL")) return 19;
 
     return 0;
 }

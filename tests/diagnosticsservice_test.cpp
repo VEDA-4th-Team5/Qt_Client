@@ -39,6 +39,16 @@ int main(int argc, char **argv)
     if (diagnostics.rtspChannels().size() != 1) return 8;
     if (diagnostics.logs().isEmpty()) return 9;
 
+    MonitoringEvent fireEvent;
+    fireEvent.sourceId = QStringLiteral("CH3");
+    fireEvent.eventType = QStringLiteral("FIRE_SUSPECTED");
+    fireEvent.message = QStringLiteral("Channel fire warning");
+    fireEvent.status = QStringLiteral("OPEN");
+    diagnostics.ingestDomainEvent(fireEvent);
+    const DiagnosticLogRecord fireLog = diagnostics.logs().constLast();
+    if (fireLog.code != QStringLiteral("FIRE_SUSPECTED")) return 10;
+    if (!fireLog.message.startsWith(QStringLiteral("CH3 | OPEN |"))) return 11;
+
     for (int i = 0; i < 1100; ++i) {
         MonitoringEvent event;
         event.sourceId = QStringLiteral("SYSTEM");
@@ -47,6 +57,6 @@ int main(int argc, char **argv)
         event.status = QStringLiteral("DONE");
         diagnostics.ingestDomainEvent(event);
     }
-    if (diagnostics.logs().size() != 1000) return 10;
+    if (diagnostics.logs().size() != 1000) return 12;
     return 0;
 }

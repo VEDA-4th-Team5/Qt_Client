@@ -63,7 +63,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_parkingController = new ParkingController(clientConfigPath(), clientLocalConfigPath(), this);
     m_parkingSimulationService = new ParkingSimulationService(m_parkingController, this);
     connectPages();
-    m_parkingSimulationService->seedInitialState();
     m_parkingController->start();
 }
 
@@ -390,8 +389,9 @@ void MainWindow::renderParkingState()
     }
     m_dashboardPage->setSummary(
         state.parkingSlots.size(), occupied, vacant, sensorErrors);
+    m_dashboardPage->setFireChannels(state.fireChannels);
     if (m_diagnosticsService) {
-        int activeAlarms = 0;
+        int activeAlarms = state.fireChannels.size();
         for (const EvSlotInfo &slot : state.evSlots) {
             if (slot.visual.alarm != SlotAlarmKind::None
                 && !slot.visual.alarmAcknowledged) ++activeAlarms;

@@ -5,6 +5,7 @@
 #include "models/monitoringevent.h"
 
 #include <QList>
+#include <QSet>
 #include <QStringList>
 #include <QWidget>
 
@@ -24,6 +25,7 @@ public:
                            QWidget *parent = nullptr);
 
     void setSummary(int total, int occupied, int vacant, int sensorErrors);
+    void setFireChannels(const QSet<QString> &channels);
     void prependEvent(const MonitoringEvent &event);
     void setRtspUrls(const QStringList &lowRtspUrls, const QStringList &highRtspUrls);
 
@@ -50,6 +52,7 @@ private:
     QLabel *m_sensorErrorLabel = nullptr;
     QTableWidget *m_recentEventTable = nullptr;
     QTimer *m_diagnosticTimer = nullptr;
+    QSet<QString> m_fireChannels;
     int m_expandedVideoChannel = -1;
 };
 
