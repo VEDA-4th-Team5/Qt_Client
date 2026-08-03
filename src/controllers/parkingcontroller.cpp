@@ -1,6 +1,8 @@
 #include "parkingcontroller.h"
 
 #include "adapters/incomingmessageadapter.h"
+#include "adapters/serverfireeventadapter.h"
+#include "adapters/serverparkingeventadapter.h"
 #include "api/apiclient.h"
 #include "api/imageloader.h"
 #include "api/parkingresponseparser.h"
@@ -10,23 +12,134 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTimer>
+#include <QUuid>
 
 namespace {
-QString numberedSlotId(const QString &prefix, int number)
+constexpr int kSeenServerEventLimit = 256;
+constexpr int kPortableMqttClientIdMaxLength = 23;
+constexpr int kGeneratedMqttClientIdSuffixLength = 12;
+
+QString generatedMqttClientId(QString prefix)
 {
-    return QStringLiteral("%1-%2").arg(prefix).arg(number, 2, 10, QLatin1Char('0'));
+    prefix = prefix.trimmed();
+    prefix.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")),
+                   QStringLiteral("-"));
+    if (prefix.isEmpty()) prefix = QStringLiteral("qt-client");
+
+    const int maxPrefixLength = kPortableMqttClientIdMaxLength
+        - 1 - kGeneratedMqttClientIdSuffixLength;
+    prefix = prefix.left(maxPrefixLength);
+    QString suffix = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    suffix.remove(QLatin1Char('-'));
+    return prefix + QLatin1Char('-')
+        + suffix.left(kGeneratedMqttClientIdSuffixLength);
 }
 
-QString evSlotId(int number)
+bool isEvSlotId(const QString &slotId)
 {
-    return numberedSlotId(QStringLiteral("EV"), number);
+    return slotId.startsWith(QStringLiteral("EV-"));
 }
 
-QString parkingSlotId(int number)
+bool isGeneralSlotId(const QString &slotId)
 {
-    return numberedSlotId(QStringLiteral("P"), number);
+    return slotId.startsWith(QStringLiteral("P-"));
+}
+
+QString normalizeCameraChannelId(const QString &rawChannelId)
+{
+    QString normalized = rawChannelId.trimmed().toUpper();
+    if (!normalized.startsWith(QStringLiteral("CH"))) {
+        return QString();
+    }
+    normalized.remove(0, 2);
+    bool ok = false;
+    const int channelNumber = normalized.toInt(&ok);
+    return ok && channelNumber >= 1 && channelNumber <= 4
+        ? QStringLiteral("CH%1").arg(channelNumber) : QString();
+}
+
+QString fireAckCommandKey(const QString &channelId, const QString &alarmId)
+{
+    return channelId + QLatin1Char('|') + alarmId;
+}
+
+bool isFireLifecycleEventType(const QString &rawEventType)
+{
+    const QString eventType = rawEventType.trimmed().toUpper();
+    return eventType == QStringLiteral("FIRE_SUSPECTED")
+        || eventType == QStringLiteral("FIRE_CLEARED")
+        || eventType == QStringLiteral("FIRE_ALARM")
+        || eventType == QStringLiteral("FIRE_EVENT")
+        || eventType == QStringLiteral("FLAME_DETECTED")
+        || eventType == QStringLiteral("FIRE_ACKNOWLEDGED")
+        || eventType == QStringLiteral("FIRE_ALARM_ACK");
+}
+
+bool vehicleClassFromText(const QString &vehicleType,
+                          VehicleClass &vehicleClass)
+{
+    const QString normalized = vehicleType.trimmed().toUpper();
+    if (normalized == QStringLiteral("EV")
+        || normalized == QStringLiteral("ELECTRIC")
+        || normalized == QStringLiteral("PHEV")) {
+        vehicleClass = VehicleClass::Electric;
+        return true;
+    }
+    if (normalized == QStringLiteral("NON_EV")
+        || normalized == QStringLiteral("GENERAL")
+        || normalized == QStringLiteral("ICE")
+        || normalized == QStringLiteral("GASOLINE")
+        || normalized == QStringLiteral("DIESEL")) {
+        vehicleClass = VehicleClass::General;
+        return true;
+    }
+    return false;
+}
+
+SlotState stateFromVisual(const SlotVisualState &visual)
+{
+    switch (visual.alarm) {
+    case SlotAlarmKind::NonEvViolation: return SlotState::NonEvAlert;
+    case SlotAlarmKind::Overstay: return SlotState::OvertimeAlert;
+    case SlotAlarmKind::SensorError: return SlotState::SensorError;
+    case SlotAlarmKind::None: break;
+    }
+    return visual.occupancy == SlotOccupancy::Occupied
+        ? SlotState::Occupied : SlotState::Vacant;
+}
+
+QString alarmTextFromKind(SlotAlarmKind alarm)
+{
+    switch (alarm) {
+    case SlotAlarmKind::NonEvViolation: return QStringLiteral("NON_EV_ALERT");
+    case SlotAlarmKind::Overstay: return QStringLiteral("OVERTIME_ALERT");
+    case SlotAlarmKind::SensorError: return QStringLiteral("HALL_SENSOR_ERROR");
+    case SlotAlarmKind::None: return QStringLiteral("NORMAL");
+    }
+    return QStringLiteral("NORMAL");
+}
+
+QString durationText(int seconds)
+{
+    const int totalMinutes = qMax(0, seconds) / 60;
+    return QStringLiteral("%1:%2")
+        .arg(totalMinutes / 60, 2, 10, QLatin1Char('0'))
+        .arg(totalMinutes % 60, 2, 10, QLatin1Char('0'));
+}
+
+EventSeverity severityFromText(const QString &severity)
+{
+    const QString normalized = severity.trimmed().toUpper();
+    if (normalized == QStringLiteral("CRITICAL")) return EventSeverity::Critical;
+    if (normalized == QStringLiteral("WARNING")
+        || normalized == QStringLiteral("WARN")) {
+        return EventSeverity::Warning;
+    }
+    if (normalized == QStringLiteral("INFO")) return EventSeverity::Info;
+    return EventSeverity::Unknown;
 }
 
 }
@@ -88,18 +201,56 @@ void ParkingController::initializeMqttClient()
     }
     mqttSettings.port =
         static_cast<quint16>(setting(QStringLiteral("mqtt/port"), 1883).toInt());
-    mqttSettings.clientId =
-        setting(QStringLiteral("mqtt/client_id"), QStringLiteral("qt-client")).toString();
+    const QString persistedClientId =
+        localSettings.value(QStringLiteral("mqtt/client_id")).toString().trimmed();
+    const bool needsGeneratedClientId = persistedClientId.isEmpty()
+        || persistedClientId.compare(QStringLiteral("qt-client"),
+                                     Qt::CaseInsensitive) == 0;
+    if (needsGeneratedClientId) {
+        const QString sharedPrefix =
+            sharedSettings.value(QStringLiteral("mqtt/client_id"),
+                                 QStringLiteral("qt-client")).toString();
+        mqttSettings.clientId = generatedMqttClientId(sharedPrefix);
+        localSettings.setValue(QStringLiteral("mqtt/client_id"),
+                               mqttSettings.clientId);
+        localSettings.sync();
+        if (localSettings.status() == QSettings::NoError) {
+            recordEvent(QStringLiteral("SYSTEM"),
+                        QStringLiteral("MQTT_CLIENT_ID_INITIALIZED"),
+                        QStringLiteral("Generated workstation MQTT client ID: ")
+                            + mqttSettings.clientId,
+                        QStringLiteral("DONE"));
+        } else {
+            recordEvent(QStringLiteral("SYSTEM"),
+                        QStringLiteral("MQTT_CLIENT_ID_PERSIST_ERROR"),
+                        QStringLiteral("Could not persist generated MQTT client ID"),
+                        QStringLiteral("FAILED"));
+        }
+    } else {
+        mqttSettings.clientId = persistedClientId;
+    }
     mqttSettings.reconnectIntervalMs =
         setting(QStringLiteral("mqtt/reconnect_interval_ms"), 5000).toInt();
-    mqttSettings.topics = setting(QStringLiteral("mqtt/topics"),
-                                  QStringLiteral("parking/fire/#"))
-                              .toString()
-                              .split(QLatin1Char(','), Qt::SkipEmptyParts);
+    const QStringList defaultTopics{
+        QStringLiteral("parking/fire/+"),
+        QStringLiteral("parking/v1/events/+"),
+        QStringLiteral("parking/v1/state/+")};
+    const QString topicsKey = QStringLiteral("mqtt/topics");
+    const bool hasLocalTopics = localSettings.contains(topicsKey);
+    mqttSettings.topics = MqttSettings::normalizedTopics(
+        hasLocalTopics ? localSettings.value(topicsKey)
+                       : sharedSettings.value(topicsKey));
+    if (mqttSettings.topics.isEmpty() && hasLocalTopics) {
+        mqttSettings.topics = MqttSettings::normalizedTopics(
+            sharedSettings.value(topicsKey));
+    }
+    if (mqttSettings.topics.isEmpty()) {
+        mqttSettings.topics = defaultTopics;
+    }
 
     m_mqttClient = new MqttServiceClient(mqttSettings, this);
     connect(m_mqttClient, &MqttServiceClient::messageReceived,
-            this, &ParkingController::handleMqttMessage);
+            this, &ParkingController::handleMqttMessageWithMetadata);
     connect(m_mqttClient, &MqttServiceClient::connectionChanged, this,
             [this](const QString &status, bool connected) {
                 emit statusMessageChanged(status);
@@ -107,12 +258,53 @@ void ParkingController::initializeMqttClient()
                             status,
                             connected ? QStringLiteral("DONE")
                                       : QStringLiteral("FAILED"));
+                if (connected && m_state.apiEnabled
+                    && !m_snapshotRequestInFlight) {
+                    reconnectNow();
+                }
+            });
+    connect(m_mqttClient, &MqttServiceClient::publishFailed, this,
+            [this](const QString &topic, const QString &reason) {
+                if (!topic.startsWith(
+                        QStringLiteral("parking/v1/commands/fire/"))) return;
+                const QString channelId = normalizeCameraChannelId(
+                    topic.section(QLatin1Char('/'), -1));
+                const ChannelFireAlarmState alarm =
+                    m_state.fireAlarms.value(channelId);
+                const QString commandKey = fireAckCommandKey(
+                    channelId, alarm.alarmId);
+                const bool retryable = alarm.active && !alarm.acknowledged
+                    && !alarm.alarmId.isEmpty()
+                    && m_fireAckCommandKeys.remove(commandKey) > 0;
+                recordEvent(channelId.isEmpty()
+                                ? QStringLiteral("SYSTEM") : channelId,
+                            QStringLiteral("FIRE_ACK_PUBLISH_FAILED"),
+                            reason, QStringLiteral("FAILED"));
+                if (retryable) {
+                    emit fireConfirmationRetryRequested(
+                        channelId, alarm.alarmId);
+                }
+            });
+    connect(m_mqttClient, &MqttServiceClient::publishConfirmed, this,
+            [this](const QString &topic) {
+                if (!topic.startsWith(
+                        QStringLiteral("parking/v1/commands/fire/"))) return;
+                recordEvent(topic.section(QLatin1Char('/'), -1),
+                            QStringLiteral("FIRE_ACK_COMMAND_DELIVERED"),
+                            QStringLiteral("Broker confirmed ALARM_ACK command; waiting for Pi response"),
+                            QStringLiteral("DONE"));
             });
     m_mqttClient->start();
 }
 
 void ParkingController::handleMqttMessage(const QString &topic,
                                           const QByteArray &payload)
+{
+    handleMqttMessageWithMetadata(topic, payload, false);
+}
+
+void ParkingController::handleMqttMessageWithMetadata(
+    const QString &topic, const QByteArray &payload, const bool retained)
 {
     emit statusMessageChanged(QStringLiteral("MQTT RX: ") + topic);
 
@@ -127,10 +319,65 @@ void ParkingController::handleMqttMessage(const QString &topic,
 
     const QJsonObject event = document.object();
     const QString eventType = event.value(QStringLiteral("event_type")).toString();
+    const bool fireStateTopic =
+        topic.startsWith(QStringLiteral("parking/fire/"));
+    const bool integratedEventTopic =
+        topic.startsWith(QStringLiteral("parking/v1/events/"));
+    const bool parkingStateTopic =
+        topic.startsWith(QStringLiteral("parking/v1/state/"));
 
-    if (eventType == QStringLiteral("sensor_fire_suspected")
-        || eventType == QStringLiteral("sensor_fire_cleared")) {
-        applyFireEvent(event);
+    const ServerFireEvent fireEvent = ServerFireEventAdapter::parse(event);
+    if (fireEvent.action == ServerFireEventAction::Invalid) {
+        recordEvent(fireEvent.channelId.isEmpty()
+                        ? QStringLiteral("SYSTEM") : fireEvent.channelId,
+                    QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
+                    topic + QStringLiteral(": ") + fireEvent.errorMessage,
+                    QStringLiteral("REJECTED"));
+        return;
+    }
+    if (fireEvent.action == ServerFireEventAction::Activate
+        || fireEvent.action == ServerFireEventAction::Acknowledge
+        || fireEvent.action == ServerFireEventAction::Clear) {
+        if (fireStateTopic || integratedEventTopic) {
+            const QString topicChannelId = normalizeCameraChannelId(
+                topic.section(QLatin1Char('/'), -1));
+            if (topicChannelId.isEmpty()
+                || topicChannelId != fireEvent.channelId) {
+                recordEvent(
+                    fireEvent.channelId,
+                    QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
+                    QStringLiteral("Fire topic channel does not match channel_id"),
+                    QStringLiteral("REJECTED"));
+                return;
+            }
+        }
+        if (parkingStateTopic) {
+            recordEvent(fireEvent.channelId,
+                        QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
+                        QStringLiteral("Fire event is not allowed on parking/v1/state"),
+                        QStringLiteral("REJECTED"));
+            return;
+        }
+        if (!fireStateTopic && !integratedEventTopic) {
+            recordEvent(fireEvent.channelId,
+                        QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
+                        QStringLiteral("Fire event received on an unsupported topic"),
+                        QStringLiteral("REJECTED"));
+            return;
+        }
+        applyChannelFireEvent(fireEvent, topic, retained);
+        return;
+    }
+
+    if (fireStateTopic) {
+        recordEvent(QStringLiteral("SYSTEM"),
+                    QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
+                    topic + QStringLiteral(": payload is not a fire event"),
+                    QStringLiteral("REJECTED"));
+        return;
+    }
+
+    if (applyServerParkingEvent(event, topic)) {
         return;
     }
 
@@ -139,96 +386,400 @@ void ParkingController::handleMqttMessage(const QString &topic,
                 QStringLiteral("REJECTED"));
 }
 
-void ParkingController::applyFireEvent(const QJsonObject &event)
+void ParkingController::applyChannelFireEvent(const ServerFireEvent &event,
+                                              const QString &topic,
+                                              const bool retained)
 {
-    // The event type already distinguishes activation from clearing. Do not
-    // depend on an optional compatibility field such as "active".
-    const bool active = event.value(QStringLiteral("event_type")).toString()
-        == QStringLiteral("sensor_fire_suspected");
-    const QString sensorId = event.value(QStringLiteral("source_id")).toString();
-    const QString rawSlotId = event.value(QStringLiteral("slot_id")).toString();
-    const QString rawPayload = event.value(QStringLiteral("raw_payload")).toString();
-
-    // Pi 가 주차면 매핑에 실패해도 알림 자체는 올라온다. 화면에서 지우지 않는다.
-    if (rawSlotId.isEmpty()) {
-        recordEvent(QStringLiteral("UNMAPPED"),
-                    active ? QStringLiteral("FIRE_SUSPECTED")
-                           : QStringLiteral("FIRE_CLEARED"),
-                    QStringLiteral("Fire candidate from unmapped sensor %1 (%2)")
-                        .arg(sensorId, rawPayload),
-                    active ? QStringLiteral("OPEN") : QStringLiteral("CLOSED"));
-        if (active) {
-            emit bannerChanged(
-                QStringLiteral("FIRE SUSPECTED | unmapped sensor %1 | operator must verify")
-                    .arg(sensorId),
-                true);
-        } else {
-            refreshAlert();
+    bool stateChanged = false;
+    bool requestConfirmation = false;
+    if (event.action == ServerFireEventAction::Activate) {
+        if (!m_state.fireChannels.contains(event.channelId)) {
+            m_state.fireChannels.insert(event.channelId);
+            stateChanged = true;
         }
+        const ChannelFireAlarmState previous =
+            m_state.fireAlarms.value(event.channelId);
+        if (previous.active && previous.alarmId != event.alarmId) {
+            m_fireAckCommandKeys.remove(
+                fireAckCommandKey(event.channelId, previous.alarmId));
+        }
+        requestConfirmation = !previous.active
+            || previous.alarmId != event.alarmId;
+        ChannelFireAlarmState updated;
+        updated.alarmId = event.alarmId;
+        updated.alarmState = event.alarmState.isEmpty()
+            ? QStringLiteral("OPEN") : event.alarmState;
+        updated.ackState = event.ackState.isEmpty()
+            ? QStringLiteral("unacked") : event.ackState;
+        updated.active = true;
+
+        // A repeated DETECTED for the same active alarm must never undo ACK.
+        if (previous.active && previous.acknowledged
+            && (event.alarmId.isEmpty()
+                || previous.alarmId == event.alarmId)) {
+            updated = previous;
+        }
+        if (previous.alarmId != updated.alarmId
+            || previous.alarmState != updated.alarmState
+            || previous.ackState != updated.ackState
+            || previous.active != updated.active
+            || previous.acknowledged != updated.acknowledged) {
+            m_state.fireAlarms.insert(event.channelId, updated);
+            stateChanged = true;
+        }
+    } else if (event.action == ServerFireEventAction::Acknowledge) {
+        const ChannelFireAlarmState previous =
+            m_state.fireAlarms.value(event.channelId);
+        if ((!retained && !previous.active)
+            || (previous.active && previous.alarmId != event.alarmId)) {
+            recordEvent(
+                event.channelId,
+                QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
+                QStringLiteral("Rejected ACK for inactive or mismatched alarm_id"),
+                QStringLiteral("REJECTED"));
+            return;
+        }
+
+        ChannelFireAlarmState updated = previous;
+        updated.alarmId = event.alarmId;
+        updated.alarmState = QStringLiteral("ACKNOWLEDGED");
+        updated.ackState = QStringLiteral("acknowledged");
+        updated.active = true;
+        updated.acknowledged = true;
+        if (!m_state.fireChannels.contains(event.channelId)) {
+            m_state.fireChannels.insert(event.channelId);
+            stateChanged = true;
+        }
+        if (previous.alarmId != updated.alarmId
+            || previous.alarmState != updated.alarmState
+            || previous.ackState != updated.ackState
+            || previous.active != updated.active
+            || previous.acknowledged != updated.acknowledged) {
+            m_state.fireAlarms.insert(event.channelId, updated);
+            stateChanged = true;
+        }
+        m_fireAckCommandKeys.remove(
+            fireAckCommandKey(event.channelId, event.alarmId));
+        emit fireConfirmationClosed(event.channelId, QString());
+    } else if (event.action == ServerFireEventAction::Clear) {
+        const ChannelFireAlarmState previous =
+            m_state.fireAlarms.value(event.channelId);
+        if (previous.active && previous.alarmId != event.alarmId) {
+            recordEvent(
+                event.channelId,
+                QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
+                QStringLiteral("Rejected clear for mismatched alarm_id"),
+                QStringLiteral("REJECTED"));
+            return;
+        }
+        m_fireAckCommandKeys.remove(
+            fireAckCommandKey(event.channelId, event.alarmId));
+        if (m_state.fireChannels.remove(event.channelId) > 0) {
+            stateChanged = true;
+        }
+        if (m_state.fireAlarms.remove(event.channelId) > 0) {
+            stateChanged = true;
+        }
+        emit fireConfirmationClosed(event.channelId, QString());
+    }
+
+    if (stateChanged) {
+        notifyStateChanged();
+    }
+    if (requestConfirmation) {
+        emit fireConfirmationRequested(event.channelId, event.alarmId);
+    }
+
+    const bool stateOnly = retained
+        || topic.startsWith(QStringLiteral("parking/fire/"));
+    if (!stateOnly || event.action != ServerFireEventAction::Activate) {
+        recordChannelFireEvent(event);
+    }
+}
+
+void ParkingController::recordChannelFireEvent(const ServerFireEvent &event)
+{
+    const QString effectiveEventId = event.eventId.isEmpty()
+        ? QStringLiteral("%1|%2|%3|%4")
+              .arg(event.channelId, event.alarmId,
+                   event.eventType, event.alarmState)
+        : event.eventId;
+    if (!rememberServerEventId(effectiveEventId)) {
         return;
     }
 
-    const QString slotId = normalizeParkingSlotId(rawSlotId);
-    if (!m_state.evSlots.contains(slotId) && !m_state.parkingSlots.contains(slotId)) {
-        recordEvent(slotId, QStringLiteral("FIRE_SUSPECTED"),
-                    QStringLiteral("Fire candidate for unknown slot (sensor %1)")
-                        .arg(sensorId),
+    MonitoringEvent monitoringEvent;
+    monitoringEvent.id = effectiveEventId;
+    monitoringEvent.occurredAt = event.occurredAt.isValid()
+        ? event.occurredAt : QDateTime::currentDateTime();
+    monitoringEvent.sourceId = event.channelId;
+    if (event.action == ServerFireEventAction::Activate) {
+        monitoringEvent.eventType = QStringLiteral("FIRE_SUSPECTED");
+        monitoringEvent.status = QStringLiteral("OPEN");
+    } else if (event.action == ServerFireEventAction::Acknowledge) {
+        monitoringEvent.eventType = QStringLiteral("FIRE_ACKNOWLEDGED");
+        monitoringEvent.status = QStringLiteral("ACKNOWLEDGED");
+    } else {
+        monitoringEvent.eventType = QStringLiteral("FIRE_CLEARED");
+        monitoringEvent.status = QStringLiteral("CLEARED");
+    }
+    monitoringEvent.ackState = eventAckStateFromStatus(monitoringEvent.status);
+    monitoringEvent.severity = severityFromText(event.severity);
+    monitoringEvent.message = event.message.isEmpty()
+        ? (event.action == ServerFireEventAction::Activate
+               ? QStringLiteral("Fire suspected on %1; operator verification required")
+                     .arg(event.channelId)
+               : event.action == ServerFireEventAction::Acknowledge
+                   ? QStringLiteral("Fire alarm acknowledged on %1").arg(event.channelId)
+                   : QStringLiteral("Fire state cleared on %1").arg(event.channelId))
+        : event.message;
+    emit eventLogged(monitoringEvent);
+}
+
+void ParkingController::acknowledgeFireAlarm(const QString &rawChannelId)
+{
+    const QString channelId = normalizeCameraChannelId(rawChannelId);
+    const ChannelFireAlarmState alarm = m_state.fireAlarms.value(channelId);
+    if (channelId.isEmpty() || !alarm.active || alarm.acknowledged
+        || alarm.alarmId.isEmpty()) {
+        recordEvent(channelId.isEmpty() ? QStringLiteral("SYSTEM") : channelId,
+                    QStringLiteral("FIRE_ACK_REQUEST_REJECTED"),
+                    QStringLiteral("No unacknowledged active fire alarm with alarm_id"),
+                    QStringLiteral("REJECTED"));
+        return;
+    }
+
+    const QString commandKey = fireAckCommandKey(channelId, alarm.alarmId);
+    if (m_fireAckCommandKeys.contains(commandKey)) {
+        recordEvent(channelId, QStringLiteral("FIRE_ACK_DUPLICATE_SUPPRESSED"),
+                    QStringLiteral("ALARM_ACK was already published for this alarm_id"),
                     QStringLiteral("SKIPPED"));
         return;
     }
+    const QString commandChannel = QStringLiteral("ch0")
+        + channelId.mid(2);
+    const QString topic = QStringLiteral("parking/v1/commands/fire/")
+        + commandChannel;
+    QJsonObject command;
+    command.insert(QStringLiteral("command"), QStringLiteral("ALARM_ACK"));
+    command.insert(QStringLiteral("channel_id"), commandChannel);
+    command.insert(QStringLiteral("alarm_id"), alarm.alarmId);
+    const QByteArray payload = QJsonDocument(command).toJson(QJsonDocument::Compact);
+    emit fireAcknowledgementCommandPrepared(topic, payload);
 
-    if (active) {
-        if (m_state.evSlots.contains(slotId)) {
-            EvSlotInfo &slot = m_state.evSlots[slotId];
-            if (!m_visualBeforeFire.contains(slotId)) {
-                m_visualBeforeFire.insert(slotId, slot.visual);
-                m_evAlarmTextBeforeFire.insert(slotId, slot.alarmText);
-            }
-            slot.visual.alarm = SlotAlarmKind::FireSuspected;
-            slot.visual.alarmAcknowledged = false;
-            slot.alarmText = QStringLiteral("FIRE_SUSPECTED");
-        } else {
-            ParkingSlotInfo &slot = m_state.parkingSlots[slotId];
-            if (!m_visualBeforeFire.contains(slotId)) {
-                m_visualBeforeFire.insert(slotId, slot.visual);
-            }
-            slot.visual.alarm = SlotAlarmKind::FireSuspected;
-            slot.visual.alarmAcknowledged = false;
-        }
-        notifyStateChanged();
-        recordEvent(slotId, QStringLiteral("FIRE_SUSPECTED"),
-                    QStringLiteral("Fire candidate from sensor %1 (%2) - "
-                                   "operator confirmation required")
-                        .arg(sensorId, rawPayload),
-                    QStringLiteral("OPEN"));
+    if (!m_mqttClient) {
+        recordEvent(channelId, QStringLiteral("FIRE_ACK_PUBLISH_FAILED"),
+                    QStringLiteral("MQTT is not ready; fire alarm remains unacknowledged"),
+                    QStringLiteral("FAILED"));
+        emit fireConfirmationRetryRequested(channelId, alarm.alarmId);
         return;
     }
 
-    // 해제: 점유 상태는 건드리지 않고 화재 전에 존재하던 경고 상태만 복원한다.
-    if (m_state.evSlots.contains(slotId)) {
-        EvSlotInfo &slot = m_state.evSlots[slotId];
-        if (m_visualBeforeFire.contains(slotId)) {
-            slot.visual = m_visualBeforeFire.take(slotId);
-            slot.alarmText = m_evAlarmTextBeforeFire.take(slotId);
-        } else {
-            slot.visual.alarm = SlotAlarmKind::None;
-            slot.visual.alarmAcknowledged = false;
-            slot.alarmText = QStringLiteral("NORMAL");
+    m_fireAckCommandKeys.insert(commandKey);
+    if (!m_mqttClient->publish(topic, payload)) {
+        m_fireAckCommandKeys.remove(commandKey);
+        return;
+    }
+    recordEvent(channelId, QStringLiteral("FIRE_ACK_REQUESTED"),
+                QStringLiteral("Waiting for Pi FIRE_ACKNOWLEDGED response"),
+                QStringLiteral("PENDING"));
+}
+
+bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
+                                                const QString &topic)
+{
+    ServerParkingEvent event;
+    QString error;
+    if (!ServerParkingEventAdapter::parse(object, event, error)) {
+        recordEvent(QStringLiteral("SYSTEM"),
+                    QStringLiteral("MQTT_CONTRACT_ERROR"),
+                    topic + QStringLiteral(": ") + error,
+                    QStringLiteral("REJECTED"));
+        return true;
+    }
+
+    const QString slotId = normalizeParkingSlotId(event.slotId);
+    if (slotId.isEmpty()) {
+        if (event.eventType == QStringLiteral("SENSOR_ERROR")
+            || event.eventType == QStringLiteral("SENSOR_RECOVERED")) {
+            recordServerEvent(event, QStringLiteral("SYSTEM"));
+            return true;
         }
-    } else {
-        ParkingSlotInfo &slot = m_state.parkingSlots[slotId];
-        if (m_visualBeforeFire.contains(slotId)) {
-            slot.visual = m_visualBeforeFire.take(slotId);
+        return false;
+    }
+    if (!isEvSlotId(slotId) && !isGeneralSlotId(slotId)) {
+        return false;
+    }
+
+    const QString effectiveAlarm =
+        ServerParkingEventAdapter::effectiveAlarmKind(event);
+    const QString monitoringStatus =
+        ServerParkingEventAdapter::monitoringStatus(event);
+    SlotAlarmKind incomingAlarm = slotAlarmKindFromText(effectiveAlarm);
+    const bool alarmOpen = monitoringStatus == QStringLiteral("OPEN")
+        && incomingAlarm != SlotAlarmKind::None;
+    const bool occupied = event.parkingState == QStringLiteral("OCCUPIED");
+    const bool vacant = event.parkingState == QStringLiteral("VACANT");
+    const bool stateTopic =
+        topic.startsWith(QStringLiteral("parking/v1/state/"));
+    const bool alarmCleared = monitoringStatus == QStringLiteral("CLEARED")
+        || vacant
+        || (stateTopic && event.alarmState == QStringLiteral("NONE")
+            && !alarmOpen);
+    const bool hasStateMeaning = occupied || vacant || alarmOpen
+        || monitoringStatus == QStringLiteral("CLEARED");
+    if (!hasStateMeaning) {
+        return false;
+    }
+
+    VehicleClass incomingVehicleClass = VehicleClass::Unknown;
+    const bool vehicleClassKnown =
+        vehicleClassFromText(event.vehicleType, incomingVehicleClass);
+
+    if (!occupied && !vacant
+        && monitoringStatus == QStringLiteral("CLEARED")) {
+        bool removeUnknownState = false;
+        if (isEvSlotId(slotId)) {
+            removeUnknownState = !m_state.evSlots.contains(slotId)
+                || m_state.evSlots.value(slotId).visual.occupancy
+                    == SlotOccupancy::Unknown;
+            if (removeUnknownState) {
+                m_state.evSlots.remove(slotId);
+                m_state.slotPlateNumbers.remove(slotId);
+            }
         } else {
-            slot.visual.alarm = SlotAlarmKind::None;
-            slot.visual.alarmAcknowledged = false;
+            removeUnknownState = !m_state.parkingSlots.contains(slotId)
+                || m_state.parkingSlots.value(slotId).visual.occupancy
+                    == SlotOccupancy::Unknown;
+            if (removeUnknownState) {
+                m_state.parkingSlots.remove(slotId);
+            }
+        }
+        if (removeUnknownState) {
+            notifyStateChanged();
+            recordServerEvent(event, slotId);
+            return true;
         }
     }
+
+    if (isEvSlotId(slotId)) {
+        EvSlotInfo slot = m_state.evSlots.value(slotId);
+        slot.slotId = slotId;
+        if (slot.plateNumber.isEmpty()) slot.plateNumber = QStringLiteral("-");
+        if (slot.occupiedTime.isEmpty()) slot.occupiedTime = QStringLiteral("-");
+
+        SlotVisualState visual = slot.visual;
+
+        if (occupied) {
+            visual.occupancy = SlotOccupancy::Occupied;
+            slot.occupiedTime = durationText(event.occupiedSeconds);
+        } else if (vacant) {
+            visual.occupancy = SlotOccupancy::Vacant;
+            visual.vehicleClass = VehicleClass::Unknown;
+            visual.alarm = SlotAlarmKind::None;
+            visual.alarmAcknowledged = false;
+            slot.plateNumber = QStringLiteral("-");
+            slot.occupiedTime = QStringLiteral("-");
+        }
+
+        if (!event.plateNumber.isEmpty()) {
+            slot.plateNumber = event.plateNumber;
+        }
+        if (vehicleClassKnown) {
+            visual.vehicleClass = incomingVehicleClass;
+            slot.isEv = incomingVehicleClass == VehicleClass::Electric;
+        } else if (vacant) {
+            slot.isEv = false;
+        }
+
+        if (alarmOpen) {
+            visual.alarm = incomingAlarm;
+            visual.alarmAcknowledged = false;
+        } else if (alarmCleared) {
+            visual.alarm = SlotAlarmKind::None;
+            visual.alarmAcknowledged = false;
+        }
+
+        slot.state = stateFromVisual(visual);
+        slot.alarmText = alarmTextFromKind(visual.alarm);
+        slot.visual = visual;
+        m_state.evSlots.insert(slotId, slot);
+        m_state.slotPlateNumbers.insert(slotId, slot.plateNumber);
+    } else {
+        ParkingSlotInfo slot = m_state.parkingSlots.value(slotId);
+        slot.slotId = slotId;
+        SlotVisualState visual = slot.visual;
+
+        if (occupied) {
+            visual.occupancy = SlotOccupancy::Occupied;
+            visual.vehicleClass = VehicleClass::General;
+        } else if (vacant) {
+            visual.occupancy = SlotOccupancy::Vacant;
+            visual.vehicleClass = VehicleClass::Unknown;
+            visual.alarm = SlotAlarmKind::None;
+            visual.alarmAcknowledged = false;
+        }
+        if (alarmOpen) {
+            visual.alarm = incomingAlarm;
+            visual.alarmAcknowledged = false;
+        } else if (alarmCleared) {
+            visual.alarm = SlotAlarmKind::None;
+            visual.alarmAcknowledged = false;
+        }
+
+        slot.state = stateFromVisual(visual);
+        slot.visual = visual;
+        m_state.parkingSlots.insert(slotId, slot);
+    }
+
     notifyStateChanged();
-    recordEvent(slotId, QStringLiteral("FIRE_CLEARED"),
-                QStringLiteral("Fire candidate cleared by sensor %1 (%2)")
-                    .arg(sensorId, rawPayload),
-                QStringLiteral("CLOSED"));
+    recordServerEvent(event, slotId);
+    return true;
+}
+
+void ParkingController::recordServerEvent(const ServerParkingEvent &event,
+                                          const QString &slotId)
+{
+    if (!rememberServerEventId(event.eventId)) {
+        return;
+    }
+
+    MonitoringEvent monitoringEvent;
+    monitoringEvent.id = event.eventId.isEmpty()
+        ? QStringLiteral("evt-%1").arg(m_nextEventSequence++)
+        : event.eventId;
+    monitoringEvent.occurredAt = event.occurredAt.isValid()
+        ? event.occurredAt : QDateTime::currentDateTime();
+    monitoringEvent.sourceId = slotId;
+    monitoringEvent.eventType =
+        ServerParkingEventAdapter::monitoringEventType(event);
+    monitoringEvent.status =
+        ServerParkingEventAdapter::monitoringStatus(event);
+    monitoringEvent.ackState = eventAckStateFromStatus(monitoringEvent.status);
+    monitoringEvent.severity = severityFromText(event.severity);
+    monitoringEvent.message = !event.message.isEmpty()
+        ? event.message
+        : (!event.evidencePath.isEmpty()
+               ? event.evidencePath
+               : QStringLiteral("Pi server event %1")
+                     .arg(event.eventType));
+    emit eventLogged(monitoringEvent);
+}
+
+bool ParkingController::rememberServerEventId(const QString &eventId)
+{
+    if (eventId.isEmpty()) {
+        return true;
+    }
+    if (m_seenServerEventIds.contains(eventId)) {
+        return false;
+    }
+    m_seenServerEventIds.insert(eventId);
+    m_seenServerEventOrder.enqueue(eventId);
+    while (m_seenServerEventOrder.size() > kSeenServerEventLimit) {
+        m_seenServerEventIds.remove(m_seenServerEventOrder.dequeue());
+    }
+    return true;
 }
 
 void ParkingController::initializeApiClient()
@@ -443,11 +994,12 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
     // 화면이 갱신되는 문제가 없다.
     if (m_reconnectTimer) m_reconnectTimer->start(m_currentReconnectDelayMs);
     emit serverConnectionChanged(QStringLiteral("Connected"), true);
+    const ParkingViewState previousState = m_state;
     resetSlotsForSnapshot();
     int appliedCount = 0;
     for (const ParkingSlotSnapshot &slot : snapshot.parkingSlots) {
         const QString slotId = normalizeParkingSlotId(slot.slotId);
-        if (!m_state.evSlots.contains(slotId) && !m_state.parkingSlots.contains(slotId)) {
+        if (!isEvSlotId(slotId) && !isGeneralSlotId(slotId)) {
             recordEvent(slotId, QStringLiteral("API_SLOT_SKIPPED"), QStringLiteral("Unknown parking slot in response"), QStringLiteral("SKIPPED"));
             continue;
         }
@@ -458,13 +1010,36 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
         else if (alarmKind == SlotAlarmKind::SensorError) state = SlotState::SensorError;
         SlotVisualState visual = deriveSlotVisualState(
             state, slot.vehicleTypeKnown, slot.isEv, slot.alarm);
+        SlotVisualState previousVisual;
+        bool hasPreviousVisual = false;
+        if (previousState.evSlots.contains(slotId)) {
+            previousVisual = previousState.evSlots.value(slotId).visual;
+            hasPreviousVisual = true;
+        } else if (previousState.parkingSlots.contains(slotId)) {
+            previousVisual = previousState.parkingSlots.value(slotId).visual;
+            hasPreviousVisual = true;
+        }
+        if (hasPreviousVisual) {
+            const bool persistentAlarm =
+                previousVisual.alarm == SlotAlarmKind::SensorError
+                || (visual.occupancy == SlotOccupancy::Occupied
+                    && previousVisual.alarm != SlotAlarmKind::None);
+            if (persistentAlarm) {
+                visual.alarm = previousVisual.alarm;
+                visual.alarmAcknowledged = previousVisual.alarmAcknowledged;
+                state = stateFromVisual(visual);
+            }
+        }
         if (slotStateFromText(slot.state) == SlotState::Acked) {
             visual.alarmAcknowledged = true;
         }
         if (slotId.startsWith(QStringLiteral("EV-"))) {
             EvSlotInfo info{slotId, slot.plateNumber.isEmpty() ? QStringLiteral("-") : slot.plateNumber,
                             slot.isEv, occupiedDurationText(slot.occupiedSince, slot.elapsedSeconds), state,
-                            slot.alarm.isEmpty() ? slotStateText(state) : slot.alarm};
+                            visual.alarm == SlotAlarmKind::None
+                                ? (slot.alarm.isEmpty()
+                                       ? QStringLiteral("NORMAL") : slot.alarm)
+                                : alarmTextFromKind(visual.alarm)};
             info.visual = visual;
             m_state.evSlots[slotId] = info;
         } else {
@@ -563,22 +1138,7 @@ void ParkingController::applyParkingSessionImages(
 
 void ParkingController::resetSlotsForSnapshot()
 {
-    m_visualBeforeFire.clear();
-    m_evAlarmTextBeforeFire.clear();
     m_state.evSlots.clear(); m_state.parkingSlots.clear(); m_state.slotImages.clear(); m_state.slotPlateNumbers.clear();
-    for (int number = 1; number <= 16; ++number) {
-        const QString slotId = evSlotId(number);
-        EvSlotInfo slot{slotId, QStringLiteral("-"), false, QStringLiteral("-"),
-                        SlotState::Vacant, QStringLiteral("NORMAL")};
-        slot.visual = deriveSlotVisualState(slot.state, false, false, slot.alarmText);
-        m_state.evSlots.insert(slotId, slot);
-    }
-    for (int number = 1; number <= 16; ++number) {
-        const QString slotId = parkingSlotId(number);
-        ParkingSlotInfo slot{slotId, SlotState::Vacant};
-        slot.visual = deriveSlotVisualState(slot.state, false, false);
-        m_state.parkingSlots.insert(slotId, slot);
-    }
 }
 
 void ParkingController::requestSlotDetail(const QString &rawSlotId)
@@ -598,8 +1158,6 @@ void ParkingController::requestSlotDetail(const QString &rawSlotId)
 
 void ParkingController::replaceViewState(const ParkingViewState &state)
 {
-    m_visualBeforeFire.clear();
-    m_evAlarmTextBeforeFire.clear();
     m_state = state;
     notifyStateChanged();
 }
@@ -646,31 +1204,43 @@ void ParkingController::notifyStateChanged()
 
 void ParkingController::refreshAlert()
 {
+    if (!m_state.fireChannels.isEmpty()) {
+        QStringList unacknowledgedChannels;
+        QStringList acknowledgedChannels;
+        for (const QString &channelId : m_state.fireChannels) {
+            const ChannelFireAlarmState alarm =
+                m_state.fireAlarms.value(channelId);
+            if (alarm.acknowledged) acknowledgedChannels.append(channelId);
+            else unacknowledgedChannels.append(channelId);
+        }
+        unacknowledgedChannels.sort();
+        acknowledgedChannels.sort();
+        if (!unacknowledgedChannels.isEmpty()) {
+            emit bannerChanged(
+                QStringLiteral("FIRE SUSPECTED: %1 | operator must verify")
+                    .arg(unacknowledgedChannels.join(QStringLiteral(" / "))),
+                true);
+        } else {
+            emit bannerChanged(
+                QStringLiteral("FIRE ACKNOWLEDGED: %1 | waiting for sensor clear")
+                    .arg(acknowledgedChannels.join(QStringLiteral(" / "))),
+                true);
+        }
+        return;
+    }
+
     QStringList alerts;
-    QStringList fires;
     for (const EvSlotInfo &slot : m_state.evSlots) {
-        if (slot.visual.alarm == SlotAlarmKind::FireSuspected) {
-            fires << slot.slotId;
-        } else if (slot.visual.alarm != SlotAlarmKind::None
-                   && !slot.visual.alarmAcknowledged) {
+        if (slot.visual.alarm != SlotAlarmKind::None
+            && !slot.visual.alarmAcknowledged) {
             alerts << slot.slotId + QLatin1Char(':') + slotAlarmText(slot.visual.alarm);
         }
     }
     for (const ParkingSlotInfo &slot : m_state.parkingSlots) {
-        if (slot.visual.alarm == SlotAlarmKind::FireSuspected) {
-            fires << slot.slotId;
-        } else if (slot.visual.alarm != SlotAlarmKind::None
-                   && !slot.visual.alarmAcknowledged) {
+        if (slot.visual.alarm != SlotAlarmKind::None
+            && !slot.visual.alarmAcknowledged) {
             alerts << slot.slotId + QLatin1Char(':') + slotAlarmText(slot.visual.alarm);
         }
-    }
-
-    // 화재 후보는 다른 알람보다 앞에 세운다. 확정 표현은 쓰지 않는다.
-    if (!fires.isEmpty()) {
-        emit bannerChanged(QStringLiteral("FIRE SUSPECTED: %1 | operator must verify")
-                               .arg(fires.join(QStringLiteral(" / "))),
-                           true);
-        return;
     }
 
     emit bannerChanged(alerts.isEmpty() ? QStringLiteral("Monitoring normal | No active alerts")
@@ -686,11 +1256,20 @@ void ParkingController::recordEvent(const QString &zone, const QString &eventTyp
     event.id = QStringLiteral("client-%1-%2")
                    .arg(event.occurredAt.toMSecsSinceEpoch())
                    .arg(m_nextEventSequence++);
-    event.sourceId = zone;
-    event.eventType = eventType;
-    event.ackState = eventAckStateFromStatus(status);
-    event.message = message;
-    event.status = status;
+    const QString channelId = normalizeCameraChannelId(zone);
+    if (isFireLifecycleEventType(eventType) && channelId.isEmpty()) {
+        event.sourceId = QStringLiteral("SYSTEM");
+        event.eventType = QStringLiteral("FIRE_CHANNEL_ERROR");
+        event.message = QStringLiteral("Rejected non-channel fire source %1: %2")
+                            .arg(zone, message);
+        event.status = QStringLiteral("REJECTED");
+    } else {
+        event.sourceId = channelId.isEmpty() ? zone : channelId;
+        event.eventType = eventType;
+        event.message = message;
+        event.status = status;
+    }
+    event.ackState = eventAckStateFromStatus(event.status);
     emit eventLogged(event);
 }
 
@@ -699,7 +1278,6 @@ void ParkingController::clearAlarms()
     bool cleared = false;
     for (auto it = m_state.evSlots.begin(); it != m_state.evSlots.end(); ++it) {
         if (it->visual.alarm != SlotAlarmKind::None
-            && it->visual.alarm != SlotAlarmKind::FireSuspected
             && !it->visual.alarmAcknowledged) {
             it->state = SlotState::Acked;
             it->visual.alarmAcknowledged = true;
@@ -709,7 +1287,6 @@ void ParkingController::clearAlarms()
     }
     for (auto it = m_state.parkingSlots.begin(); it != m_state.parkingSlots.end(); ++it) {
         if (it->visual.alarm != SlotAlarmKind::None
-            && it->visual.alarm != SlotAlarmKind::FireSuspected
             && !it->visual.alarmAcknowledged) {
             it->state = SlotState::Acked;
             it->visual.alarmAcknowledged = true;
@@ -734,11 +1311,44 @@ void ParkingController::processIncomingMessage(const QString &message)
     const QString &slotId = parsed.sourceId;
     const QString &value = parsed.value;
     switch (parsed.kind) {
-    case IncomingMessageKind::NormalizedEvent:
-        recordEvent(slotId, parsed.eventType, parsed.message, parsed.status);
+    case IncomingMessageKind::NormalizedEvent: {
+        if (!isFireLifecycleEventType(parsed.eventType)) {
+            recordEvent(slotId, parsed.eventType, parsed.message, parsed.status);
+            return;
+        }
+
+        const QString channelId = normalizeCameraChannelId(slotId);
+        if (channelId.isEmpty()) {
+            recordEvent(slotId, parsed.eventType, parsed.message, parsed.status);
+            return;
+        }
+
+        const QString eventType = parsed.eventType.trimmed().toUpper();
+        if (eventType == QStringLiteral("FIRE_CLEARED")) {
+            if (m_state.fireChannels.remove(channelId) > 0) {
+                notifyStateChanged();
+            }
+        } else if (eventType != QStringLiteral("FIRE_ACKNOWLEDGED")
+                   && eventType != QStringLiteral("FIRE_ALARM_ACK")) {
+            if (!m_state.fireChannels.contains(channelId)) {
+                m_state.fireChannels.insert(channelId);
+                notifyStateChanged();
+            }
+        }
+        recordEvent(channelId, eventType, parsed.message, parsed.status);
         return;
+    }
 
     case IncomingMessageKind::ParkingSlot: {
+        if (value == QStringLiteral("FIRE")
+            || value == QStringLiteral("FIRE_SUSPECTED")) {
+            recordEvent(QStringLiteral("SYSTEM"),
+                        QStringLiteral("FIRE_CHANNEL_ERROR"),
+                        QStringLiteral("Parking-slot messages cannot carry fire state: ")
+                            + parsed.raw,
+                        QStringLiteral("REJECTED"));
+            return;
+        }
         const SlotState state = slotStateFromText(value);
         applyParkingSlotUpdate(slotId, state);
         recordEvent(slotId, slotStateText(state),
@@ -822,16 +1432,41 @@ void ParkingController::processIncomingMessage(const QString &message)
         break;
 
     case IncomingMessageKind::FireAlarm:
-        if (value == QStringLiteral("CLEAR") || value == QStringLiteral("ACKED")) {
-            recordEvent(slotId, QStringLiteral("FIRE_ALARM_ACK"),
-                        QStringLiteral("Fire alarm acknowledged from RX message"),
+    {
+        const QString channelId = normalizeCameraChannelId(slotId);
+        if (channelId.isEmpty()) {
+            recordEvent(QStringLiteral("SYSTEM"),
+                        QStringLiteral("FIRE_CHANNEL_ERROR"),
+                        QStringLiteral("Fire message requires CH1~CH4: ") + parsed.raw,
+                        QStringLiteral("REJECTED"));
+            return;
+        }
+
+        if (value == QStringLiteral("CLEAR")) {
+            if (m_state.fireChannels.remove(channelId) > 0) {
+                notifyStateChanged();
+            }
+            recordEvent(channelId, QStringLiteral("FIRE_CLEARED"),
+                        QStringLiteral("Fire state cleared on ") + channelId,
+                        QStringLiteral("CLEARED"));
+            return;
+        }
+        if (value == QStringLiteral("ACKED")) {
+            recordEvent(channelId, QStringLiteral("FIRE_ACKNOWLEDGED"),
+                        QStringLiteral("Fire warning acknowledged on ") + channelId,
                         QStringLiteral("ACKED"));
             return;
         }
-        recordEvent(slotId, QStringLiteral("FIRE_ALARM"),
-                    QStringLiteral("Fire detected on ") + slotId,
+
+        if (!m_state.fireChannels.contains(channelId)) {
+            m_state.fireChannels.insert(channelId);
+            notifyStateChanged();
+        }
+        recordEvent(channelId, QStringLiteral("FIRE_SUSPECTED"),
+                    QStringLiteral("Fire suspected on ") + channelId,
                     QStringLiteral("OPEN"));
         return;
+    }
 
     case IncomingMessageKind::Unsupported:
         break;

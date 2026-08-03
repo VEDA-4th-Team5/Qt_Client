@@ -3,8 +3,11 @@
 
 #include "diagnostics/diagnostictypes.h"
 #include "models/monitoringevent.h"
+#include "models/parkingstate.h"
 
+#include <QHash>
 #include <QList>
+#include <QSet>
 #include <QStringList>
 #include <QWidget>
 
@@ -24,6 +27,8 @@ public:
                            QWidget *parent = nullptr);
 
     void setSummary(int total, int occupied, int vacant, int sensorErrors);
+    void setFireChannels(const QSet<QString> &channels);
+    void setFireAlarmStates(const QHash<QString, ChannelFireAlarmState> &alarms);
     void prependEvent(const MonitoringEvent &event);
     void setRtspUrls(const QStringList &lowRtspUrls, const QStringList &highRtspUrls);
 
@@ -50,6 +55,8 @@ private:
     QLabel *m_sensorErrorLabel = nullptr;
     QTableWidget *m_recentEventTable = nullptr;
     QTimer *m_diagnosticTimer = nullptr;
+    QSet<QString> m_fireChannels;
+    QHash<QString, ChannelFireAlarmState> m_fireAlarms;
     int m_expandedVideoChannel = -1;
 };
 

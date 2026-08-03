@@ -79,11 +79,11 @@ int main(int argc, char **argv)
         QStringLiteral("Operator acknowledged overtime"), QString(),
         EventAckState::Acknowledged));
     page.appendEvent(makeEvent(
-        QStringLiteral("CH2"), QStringLiteral("FIRE_ALARM"),
+        QStringLiteral("CH2"), QStringLiteral("FIRE_SUSPECTED"),
         QStringLiteral("Flame detected"), QStringLiteral("OPEN")));
     page.appendEvent(makeEvent(
-        QStringLiteral("CH2"), QStringLiteral("FIRE_ALARM_ACK"),
-        QStringLiteral("Operator acknowledged fire"), QStringLiteral("ACKED")));
+        QStringLiteral("CH2"), QStringLiteral("FIRE_CLEARED"),
+        QStringLiteral("Channel fire cleared"), QStringLiteral("CLEARED")));
     page.appendEvent(makeEvent(
         QStringLiteral("P-01"), QStringLiteral("HALL_SENSOR_CLEAR"),
         QStringLiteral("Hall sensor recovered"), QStringLiteral("CLEARED")));
@@ -92,7 +92,7 @@ int main(int argc, char **argv)
     if (resultLabel->text() != QStringLiteral("Showing 6 of 6 events")) return 5;
     if (zoneFilter->findData(QStringLiteral("EV-01")) < 0
         || zoneFilter->findData(QStringLiteral("P-01")) < 0
-        || eventTypeFilter->findData(QStringLiteral("FIRE_ALARM")) < 0
+        || eventTypeFilter->findData(QStringLiteral("FIRE_SUSPECTED")) < 0
         || statusFilter->findData(QStringLiteral("OPEN")) < 0
         || statusFilter->findData(QStringLiteral("ACKED")) < 0
         || statusFilter->findData(QStringLiteral("CLEARED")) < 0) return 6;
@@ -121,7 +121,7 @@ int main(int argc, char **argv)
         || navigationSource != QStringLiteral("EV-01")) return 13;
 
     resetButton->click();
-    if (!selectFilterValue(eventTypeFilter, QStringLiteral("FIRE_ALARM"))) return 14;
+    if (!selectFilterValue(eventTypeFilter, QStringLiteral("FIRE_SUSPECTED"))) return 14;
     if (visibleRowCount(table) != 1 || table->isRowHidden(3)) return 15;
 
     resetButton->click();
@@ -130,23 +130,24 @@ int main(int argc, char **argv)
 
     resetButton->click();
     if (!selectFilterValue(zoneFilter, QStringLiteral("CH2"))
-        || !selectFilterValue(statusFilter, QStringLiteral("ACKED"))) return 18;
+        || !selectFilterValue(statusFilter, QStringLiteral("CLEARED"))) return 18;
     if (visibleRowCount(table) != 1 || table->isRowHidden(4)) return 19;
-    searchEdit->setText(QStringLiteral("operator"));
+    searchEdit->setText(QStringLiteral("channel"));
     if (visibleRowCount(table) != 1 || table->isRowHidden(4)) return 20;
 
     resetButton->click();
     if (!selectFilterValue(statusFilter, QStringLiteral("CLEARED"))) return 21;
-    if (visibleRowCount(table) != 1 || table->isRowHidden(5)) return 22;
+    if (visibleRowCount(table) != 2
+        || table->isRowHidden(4) || table->isRowHidden(5)) return 22;
     page.appendEvent(makeEvent(
         QStringLiteral("EV-02"), QStringLiteral("OVERTIME_CLEAR"),
         QStringLiteral("Overtime condition cleared"), QStringLiteral("CLEARED")));
     page.appendEvent(makeEvent(
         QStringLiteral("EV-03"), QStringLiteral("NON_EV_ALERT"),
         QStringLiteral("General vehicle detected"), QStringLiteral("OPEN")));
-    if (table->rowCount() != 8 || visibleRowCount(table) != 2
+    if (table->rowCount() != 8 || visibleRowCount(table) != 3
         || table->isRowHidden(6) || !table->isRowHidden(7)) return 23;
-    if (resultLabel->text() != QStringLiteral("Showing 2 of 8 events")) return 24;
+    if (resultLabel->text() != QStringLiteral("Showing 3 of 8 events")) return 24;
 
     resetButton->click();
     if (visibleRowCount(table) != 8

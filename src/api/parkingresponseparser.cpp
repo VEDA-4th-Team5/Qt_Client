@@ -121,6 +121,7 @@ bool parseSlotObject(const QJsonObject &item,
         parsed.vehicleTypeKnown = true;
     } else if (vehicleType == QStringLiteral("EV")
                || vehicleType == QStringLiteral("ELECTRIC")
+               || vehicleType == QStringLiteral("PHEV")
                || vehicleType == QStringLiteral("HYBRID")) {
         parsed.isEv = true;
         parsed.vehicleTypeKnown = true;

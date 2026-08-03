@@ -29,9 +29,6 @@ SlotState slotStateFromText(const QString &text)
         return SlotState::OvertimeAlert;
     }
     if (normalized == QStringLiteral("ACKED")) return SlotState::Acked;
-    if (normalized == QStringLiteral("FIRE") || normalized == QStringLiteral("FIRE_SUSPECTED")) {
-        return SlotState::FireSuspected;
-    }
     return SlotState::Vacant;
 }
 
@@ -53,16 +50,17 @@ SlotAlarmKind slotAlarmKindFromText(const QString &text, SlotState fallbackState
         || normalized == QStringLiteral("ERROR")) {
         return SlotAlarmKind::SensorError;
     }
+    // Fire markers in parking-slot payloads are ignored. Channel fire state
+    // is parsed separately and must never overwrite a parking-slot alarm.
     if (normalized == QStringLiteral("FIRE")
         || normalized == QStringLiteral("FIRE_SUSPECTED")) {
-        return SlotAlarmKind::FireSuspected;
+        return SlotAlarmKind::None;
     }
 
     switch (fallbackState) {
     case SlotState::NonEvAlert: return SlotAlarmKind::NonEvViolation;
     case SlotState::OvertimeAlert: return SlotAlarmKind::Overstay;
     case SlotState::SensorError: return SlotAlarmKind::SensorError;
-    case SlotState::FireSuspected: return SlotAlarmKind::FireSuspected;
     case SlotState::Vacant:
     case SlotState::Occupied:
     case SlotState::Acked:
@@ -101,7 +99,6 @@ QString slotAlarmText(SlotAlarmKind alarm)
     case SlotAlarmKind::NonEvViolation: return QStringLiteral("NON-EV");
     case SlotAlarmKind::Overstay: return QStringLiteral("OVERSTAY");
     case SlotAlarmKind::SensorError: return QStringLiteral("SENSOR");
-    case SlotAlarmKind::FireSuspected: return QStringLiteral("FIRE?");
     }
     return QStringLiteral("NORMAL");
 }
@@ -125,7 +122,6 @@ QString slotStateText(SlotState state)
     case SlotState::OvertimeAlert: return QStringLiteral("OVERTIME_ALERT");
     case SlotState::SensorError: return QStringLiteral("HALL_SENSOR_ERROR");
     case SlotState::Acked: return QStringLiteral("ACKED");
-    case SlotState::FireSuspected: return QStringLiteral("FIRE_SUSPECTED");
     }
     return QStringLiteral("UNKNOWN");
 }
@@ -143,9 +139,6 @@ QString slotStateStyle(SlotState state)
     case SlotState::SensorError:
         background = QStringLiteral("#7e57c2"); foreground = QStringLiteral("#ffffff"); break;
     case SlotState::Acked: background = QStringLiteral("#b0bec5"); break;
-    case SlotState::FireSuspected:
-        // 기존 알람(빨강/주황/보라)과 확실히 구분되도록 진한 자홍으로 둔다.
-        background = QStringLiteral("#b71c1c"); foreground = QStringLiteral("#ffffff"); break;
     }
     return QStringLiteral("QFrame { background: %1; border: 2px solid #263238; border-radius: 6px; }"
                           "QLabel { color: %2; }").arg(background, foreground);

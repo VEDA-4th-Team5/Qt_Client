@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QFile>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTextStream>
@@ -31,6 +32,7 @@ int main(int argc, char **argv)
            << "follow_api_host=false\n"
            << "host=172.20.35.123\n"
            << "port=1883\n"
+           << "client_id=qt-client\n"
            << "reconnect_interval_ms=1000\n";
     config.close();
 
@@ -44,13 +46,16 @@ int main(int argc, char **argv)
     bool mqttFollowedNewApiHost = false;
     bool staleMqttHostRetried = false;
     bool synchronizedSettingsPersisted = false;
+    bool mqttClientIdGenerated = false;
+    bool mqttClientIdStable = false;
     QObject::connect(&controller, &ParkingController::serverConnectionChanged,
                      &app, [&](const QString &status, bool) {
         if (status == QStringLiteral("Connecting...")) ++connectingCount;
         if (status.contains(QStringLiteral("retry in"))) retryScheduled = true;
         if (retryScheduled && connectingCount >= 2
             && mqttFollowedNewApiHost && !staleMqttHostRetried
-            && synchronizedSettingsPersisted) {
+            && synchronizedSettingsPersisted
+            && mqttClientIdGenerated && mqttClientIdStable) {
             app.exit(0);
         }
     });
@@ -68,10 +73,20 @@ int main(int argc, char **argv)
         app.exit(retryScheduled && connectingCount >= 2
                          && mqttFollowedNewApiHost && !staleMqttHostRetried
                          && synchronizedSettingsPersisted
+                         && mqttClientIdGenerated && mqttClientIdStable
                      ? 0
                      : 1);
     });
     controller.start();
+    QSettings generatedSettings(localPath, QSettings::IniFormat);
+    generatedSettings.sync();
+    const QString generatedClientId =
+        generatedSettings.value(QStringLiteral("mqtt/client_id"))
+            .toString().trimmed();
+    mqttClientIdGenerated = generatedClientId.size() <= 23
+        && QRegularExpression(QStringLiteral("^qt-client-[0-9a-f]{12}$"))
+               .match(generatedClientId).hasMatch();
+
     serverAddressUpdating = true;
     controller.updateServerBaseUrl(QStringLiteral("http://172.20.32.123:1"));
 
@@ -82,5 +97,8 @@ int main(int argc, char **argv)
         && localSettings.value(QStringLiteral("mqtt/host")).toString()
             == QStringLiteral("172.20.32.123")
         && localSettings.value(QStringLiteral("mqtt/follow_api_host")).toBool();
+    mqttClientIdStable =
+        localSettings.value(QStringLiteral("mqtt/client_id")).toString()
+        == generatedClientId;
     return app.exec();
 }

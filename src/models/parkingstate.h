@@ -5,6 +5,7 @@
 
 #include <QHash>
 #include <QList>
+#include <QSet>
 #include <QString>
 
 enum class SlotState {
@@ -13,9 +14,7 @@ enum class SlotState {
     NonEvAlert,
     OvertimeAlert,
     SensorError,
-    Acked,
-    // 화재 "후보". 확정이 아니며 클라이언트가 자동으로 확정 처리하지 않는다.
-    FireSuspected
+    Acked
 };
 
 enum class SlotOccupancy {
@@ -34,8 +33,7 @@ enum class SlotAlarmKind {
     None,
     NonEvViolation,
     Overstay,
-    SensorError,
-    FireSuspected
+    SensorError
 };
 
 struct SlotVisualState {
@@ -61,11 +59,22 @@ struct ParkingSlotInfo {
     SlotVisualState visual;
 };
 
+struct ChannelFireAlarmState {
+    QString alarmId;
+    QString alarmState;
+    QString ackState;
+    bool active = false;
+    bool acknowledged = false;
+};
+
 struct ParkingViewState {
     QHash<QString, EvSlotInfo> evSlots;
     QHash<QString, ParkingSlotInfo> parkingSlots;
     QHash<QString, QList<ParkingImageResource>> slotImages;
     QHash<QString, QString> slotPlateNumbers;
+    // Fire belongs to a camera channel, never to an individual parking slot.
+    QSet<QString> fireChannels;
+    QHash<QString, ChannelFireAlarmState> fireAlarms;
     bool apiEnabled = false;
 };
 

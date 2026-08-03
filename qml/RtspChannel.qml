@@ -12,6 +12,7 @@ Item {
     property bool expanded: typeof channelExpanded === "undefined" ? false : channelExpanded
     property bool streamEnabled: typeof channelStreamEnabled === "undefined" ? false : channelStreamEnabled
     property bool highQualityEnabled: false
+    property bool fireAlarmActive: false
     readonly property string activeRtspUrl: highQualityEnabled && highRtspUrl !== "" ? highRtspUrl : lowRtspUrl
     readonly property string qualityLabel: highQualityEnabled ? "High" : "Low"
     readonly property bool diagnosticConfigured: activeRtspUrl !== ""
@@ -25,8 +26,9 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: "#000000"
-        border.color: mouseArea.containsMouse ? "#64b5f6" : "#3a4148"
-        border.width: mouseArea.containsMouse ? 2 : 1
+        border.color: root.fireAlarmActive ? "#ff1744"
+                                          : mouseArea.containsMouse ? "#64b5f6" : "#3a4148"
+        border.width: root.fireAlarmActive ? 4 : mouseArea.containsMouse ? 2 : 1
         clip: true
 
         RtspVideoItem {
@@ -85,6 +87,25 @@ Item {
             font.pixelSize: 13
         }
 
+        Rectangle {
+            id: fireOverlay
+            z: 2
+            anchors.fill: parent
+            visible: root.fireAlarmActive
+            color: "transparent"
+            border.color: "#ff1744"
+            border.width: root.expanded ? 8 : 5
+            opacity: 1.0
+
+            SequentialAnimation on opacity {
+                running: root.fireAlarmActive
+                loops: Animation.Infinite
+                NumberAnimation { to: 0.45; duration: 420 }
+                NumberAnimation { to: 1.0; duration: 420 }
+                onStopped: fireOverlay.opacity = 1.0
+            }
+        }
+
         Text {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
@@ -108,6 +129,7 @@ Item {
 
         MouseArea {
             id: mouseArea
+            z: 1
             anchors.fill: parent
             hoverEnabled: true
             onClicked: root.clicked()

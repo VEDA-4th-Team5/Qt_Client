@@ -182,22 +182,23 @@ int main(int argc, char *argv[])
                                 QStringLiteral("HALL_SENSOR_CLEAR"))) return 38;
 
     center.clearAll();
-    center.ingestEvent(makeEvent(QStringLiteral("EV-01"),
+    center.ingestEvent(makeEvent(QStringLiteral("CH1"),
                                  QStringLiteral("FIRE_SUSPECTED"),
                                  QStringLiteral("OPEN"),
-                                 QStringLiteral("fire candidate requires verification")));
+                                 QStringLiteral("channel fire requires verification")));
     if (center.notifications().size() != 1) return 39;
     const NotificationRecord fireSuspected = center.notifications().constFirst();
     if (fireSuspected.eventType != QStringLiteral("FIRE_SUSPECTED")) return 40;
     if (fireSuspected.severity != QStringLiteral("CRITICAL")) return 41;
     if (fireSuspected.title != QStringLiteral("Fire suspected")) return 42;
     if (center.unreadCount() != 1) return 43;
+    if (fireSuspected.sourceId != QStringLiteral("CH1")) return 44;
 
-    center.ingestEvent(makeEvent(QStringLiteral("EV-01"),
+    center.ingestEvent(makeEvent(QStringLiteral("CH1"),
                                  QStringLiteral("FIRE_CLEARED"),
-                                 QStringLiteral("CLOSED"),
-                                 QStringLiteral("fire candidate cleared")));
-    if (center.hasNotifications()) return 44;
+                                 QStringLiteral("CLEARED"),
+                                 QStringLiteral("channel fire cleared")));
+    if (center.hasNotifications()) return 45;
 
     return 0;
 }

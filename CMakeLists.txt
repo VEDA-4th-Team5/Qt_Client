@@ -72,6 +72,10 @@ add_executable(smart_parking_qt_client
     src/main.cpp
     src/adapters/incomingmessageadapter.cpp
     src/adapters/incomingmessageadapter.h
+    src/adapters/serverfireeventadapter.cpp
+    src/adapters/serverfireeventadapter.h
+    src/adapters/serverparkingeventadapter.cpp
+    src/adapters/serverparkingeventadapter.h
     src/mainwindow.cpp
     src/mainwindow.h
     src/controllers/parkingcontroller.cpp
@@ -81,6 +85,8 @@ add_executable(smart_parking_qt_client
     src/diagnostics/diagnosticsservice.h
     src/dialogs/slotevidencedialog.cpp
     src/dialogs/slotevidencedialog.h
+    src/dialogs/firealarmpopup.cpp
+    src/dialogs/firealarmpopup.h
     src/models/monitoringevent.cpp
     src/models/monitoringevent.h
     src/models/parkingcapturegroup.cpp
@@ -175,6 +181,10 @@ if (BUILD_TESTING)
         tests/parkingcontroller_retry_test.cpp
         src/adapters/incomingmessageadapter.cpp
         src/adapters/incomingmessageadapter.h
+        src/adapters/serverfireeventadapter.cpp
+        src/adapters/serverfireeventadapter.h
+        src/adapters/serverparkingeventadapter.cpp
+        src/adapters/serverparkingeventadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
         src/models/monitoringevent.cpp
@@ -200,10 +210,34 @@ if (BUILD_TESTING)
     )
     add_test(NAME parkingcontroller_retry COMMAND parkingcontroller_retry_test)
 
+    add_executable(mqttserviceclient_test
+        tests/mqttserviceclient_test.cpp
+        src/services/mqttserviceclient.cpp
+        src/services/mqttserviceclient.h
+    )
+    target_include_directories(mqttserviceclient_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(mqttserviceclient_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(mqttserviceclient_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME mqtt_service_client COMMAND mqttserviceclient_test success)
+    add_test(NAME mqtt_service_client_rejected
+        COMMAND mqttserviceclient_test rejected)
+    add_test(NAME mqtt_settings_topics
+        COMMAND mqttserviceclient_test settings)
+
     add_executable(parkingsimulationservice_test
         tests/parkingsimulationservice_test.cpp
         src/adapters/incomingmessageadapter.cpp
         src/adapters/incomingmessageadapter.h
+        src/adapters/serverfireeventadapter.cpp
+        src/adapters/serverfireeventadapter.h
+        src/adapters/serverparkingeventadapter.cpp
+        src/adapters/serverparkingeventadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
         src/models/monitoringevent.cpp
@@ -240,6 +274,10 @@ if (BUILD_TESTING)
         tests/parkingeventflow_test.cpp
         src/adapters/incomingmessageadapter.cpp
         src/adapters/incomingmessageadapter.h
+        src/adapters/serverfireeventadapter.cpp
+        src/adapters/serverfireeventadapter.h
+        src/adapters/serverparkingeventadapter.cpp
+        src/adapters/serverparkingeventadapter.h
         src/controllers/parkingcontroller.cpp
         src/controllers/parkingcontroller.h
         src/models/monitoringevent.cpp
@@ -291,6 +329,22 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME notification_center COMMAND notificationcenter_test)
+
+    add_executable(firealarmpopup_test
+        tests/firealarmpopup_test.cpp
+        src/dialogs/firealarmpopup.cpp
+        src/dialogs/firealarmpopup.h
+    )
+    target_include_directories(firealarmpopup_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(firealarmpopup_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(firealarmpopup_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME fire_alarm_popup COMMAND firealarmpopup_test)
 
     add_executable(incomingmessageadapter_test
         tests/incomingmessageadapter_test.cpp

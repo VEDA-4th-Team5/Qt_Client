@@ -7,6 +7,8 @@
 
 #include <QObject>
 #include <QHash>
+#include <QQueue>
+#include <QSet>
 #include <QUrl>
 
 class ApiClient;
@@ -16,6 +18,8 @@ class QJsonDocument;
 class QJsonObject;
 class MqttServiceClient;
 class QTimer;
+struct ServerParkingEvent;
+struct ServerFireEvent;
 
 class ParkingController : public QObject
 {
@@ -43,6 +47,7 @@ public slots:
     void updateServerBaseUrl(const QString &baseUrl);
     void reconnectNow();
     void clearAlarms();
+    void acknowledgeFireAlarm(const QString &channelId);
     void processIncomingMessage(const QString &message);
     void recordEvent(const QString &zone, const QString &eventType,
                      const QString &message, const QString &status);
@@ -59,17 +64,36 @@ signals:
     void serverConnectionChanged(const QString &status, bool connected);
     void apiDiagnosticChanged(const ApiDiagnosticState &state);
     void serverConfigurationError(const QString &message);
+    void fireAcknowledgementCommandPrepared(const QString &topic,
+                                             const QByteArray &payload);
+    void fireConfirmationRequested(const QString &channelId,
+                                   const QString &alarmId);
+    void fireConfirmationRetryRequested(const QString &channelId,
+                                        const QString &alarmId);
+    void fireConfirmationClosed(const QString &channelId,
+                                const QString &alarmId);
 
 private slots:
     void handleMqttMessage(const QString &topic, const QByteArray &payload);
+    void handleMqttMessageWithMetadata(const QString &topic,
+                                       const QByteArray &payload,
+                                       bool retained);
+    void applyParkingSnapshot(const QJsonDocument &document);
 
 private:
     void initializeApiClient();
     void initializeMqttClient();
-    void applyFireEvent(const QJsonObject &event);
+    void applyChannelFireEvent(const ServerFireEvent &event,
+                               const QString &topic,
+                               bool retained);
+    void recordChannelFireEvent(const ServerFireEvent &event);
+    bool applyServerParkingEvent(const QJsonObject &event,
+                                 const QString &topic);
+    void recordServerEvent(const ServerParkingEvent &event,
+                           const QString &slotId);
+    bool rememberServerEventId(const QString &eventId);
     void rebuildApiClient();
     void scheduleReconnect(const QString &reason);
-    void applyParkingSnapshot(const QJsonDocument &document);
     void applyParkingSlotDetail(const QString &requestedSlotId,
                                 const QJsonDocument &document);
     void applyParkingSessionImages(const QString &slotId,
@@ -88,10 +112,9 @@ private:
     ImageLoader *m_imageLoader = nullptr;
     MqttServiceClient *m_mqttClient = nullptr;
     QTimer *m_reconnectTimer = nullptr;
-    // 화재 후보는 점유 상태와 별도인 경고 축에 표시한다. 해제 시 화재 전에
-    // 존재하던 경고와 ACK 상태까지 복원하기 위해 시각 상태를 보관한다.
-    QHash<QString, SlotVisualState> m_visualBeforeFire;
-    QHash<QString, QString> m_evAlarmTextBeforeFire;
+    QSet<QString> m_seenServerEventIds;
+    QQueue<QString> m_seenServerEventOrder;
+    QSet<QString> m_fireAckCommandKeys;
     QUrl m_apiBaseUrl;
     QString m_slotsPath;
     QString m_slotDetailPath;

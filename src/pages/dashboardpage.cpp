@@ -207,6 +207,35 @@ void DashboardPage::setSummary(int total, int occupied, int vacant, int sensorEr
     m_sensorErrorLabel->setText(QString::number(sensorErrors));
 }
 
+void DashboardPage::setFireChannels(const QSet<QString> &channels)
+{
+    m_fireChannels = channels;
+    m_fireAlarms.clear();
+    for (const QString &channel : channels) {
+        ChannelFireAlarmState alarm;
+        alarm.active = true;
+        m_fireAlarms.insert(channel, alarm);
+    }
+    setFireAlarmStates(m_fireAlarms);
+}
+
+void DashboardPage::setFireAlarmStates(
+    const QHash<QString, ChannelFireAlarmState> &alarms)
+{
+    m_fireAlarms = alarms;
+    m_fireChannels.clear();
+    for (int i = 0; i < m_videoQuickWidgets.size(); ++i) {
+        QQuickWidget *view = m_videoQuickWidgets.at(i);
+        if (QQuickItem *root = view ? view->rootObject() : nullptr) {
+            const QString channelId = QStringLiteral("CH%1").arg(i + 1);
+            const ChannelFireAlarmState alarm = alarms.value(channelId);
+            const bool active = alarm.active;
+            if (active) m_fireChannels.insert(channelId);
+            root->setProperty("fireAlarmActive", active);
+        }
+    }
+}
+
 void DashboardPage::prependEvent(const MonitoringEvent &event)
 {
     m_recentEventTable->insertRow(0);
