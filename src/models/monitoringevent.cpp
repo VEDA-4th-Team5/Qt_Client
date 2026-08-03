@@ -4,10 +4,14 @@ EventAckState eventAckStateFromStatus(const QString &status)
 {
     const QString normalized = status.trimmed().toUpper();
     if (normalized == QStringLiteral("OPEN")) return EventAckState::Open;
-    if (normalized == QStringLiteral("ACKED")) return EventAckState::Acknowledged;
+    if (normalized == QStringLiteral("ACKED")
+        || normalized == QStringLiteral("ACKNOWLEDGED")) {
+        return EventAckState::Acknowledged;
+    }
     if (normalized == QStringLiteral("CLEAR")
         || normalized == QStringLiteral("CLEARED")
-        || normalized == QStringLiteral("CLOSED")) {
+        || normalized == QStringLiteral("CLOSED")
+        || normalized == QStringLiteral("RESOLVED")) {
         return EventAckState::Cleared;
     }
     return EventAckState::None;

@@ -2,6 +2,7 @@
 
 #include "controllers/parkingcontroller.h"
 #include "diagnostics/diagnosticsservice.h"
+#include "dialogs/firealarmpopup.h"
 #include "pages/dashboardpage.h"
 #include "pages/debugpage.h"
 #include "pages/evidencepage.h"
@@ -27,6 +28,7 @@
 #include <QPushButton>
 #include <QStringList>
 #include <QStackedWidget>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -251,6 +253,18 @@ void MainWindow::connectPages()
             });
     connect(m_parkingController, &ParkingController::eventLogged,
             m_diagnosticsService, &DiagnosticsService::ingestDomainEvent);
+    connect(m_parkingController, &ParkingController::fireConfirmationRequested,
+            this, &MainWindow::showFireAlarmPopup);
+    connect(m_parkingController,
+            &ParkingController::fireConfirmationRetryRequested,
+            this, [this](const QString &channelId, const QString &alarmId) {
+                QTimer::singleShot(0, this, [this, channelId, alarmId]() {
+                    m_shownFireAlarmIds.remove(channelId);
+                    showFireAlarmPopup(channelId, alarmId);
+                });
+            });
+    connect(m_parkingController, &ParkingController::fireConfirmationClosed,
+            this, &MainWindow::closeFireAlarmPopup);
     connect(m_parkingController, &ParkingController::apiDiagnosticChanged,
             m_diagnosticsService, &DiagnosticsService::setApiState);
     connect(m_dashboardPage, &DashboardPage::rtspDiagnosticsChanged,
@@ -370,6 +384,42 @@ void MainWindow::connectPages()
             });
 }
 
+void MainWindow::showFireAlarmPopup(const QString &channelId,
+                                    const QString &alarmId)
+{
+    if (channelId.isEmpty() || alarmId.isEmpty()) return;
+    if (m_shownFireAlarmIds.value(channelId) == alarmId) return;
+
+    closeFireAlarmPopup(channelId, QString());
+    m_shownFireAlarmIds.insert(channelId, alarmId);
+
+    auto *popup = new FireAlarmPopup(channelId, alarmId, this);
+    m_fireAlarmPopups.insert(channelId, popup);
+    connect(popup, &FireAlarmPopup::checkRequested, this,
+            [this](const QString &checkedChannelId, const QString &) {
+                m_parkingController->acknowledgeFireAlarm(checkedChannelId);
+            });
+    connect(popup, &QObject::destroyed, this, [this, channelId, alarmId]() {
+        if (m_shownFireAlarmIds.value(channelId) == alarmId) {
+            m_fireAlarmPopups.remove(channelId);
+        }
+    });
+    popup->show();
+    popup->raise();
+    popup->activateWindow();
+}
+
+void MainWindow::closeFireAlarmPopup(const QString &channelId,
+                                     const QString &alarmId)
+{
+    if (!alarmId.isEmpty()
+        && m_shownFireAlarmIds.value(channelId) != alarmId) return;
+    if (FireAlarmPopup *popup = m_fireAlarmPopups.value(channelId)) {
+        popup->dismiss();
+    }
+    m_fireAlarmPopups.remove(channelId);
+}
+
 void MainWindow::renderParkingState()
 {
     const ParkingViewState &state = m_parkingController->state();
@@ -389,7 +439,17 @@ void MainWindow::renderParkingState()
     }
     m_dashboardPage->setSummary(
         state.parkingSlots.size(), occupied, vacant, sensorErrors);
-    m_dashboardPage->setFireChannels(state.fireChannels);
+    QHash<QString, ChannelFireAlarmState> fireAlarms = state.fireAlarms;
+    for (const QString &channelId : state.fireChannels) {
+        if (!fireAlarms.contains(channelId)) {
+            ChannelFireAlarmState legacyAlarm;
+            legacyAlarm.active = true;
+            legacyAlarm.alarmState = QStringLiteral("OPEN");
+            legacyAlarm.ackState = QStringLiteral("unacked");
+            fireAlarms.insert(channelId, legacyAlarm);
+        }
+    }
+    m_dashboardPage->setFireAlarmStates(fireAlarms);
     if (m_diagnosticsService) {
         int activeAlarms = state.fireChannels.size();
         for (const EvSlotInfo &slot : state.evSlots) {

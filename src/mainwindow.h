@@ -4,6 +4,8 @@
 #include "services/camerasettings.h"
 
 #include <QMainWindow>
+#include <QHash>
+#include <QPointer>
 #include <QString>
 
 class DashboardPage;
@@ -11,6 +13,7 @@ class DebugPage;
 class DiagnosticsService;
 class EvidencePage;
 class EventsPage;
+class FireAlarmPopup;
 class ImageComparePage;
 class QCloseEvent;
 class QFrame;
@@ -41,6 +44,8 @@ private:
     void saveCameraIp(const QString &cameraIpText);
     void updateNotificationIndicator();
     void showNotificationPopup();
+    void showFireAlarmPopup(const QString &channelId, const QString &alarmId);
+    void closeFireAlarmPopup(const QString &channelId, const QString &alarmId);
     void showEventsPage();
     bool isEvidenceSlot(const QString &sourceId) const;
     bool showEvidencePage(const QString &sourceId);
@@ -55,6 +60,8 @@ private:
     QToolButton *m_notificationButton = nullptr;
     QLabel *m_notificationBadge = nullptr;
     QFrame *m_notificationPopup = nullptr;
+    QHash<QString, QPointer<FireAlarmPopup>> m_fireAlarmPopups;
+    QHash<QString, QString> m_shownFireAlarmIds;
     QStackedWidget *m_pages = nullptr;
     QPushButton *m_eventsNavButton = nullptr;
     QPushButton *m_evidenceNavButton = nullptr;

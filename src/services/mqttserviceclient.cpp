@@ -102,6 +102,21 @@ QByteArray buildPubAckPacket(quint16 packetId)
     return packet;
 }
 
+QByteArray buildPublishPacket(quint16 packetId, const QString &topic,
+                              const QByteArray &payload)
+{
+    QByteArray variableHeader = encodeUtf8String(topic);
+    variableHeader.append(static_cast<char>((packetId >> 8) & 0xFF));
+    variableHeader.append(static_cast<char>(packetId & 0xFF));
+    const QByteArray remaining = variableHeader + payload;
+
+    QByteArray packet;
+    packet.append(static_cast<char>(0x32));  // PUBLISH, QoS 1, retain=false
+    packet.append(encodeRemainingLength(static_cast<quint32>(remaining.size())));
+    packet.append(remaining);
+    return packet;
+}
+
 QByteArray buildPingReqPacket()
 {
     QByteArray packet;
@@ -183,7 +198,15 @@ void MqttServiceClient::onSocketConnected()
 void MqttServiceClient::onSocketDisconnected()
 {
     if (m_keepAliveTimer) m_keepAliveTimer->stop();
+    m_sessionReady = false;
     m_pendingSubscriptions.clear();
+    if (!m_pendingPublishes.isEmpty()) {
+        const QStringList topics = m_pendingPublishes.values();
+        m_pendingPublishes.clear();
+        for (const QString &topic : topics) {
+            emit publishFailed(topic, QStringLiteral("MQTT disconnected before PUBACK"));
+        }
+    }
     m_expectedSubscriptionCount = 0;
     m_activeSubscriptionCount = 0;
     emit connectionChanged(QStringLiteral("MQTT disconnected"), false);
@@ -239,6 +262,9 @@ void MqttServiceClient::handlePacket(quint8 fixedHeaderByte, const QByteArray &b
     case 3:  // PUBLISH
         handlePublish(fixedHeaderByte, body);
         break;
+    case 4:  // PUBACK
+        handlePubAck(body);
+        break;
     case 9:   // SUBACK
         handleSubAck(body);
         break;
@@ -263,12 +289,27 @@ void MqttServiceClient::handleConnAck(const QByteArray &body)
         return;
     }
 
+    m_sessionReady = true;
+
     emit connectionChanged(
         QStringLiteral("MQTT connected: %1:%2 | client_id=%3")
             .arg(m_settings.host).arg(m_settings.port).arg(m_settings.clientId),
         true);
     subscribeAll();
     startKeepAlive();
+}
+
+void MqttServiceClient::handlePubAck(const QByteArray &body)
+{
+    if (body.size() != 2) return;
+    const quint16 packetId =
+        (static_cast<quint8>(body.at(0)) << 8)
+        | static_cast<quint8>(body.at(1));
+    const auto pending = m_pendingPublishes.find(packetId);
+    if (pending == m_pendingPublishes.end()) return;
+    const QString topic = pending.value();
+    m_pendingPublishes.erase(pending);
+    emit publishConfirmed(topic);
 }
 
 void MqttServiceClient::handleSubAck(const QByteArray &body)
@@ -400,6 +441,33 @@ void MqttServiceClient::stop()
     if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
         m_socket->disconnectFromHost();
     }
+    m_sessionReady = false;
+}
+
+bool MqttServiceClient::publish(const QString &topic, const QByteArray &payload)
+{
+    const QString trimmedTopic = topic.trimmed();
+    if (trimmedTopic.isEmpty()
+        || trimmedTopic.contains(QLatin1Char('+'))
+        || trimmedTopic.contains(QLatin1Char('#'))) {
+        emit publishFailed(trimmedTopic, QStringLiteral("Invalid MQTT publish topic"));
+        return false;
+    }
+    if (!m_socket || m_socket->state() != QAbstractSocket::ConnectedState
+        || !m_sessionReady) {
+        emit publishFailed(trimmedTopic, QStringLiteral("MQTT is not ready"));
+        return false;
+    }
+
+    const quint16 packetId = m_nextPacketId++;
+    if (m_nextPacketId == 0) m_nextPacketId = 1;
+    m_pendingPublishes.insert(packetId, trimmedTopic);
+    if (m_socket->write(buildPublishPacket(packetId, trimmedTopic, payload)) < 0) {
+        m_pendingPublishes.remove(packetId);
+        emit publishFailed(trimmedTopic, m_socket->errorString());
+        return false;
+    }
+    return true;
 }
 
 void MqttServiceClient::scheduleReconnect()

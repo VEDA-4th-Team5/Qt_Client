@@ -85,6 +85,8 @@ add_executable(smart_parking_qt_client
     src/diagnostics/diagnosticsservice.h
     src/dialogs/slotevidencedialog.cpp
     src/dialogs/slotevidencedialog.h
+    src/dialogs/firealarmpopup.cpp
+    src/dialogs/firealarmpopup.h
     src/models/monitoringevent.cpp
     src/models/monitoringevent.h
     src/models/parkingcapturegroup.cpp
@@ -327,6 +329,22 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME notification_center COMMAND notificationcenter_test)
+
+    add_executable(firealarmpopup_test
+        tests/firealarmpopup_test.cpp
+        src/dialogs/firealarmpopup.cpp
+        src/dialogs/firealarmpopup.h
+    )
+    target_include_directories(firealarmpopup_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(firealarmpopup_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(firealarmpopup_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME fire_alarm_popup COMMAND firealarmpopup_test)
 
     add_executable(incomingmessageadapter_test
         tests/incomingmessageadapter_test.cpp

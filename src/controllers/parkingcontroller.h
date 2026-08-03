@@ -47,6 +47,7 @@ public slots:
     void updateServerBaseUrl(const QString &baseUrl);
     void reconnectNow();
     void clearAlarms();
+    void acknowledgeFireAlarm(const QString &channelId);
     void processIncomingMessage(const QString &message);
     void recordEvent(const QString &zone, const QString &eventType,
                      const QString &message, const QString &status);
@@ -63,6 +64,14 @@ signals:
     void serverConnectionChanged(const QString &status, bool connected);
     void apiDiagnosticChanged(const ApiDiagnosticState &state);
     void serverConfigurationError(const QString &message);
+    void fireAcknowledgementCommandPrepared(const QString &topic,
+                                             const QByteArray &payload);
+    void fireConfirmationRequested(const QString &channelId,
+                                   const QString &alarmId);
+    void fireConfirmationRetryRequested(const QString &channelId,
+                                        const QString &alarmId);
+    void fireConfirmationClosed(const QString &channelId,
+                                const QString &alarmId);
 
 private slots:
     void handleMqttMessage(const QString &topic, const QByteArray &payload);
@@ -105,6 +114,7 @@ private:
     QTimer *m_reconnectTimer = nullptr;
     QSet<QString> m_seenServerEventIds;
     QQueue<QString> m_seenServerEventOrder;
+    QSet<QString> m_fireAckCommandKeys;
     QUrl m_apiBaseUrl;
     QString m_slotsPath;
     QString m_slotDetailPath;

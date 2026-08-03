@@ -3,6 +3,7 @@
 
 #include <QCoreApplication>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QList>
 #include <QMetaObject>
 #include <QTemporaryDir>
@@ -18,12 +19,40 @@ int main(int argc, char **argv)
         directory.filePath(QStringLiteral("client_config.local.ini")));
     NotificationCenter notifications;
     QList<MonitoringEvent> events;
+    QString preparedFireAckTopic;
+    QByteArray preparedFireAckPayload;
+    int preparedFireAckCount = 0;
+    QStringList fireConfirmationRequests;
+    QStringList fireConfirmationRetries;
+    QStringList fireConfirmationCloses;
 
     QObject::connect(
         &controller, &ParkingController::eventLogged, &app,
         [&](const MonitoringEvent &event) {
             events.append(event);
             notifications.ingestEvent(event);
+        });
+    QObject::connect(
+        &controller, &ParkingController::fireAcknowledgementCommandPrepared,
+        &app, [&](const QString &topic, const QByteArray &payload) {
+            preparedFireAckTopic = topic;
+            preparedFireAckPayload = payload;
+            ++preparedFireAckCount;
+        });
+    QObject::connect(
+        &controller, &ParkingController::fireConfirmationRequested,
+        &app, [&](const QString &channelId, const QString &alarmId) {
+            fireConfirmationRequests.append(channelId + QLatin1Char('|') + alarmId);
+        });
+    QObject::connect(
+        &controller, &ParkingController::fireConfirmationRetryRequested,
+        &app, [&](const QString &channelId, const QString &alarmId) {
+            fireConfirmationRetries.append(channelId + QLatin1Char('|') + alarmId);
+        });
+    QObject::connect(
+        &controller, &ParkingController::fireConfirmationClosed,
+        &app, [&](const QString &channelId, const QString &) {
+            fireConfirmationCloses.append(channelId);
         });
 
     controller.processIncomingMessage(QStringLiteral("INVALID"));
@@ -81,9 +110,14 @@ int main(int argc, char **argv)
 
     const QByteArray suspectedPayload = R"JSON({
         "event_id": "legacy-fire-01-open",
-        "event_type": "sensor_fire_suspected",
+        "alarm_id": "legacy-alarm-01",
+        "event_type": "FIRE_SUSPECTED",
         "channel_id": "ch01",
         "source_id": "fire_sensor_01",
+        "alarm_kind": "FIRE_SUSPECTED",
+        "alarm_state": "OPEN",
+        "active": true,
+        "scope": "CAMERA_CHANNEL",
         "slot_id": "EV-01",
         "raw_payload": "FIRE:1"
     })JSON";
@@ -105,9 +139,15 @@ int main(int argc, char **argv)
 
     const QByteArray clearedPayload = R"JSON({
         "event_id": "legacy-fire-01-cleared",
-        "event_type": "sensor_fire_cleared",
+        "alarm_id": "legacy-alarm-01",
+        "event_type": "FIRE_CLEARED",
         "channel_id": "ch01",
         "source_id": "fire_sensor_01",
+        "alarm_kind": "NONE",
+        "alarm_state": "RESOLVED",
+        "ack_state": "resolved",
+        "active": false,
+        "scope": "CAMERA_CHANNEL",
         "slot_id": "EV-01",
         "raw_payload": "FIRE:0"
     })JSON";
@@ -313,6 +353,7 @@ int main(int argc, char **argv)
 
     const QByteArray channelOneFirePayload = R"JSON({
         "event_id": "fire-FLAME01-9201",
+        "alarm_id": "alarm-FLAME01-9201",
         "event_type": "FIRE_SUSPECTED",
         "channel_id": "ch01",
         "source_id": "FLAME01",
@@ -326,6 +367,7 @@ int main(int argc, char **argv)
         "slot_id": ""
     })JSON";
     const int eventCountBeforeChannelFire = events.size();
+    const int confirmationCountBeforeChannelFire = fireConfirmationRequests.size();
     if (!deliverMqtt(QStringLiteral("parking/v1/events/ch01"),
                      channelOneFirePayload, false)) return 85;
     if (controller.state().fireChannels
@@ -336,6 +378,9 @@ int main(int argc, char **argv)
     if (events.constLast().sourceId != QStringLiteral("CH1")) return 89;
     if (events.constLast().eventType != QStringLiteral("FIRE_SUSPECTED")) return 90;
     if (notifications.notifications().size() != 1) return 91;
+    if (fireConfirmationRequests.size() != confirmationCountBeforeChannelFire + 1
+        || fireConfirmationRequests.constLast()
+            != QStringLiteral("CH1|alarm-FLAME01-9201")) return 140;
 
     const int eventCountBeforeFireStateDuplicate = events.size();
     if (!deliverMqtt(QStringLiteral("parking/fire/ch01"),
@@ -343,14 +388,113 @@ int main(int argc, char **argv)
     if (events.size() != eventCountBeforeFireStateDuplicate) return 93;
     if (notifications.notifications().size() != 1) return 94;
     if (!controller.state().fireChannels.contains(QStringLiteral("CH1"))) return 95;
+    if (fireConfirmationRequests.size()
+        != confirmationCountBeforeChannelFire + 1) return 141;
+    const ChannelFireAlarmState openFire =
+        controller.state().fireAlarms.value(QStringLiteral("CH1"));
+    if (!openFire.active || openFire.acknowledged
+        || openFire.alarmId != QStringLiteral("alarm-FLAME01-9201")) return 129;
+
+    controller.acknowledgeFireAlarm(QStringLiteral("CH1"));
+    if (preparedFireAckTopic
+        != QStringLiteral("parking/v1/commands/fire/ch01")) return 130;
+    const QJsonObject preparedCommand =
+        QJsonDocument::fromJson(preparedFireAckPayload).object();
+    if (preparedCommand.value(QStringLiteral("command")).toString()
+            != QStringLiteral("ALARM_ACK")
+        || preparedCommand.value(QStringLiteral("channel_id")).toString()
+            != QStringLiteral("ch01")
+        || preparedCommand.value(QStringLiteral("alarm_id")).toString()
+            != QStringLiteral("alarm-FLAME01-9201")) return 131;
+    if (fireConfirmationRetries
+            != QStringList{QStringLiteral("CH1|alarm-FLAME01-9201")}) {
+        return 154;
+    }
+    controller.acknowledgeFireAlarm(QStringLiteral("CH1"));
+    if (preparedFireAckCount != 2
+        || fireConfirmationRetries.size() != 2) return 142;
+
+    const QByteArray mismatchedAckPayload = R"JSON({
+        "event_id": "fire-FLAME01-wrong-ack",
+        "alarm_id": "alarm-FLAME01-stale",
+        "event_type": "FIRE_ACKNOWLEDGED",
+        "channel_id": "ch01",
+        "alarm_kind": "FIRE_SUSPECTED",
+        "alarm_state": "ACKNOWLEDGED",
+        "ack_state": "acknowledged",
+        "active": true,
+        "scope": "CAMERA_CHANNEL"
+    })JSON";
+    if (!deliverMqtt(QStringLiteral("parking/v1/events/ch01"),
+                     mismatchedAckPayload, false)) return 137;
+    if (controller.state().fireAlarms.value(QStringLiteral("CH1"))
+            .acknowledged) return 138;
+    if (events.constLast().eventType
+        != QStringLiteral("MQTT_FIRE_CONTRACT_ERROR")) return 139;
+
+    const QByteArray channelOneAckPayload = R"JSON({
+        "event_id": "fire-FLAME01-ack-9201",
+        "alarm_id": "alarm-FLAME01-9201",
+        "event_type": "FIRE_ACKNOWLEDGED",
+        "channel_id": "ch01",
+        "alarm_kind": "FIRE_SUSPECTED",
+        "alarm_state": "ACKNOWLEDGED",
+        "ack_state": "acknowledged",
+        "active": true,
+        "scope": "CAMERA_CHANNEL"
+    })JSON";
+    if (!deliverMqtt(QStringLiteral("parking/v1/events/ch01"),
+                     channelOneAckPayload, false)) return 132;
+    const ChannelFireAlarmState acknowledgedFire =
+        controller.state().fireAlarms.value(QStringLiteral("CH1"));
+    if (!acknowledgedFire.active || !acknowledgedFire.acknowledged
+        || !controller.state().fireChannels.contains(QStringLiteral("CH1"))) {
+        return 133;
+    }
+    if (events.constLast().eventType != QStringLiteral("FIRE_ACKNOWLEDGED")
+        || events.constLast().ackState != EventAckState::Acknowledged) return 134;
+    if (fireConfirmationCloses.isEmpty()
+        || fireConfirmationCloses.constLast() != QStringLiteral("CH1")) return 143;
+    const int eventCountAfterAck = events.size();
+    if (!deliverMqtt(QStringLiteral("parking/v1/events/ch01"),
+                     channelOneAckPayload, false)) return 146;
+    if (events.size() != eventCountAfterAck
+        || !controller.state().fireAlarms.value(QStringLiteral("CH1"))
+                .acknowledged) return 147;
+
+    if (!deliverMqtt(QStringLiteral("parking/fire/ch01"),
+                     channelOneFirePayload, true)) return 135;
+    if (!controller.state().fireAlarms.value(QStringLiteral("CH1"))
+             .acknowledged) return 136;
+
+    const QByteArray staleChannelClearPayload = R"JSON({
+        "event_id": "fire-FLAME01-stale-clear",
+        "alarm_id": "alarm-FLAME01-stale",
+        "event_type": "FIRE_CLEARED",
+        "channel_id": "ch01",
+        "alarm_kind": "NONE",
+        "alarm_state": "RESOLVED",
+        "ack_state": "resolved",
+        "active": false,
+        "scope": "CAMERA_CHANNEL"
+    })JSON";
+    if (!deliverMqtt(QStringLiteral("parking/v1/events/ch01"),
+                     staleChannelClearPayload, false)) return 155;
+    if (!controller.state().fireChannels.contains(QStringLiteral("CH1"))
+        || controller.state().fireAlarms.value(QStringLiteral("CH1")).alarmId
+            != QStringLiteral("alarm-FLAME01-9201")
+        || events.constLast().eventType
+            != QStringLiteral("MQTT_FIRE_CONTRACT_ERROR")) return 156;
 
     const QByteArray inactiveChannelClearPayload = R"JSON({
         "event_id": "fire-FLAME02-9202",
+        "alarm_id": "alarm-FLAME02-9202",
         "event_type": "FIRE_CLEARED",
         "channel_id": "ch02",
         "alarm_kind": "NONE",
         "alarm": "NONE",
         "alarm_state": "RESOLVED",
+        "ack_state": "resolved",
         "active": false,
         "scope": "CAMERA_CHANNEL"
     })JSON";
@@ -361,12 +505,14 @@ int main(int argc, char **argv)
 
     const QByteArray channelOneClearPayload = R"JSON({
         "event_id": "fire-FLAME01-9205",
+        "alarm_id": "alarm-FLAME01-9201",
         "event_type": "FIRE_CLEARED",
         "channel_id": "ch01",
         "source_id": "FLAME01",
         "alarm_kind": "NONE",
         "alarm": "NONE",
         "alarm_state": "RESOLVED",
+        "ack_state": "resolved",
         "severity": "info",
         "active": false,
         "scope": "CAMERA_CHANNEL",
@@ -380,6 +526,7 @@ int main(int argc, char **argv)
 
     const QByteArray retainedRestorePayload = R"JSON({
         "event_id": "fire-FLAME01-9301",
+        "alarm_id": "alarm-FLAME01-9301",
         "event_type": "FIRE_SUSPECTED",
         "channel_id": "ch01",
         "alarm_kind": "FIRE_SUSPECTED",
@@ -388,16 +535,22 @@ int main(int argc, char **argv)
         "scope": "CAMERA_CHANNEL"
     })JSON";
     const int eventCountBeforeRestore = events.size();
+    const int confirmationCountBeforeRestore = fireConfirmationRequests.size();
     if (!deliverMqtt(QStringLiteral("parking/fire/ch01"),
                      retainedRestorePayload, true)) return 101;
     if (!controller.state().fireChannels.contains(QStringLiteral("CH1"))) return 102;
     if (events.size() != eventCountBeforeRestore) return 103;
     if (notifications.hasNotifications()) return 104;
+    if (fireConfirmationRequests.size() != confirmationCountBeforeRestore + 1
+        || fireConfirmationRequests.constLast()
+            != QStringLiteral("CH1|alarm-FLAME01-9301")) return 144;
 
     if (!deliverMqtt(QStringLiteral("parking/v1/events/ch01"),
                      retainedRestorePayload, false)) return 105;
     if (events.size() != eventCountBeforeRestore + 1) return 106;
     if (notifications.notifications().size() != 1) return 107;
+    if (fireConfirmationRequests.size()
+        != confirmationCountBeforeRestore + 1) return 145;
     if (!deliverMqtt(QStringLiteral("parking/v1/events/ch01"),
                      retainedRestorePayload, false)) return 108;
     if (events.size() != eventCountBeforeRestore + 1) return 109;
@@ -423,10 +576,12 @@ int main(int argc, char **argv)
 
     const QByteArray stateTopicFirePayload = R"JSON({
         "event_id": "fire-FLAME01-invalid-topic",
+        "alarm_id": "alarm-FLAME01-9301",
         "event_type": "FIRE_CLEARED",
         "channel_id": "ch01",
         "alarm_kind": "NONE",
         "alarm_state": "RESOLVED",
+        "ack_state": "resolved",
         "active": false,
         "scope": "CAMERA_CHANNEL"
     })JSON";
@@ -436,8 +591,74 @@ int main(int argc, char **argv)
     if (events.constLast().eventType
         != QStringLiteral("MQTT_FIRE_CONTRACT_ERROR")) return 116;
 
+    const QByteArray incompleteClearPayload = R"JSON({
+        "event_id": "fire-FLAME01-incomplete-clear",
+        "event_type": "FIRE_CLEARED",
+        "channel_id": "ch01",
+        "alarm_kind": "NONE",
+        "alarm_state": "RESOLVED",
+        "active": false,
+        "scope": "CAMERA_CHANNEL"
+    })JSON";
+    if (!deliverMqtt(QStringLiteral("parking/fire/ch01"),
+                     incompleteClearPayload, true)) return 148;
+    if (!controller.state().fireChannels.contains(QStringLiteral("CH1"))
+        || events.constLast().eventType
+            != QStringLiteral("MQTT_FIRE_CONTRACT_ERROR")) return 149;
+
+    const QByteArray missingChannelPayload = R"JSON({
+        "event_id": "fire-FLAME01-missing-channel",
+        "alarm_id": "alarm-FLAME01-missing-channel",
+        "event_type": "FIRE_SUSPECTED",
+        "alarm_kind": "FIRE_SUSPECTED",
+        "alarm_state": "OPEN",
+        "active": true,
+        "scope": "CAMERA_CHANNEL"
+    })JSON";
+    const int confirmationsBeforeMissingChannel =
+        fireConfirmationRequests.size();
+    if (!deliverMqtt(QStringLiteral("parking/fire/ch01"),
+                     missingChannelPayload, true)) return 150;
+    if (controller.state().fireChannels
+            != QSet<QString>{QStringLiteral("CH1")}
+        || fireConfirmationRequests.size()
+            != confirmationsBeforeMissingChannel
+        || events.constLast().eventType
+            != QStringLiteral("MQTT_FIRE_CONTRACT_ERROR")) return 151;
+
+    const QByteArray mismatchedTopicChannelPayload = R"JSON({
+        "event_id": "fire-FLAME01-topic-mismatch",
+        "alarm_id": "alarm-FLAME01-topic-mismatch",
+        "event_type": "FIRE_SUSPECTED",
+        "channel_id": "ch01",
+        "alarm_kind": "FIRE_SUSPECTED",
+        "alarm_state": "OPEN",
+        "active": true,
+        "scope": "CAMERA_CHANNEL"
+    })JSON";
+    if (!deliverMqtt(QStringLiteral("parking/fire/ch02"),
+                     mismatchedTopicChannelPayload, true)) return 152;
+    if (controller.state().fireChannels
+            != QSet<QString>{QStringLiteral("CH1")}
+        || fireConfirmationRequests.size()
+            != confirmationsBeforeMissingChannel
+        || events.constLast().eventType
+            != QStringLiteral("MQTT_FIRE_CONTRACT_ERROR")) return 153;
+
+    if (!deliverMqtt(QStringLiteral("parking/v1/events/ch02"),
+                     mismatchedTopicChannelPayload, false)) return 157;
+    if (controller.state().fireChannels
+            != QSet<QString>{QStringLiteral("CH1")}
+        || controller.state().fireAlarms.value(QStringLiteral("CH1")).alarmId
+            != QStringLiteral("alarm-FLAME01-9301")
+        || fireConfirmationRequests.size()
+            != confirmationsBeforeMissingChannel
+        || events.constLast().eventType
+            != QStringLiteral("MQTT_FIRE_CONTRACT_ERROR")) return 158;
+
     const QByteArray unknownChannelPayload = R"JSON({
         "event_id": "fire-FLAME09-9401",
+        "alarm_id": "alarm-FLAME09-9401",
         "event_type": "FIRE_SUSPECTED",
         "channel_id": "ch09",
         "alarm_kind": "FIRE_SUSPECTED",
@@ -453,6 +674,7 @@ int main(int argc, char **argv)
 
     const QByteArray contradictoryPayload = R"JSON({
         "event_id": "fire-FLAME02-9402",
+        "alarm_id": "alarm-FLAME02-9402",
         "event_type": "FIRE_SUSPECTED",
         "channel_id": "ch02",
         "alarm_kind": "FIRE_SUSPECTED",
