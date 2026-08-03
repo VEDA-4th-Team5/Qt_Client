@@ -978,18 +978,21 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
     ParkingSnapshot snapshot;
     QString error;
     if (!ParkingResponseParser::parseSnapshot(document, snapshot, error)) {
-        emit bannerChanged(QStringLiteral("Invalid parking API response | Previous state retained"), true);
         recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_PARSE_ERROR"), error, QStringLiteral("FAILED"));
-        m_apiDiagnostic.connected = false;
-        m_apiDiagnostic.status = QStringLiteral("INVALID_RESPONSE");
-        m_apiDiagnostic.lastError = error;
         ++m_apiDiagnostic.consecutiveFailures;
-        publishApiDiagnostic();
+        // 파싱 실패도 네트워크 실패와 동일하게 재시도 루프를 이어간다. 여기서
+        // 타이머를 멈춘 채로 두면 다음 응답이 잘못됐다는 이유만으로 폴링 자체가
+        // 영구히 멈춘다.
+        scheduleReconnect(error);
         return;
     }
-    if (m_reconnectTimer) m_reconnectTimer->stop();
     m_snapshotRequestInFlight = false;
     m_currentReconnectDelayMs = m_reconnectIntervalMs;
+    // 성공해도 타이머를 멈추지 않고 base interval 로 재시작한다. 이 타이머가
+    // 실패 시 백오프 재시도와, 정상 상태에서의 주기적 재폴링을 겸한다.
+    // 그래야 Pi 쪽 데이터가 바뀌었을 때 사용자가 Reconnect now 를 눌러야만
+    // 화면이 갱신되는 문제가 없다.
+    if (m_reconnectTimer) m_reconnectTimer->start(m_currentReconnectDelayMs);
     emit serverConnectionChanged(QStringLiteral("Connected"), true);
     const ParkingViewState previousState = m_state;
     resetSlotsForSnapshot();
