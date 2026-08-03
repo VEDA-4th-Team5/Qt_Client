@@ -89,6 +89,7 @@ Item {
 
         Rectangle {
             id: fireOverlay
+            z: 2
             anchors.fill: parent
             visible: root.fireAlarmActive
             color: "transparent"
@@ -101,27 +102,7 @@ Item {
                 loops: Animation.Infinite
                 NumberAnimation { to: 0.45; duration: 420 }
                 NumberAnimation { to: 1.0; duration: 420 }
-            }
-
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.top: parent.top
-                anchors.topMargin: root.expanded ? 86 : 74
-                width: fireLabel.implicitWidth + 28
-                height: fireLabel.implicitHeight + 14
-                radius: 5
-                color: "#E6B71C1C"
-                border.color: "#ff8a80"
-                border.width: 2
-
-                Text {
-                    id: fireLabel
-                    anchors.centerIn: parent
-                    text: "⚠ FIRE SUSPECTED"
-                    color: "white"
-                    font.bold: true
-                    font.pixelSize: root.expanded ? 22 : 15
-                }
+                onStopped: fireOverlay.opacity = 1.0
             }
         }
 
@@ -148,6 +129,7 @@ Item {
 
         MouseArea {
             id: mouseArea
+            z: 1
             anchors.fill: parent
             hoverEnabled: true
             onClicked: root.clicked()

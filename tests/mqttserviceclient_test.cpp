@@ -38,6 +38,16 @@ QByteArray subAckPacket(quint16 packetId, quint8 grantedQos)
     packet.append(static_cast<char>(grantedQos));
     return packet;
 }
+
+QByteArray pubAckPacket(quint16 packetId)
+{
+    QByteArray packet;
+    packet.append(static_cast<char>(0x40));
+    packet.append(static_cast<char>(0x02));
+    packet.append(static_cast<char>((packetId >> 8) & 0xFF));
+    packet.append(static_cast<char>(packetId & 0xFF));
+    return packet;
+}
 }
 
 int main(int argc, char **argv)
@@ -94,6 +104,11 @@ int main(int argc, char **argv)
     QSet<QString> subscribedTopics;
     QByteArray brokerBuffer;
     bool clientIdMatched = false;
+    bool subscriptionsReady = false;
+    bool publishRequested = false;
+    QString publishedTopic;
+    QByteArray publishedPayload;
+    int publishPacketCount = 0;
     int exitCode = 1;
 
     QObject::connect(&broker, &QTcpServer::newConnection, &app, [&]() {
@@ -119,8 +134,9 @@ int main(int argc, char **argv)
                     return;
                 }
 
-                const quint8 packetType =
-                    static_cast<quint8>(brokerBuffer.at(0)) >> 4;
+                const quint8 fixedHeader =
+                    static_cast<quint8>(brokerBuffer.at(0));
+                const quint8 packetType = fixedHeader >> 4;
                 const QByteArray body = brokerBuffer.mid(
                     headerSize, static_cast<int>(remainingLength));
                 brokerBuffer.remove(
@@ -139,6 +155,32 @@ int main(int argc, char **argv)
                         QString::fromUtf8(body.mid(12, clientIdLength))
                         == expectedClientId;
                     socket->write(QByteArray::fromHex("20020000"));
+                    continue;
+                }
+
+                if (packetType == 3) {
+                    ++publishPacketCount;
+                    if (fixedHeader != 0x32 || body.size() < 4) {
+                        exitCode = 5;
+                        app.quit();
+                        return;
+                    }
+                    const quint16 topicLength =
+                        (static_cast<quint8>(body.at(0)) << 8)
+                        | static_cast<quint8>(body.at(1));
+                    if (body.size() < 4 + topicLength) {
+                        exitCode = 6;
+                        app.quit();
+                        return;
+                    }
+                    publishedTopic = QString::fromUtf8(
+                        body.mid(2, topicLength));
+                    const int packetIdOffset = 2 + topicLength;
+                    const quint16 packetId =
+                        (static_cast<quint8>(body.at(packetIdOffset)) << 8)
+                        | static_cast<quint8>(body.at(packetIdOffset + 1));
+                    publishedPayload = body.mid(packetIdOffset + 2);
+                    socket->write(pubAckPacket(packetId));
                     continue;
                 }
 
@@ -189,12 +231,38 @@ int main(int argc, char **argv)
             return statuses.contains(
                 QStringLiteral("MQTT subscribed: %1 (QoS 1)").arg(topic));
         });
-        exitCode = clientIdMatched
-                && subscribedTopics == QSet<QString>(expectedTopics.cbegin(),
-                                                     expectedTopics.cend())
-                && subscribedStatusPresent
-                && status.contains(expectedClientId)
-            ? 0 : 7;
+        subscriptionsReady = clientIdMatched
+            && subscribedTopics == QSet<QString>(expectedTopics.cbegin(),
+                                                  expectedTopics.cend())
+            && subscribedStatusPresent
+            && status.contains(expectedClientId);
+        if (!subscriptionsReady || publishRequested) {
+            if (!subscriptionsReady) {
+                exitCode = 7;
+                app.quit();
+            }
+            return;
+        }
+        publishRequested = true;
+        const QByteArray command =
+            R"JSON({"command":"ALARM_ACK","channel_id":"ch01","alarm_id":"alarm-01"})JSON";
+        if (!client.publish(
+                QStringLiteral("parking/v1/commands/fire/ch01"), command)) {
+            exitCode = 10;
+            app.quit();
+        }
+    });
+
+    QObject::connect(&client, &MqttServiceClient::publishConfirmed,
+                     &app, [&](const QString &topic) {
+        const QByteArray expectedPayload =
+            R"JSON({"command":"ALARM_ACK","channel_id":"ch01","alarm_id":"alarm-01"})JSON";
+        exitCode = subscriptionsReady
+                && topic == QStringLiteral("parking/v1/commands/fire/ch01")
+                && publishedTopic == topic
+                && publishedPayload == expectedPayload
+                && publishPacketCount == 1
+            ? 0 : 11;
         app.quit();
     });
 

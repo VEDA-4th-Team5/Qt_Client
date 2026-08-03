@@ -7,6 +7,7 @@
 enum class ServerFireEventAction {
     NotFire,
     Activate,
+    Acknowledge,
     Clear,
     Invalid
 };
@@ -14,11 +15,13 @@ enum class ServerFireEventAction {
 struct ServerFireEvent {
     ServerFireEventAction action = ServerFireEventAction::NotFire;
     QString eventId;
+    QString alarmId;
     QString eventType;
     QString channelId;
     QString sourceId;
     QString alarmKind;
     QString alarmState;
+    QString ackState;
     QString scope;
     QString severity;
     QString message;

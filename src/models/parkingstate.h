@@ -59,6 +59,14 @@ struct ParkingSlotInfo {
     SlotVisualState visual;
 };
 
+struct ChannelFireAlarmState {
+    QString alarmId;
+    QString alarmState;
+    QString ackState;
+    bool active = false;
+    bool acknowledged = false;
+};
+
 struct ParkingViewState {
     QHash<QString, EvSlotInfo> evSlots;
     QHash<QString, ParkingSlotInfo> parkingSlots;
@@ -66,6 +74,7 @@ struct ParkingViewState {
     QHash<QString, QString> slotPlateNumbers;
     // Fire belongs to a camera channel, never to an individual parking slot.
     QSet<QString> fireChannels;
+    QHash<QString, ChannelFireAlarmState> fireAlarms;
     bool apiEnabled = false;
 };
 
