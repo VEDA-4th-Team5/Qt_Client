@@ -388,8 +388,20 @@ void MainWindow::renderParkingState()
             ++sensorErrors;
         }
     }
+    // EV 슬롯은 별도 맵(state.evSlots)에 저장된다. 이걸 빼먹으면 EV 슬롯의
+    // 점유 상태가 다른 화면(Parking Map/Evidence)엔 반영되면서도 여기 요약
+    // 패널에서만 영원히 카운트되지 않는다.
+    for (const EvSlotInfo &slot : state.evSlots) {
+        if (slot.visual.occupancy == SlotOccupancy::Occupied) ++occupied;
+        else ++vacant;
+        if (slot.visual.alarm == SlotAlarmKind::SensorError
+            && !slot.visual.alarmAcknowledged) {
+            ++sensorErrors;
+        }
+    }
     m_dashboardPage->setSummary(
-        state.parkingSlots.size(), occupied, vacant, sensorErrors);
+        state.parkingSlots.size() + state.evSlots.size(),
+        occupied, vacant, sensorErrors);
     if (m_diagnosticsService) {
         int activeAlarms = 0;
         for (const EvSlotInfo &slot : state.evSlots) {

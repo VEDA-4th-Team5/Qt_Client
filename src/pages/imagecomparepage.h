@@ -78,6 +78,7 @@ private:
     QPushButton *m_enhancedOpenButton = nullptr;
     QTableWidget *m_captureTable = nullptr;
     QString m_currentSlotId;
+    QString m_plateNumber;
     QVector<ParkingCaptureGroup> m_captures;
     int m_selectedCaptureRow = -1;
     QHash<QString, ImageCompareImageLabel *> m_requestTargets;
