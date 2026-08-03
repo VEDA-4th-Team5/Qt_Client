@@ -588,9 +588,17 @@ void EvidencePage::renderCaptureCard(
         preferredParkingCaptureVariant(*capture);
     const QString reason = captureReasonText(capture->reason);
     titleLabel->setText(QStringLiteral("%1 · %2").arg(heading, reason));
+    // OCR 은 HALL_30S 캡처 한 장에만 돌아서 다른 증거 이미지 행에는
+    // ocr_result 가 없다. 그 경우 세션에서 확정된 번호판으로 폴백하되,
+    // 이 이미지에서 직접 읽은 값이 아님을 (session) 으로 구분한다.
+    QString ocrText = capture->ocrResult;
+    if (ocrText.isEmpty()) {
+        ocrText = (m_plateNumber.isEmpty() || m_plateNumber == QStringLiteral("-"))
+            ? QStringLiteral("-")
+            : QStringLiteral("%1 (session)").arg(m_plateNumber);
+    }
     QString metadata = QStringLiteral("%1  |  OCR: %2")
-        .arg(captureTimeText(capture->timestamp),
-             capture->ocrResult.isEmpty() ? QStringLiteral("-") : capture->ocrResult);
+        .arg(captureTimeText(capture->timestamp), ocrText);
     if (variant && !variant->processing.isEmpty()) {
         metadata += QStringLiteral("  |  %1").arg(variant->processing);
     }
