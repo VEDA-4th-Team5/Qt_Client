@@ -21,6 +21,18 @@ ApiClient::ApiClient(const QUrl &baseUrl,
 
 void ApiClient::getJson(const QString &path)
 {
+    sendJsonRequest(path, QByteArrayLiteral("GET"));
+}
+
+void ApiClient::putJson(const QString &path, const QJsonObject &body)
+{
+    sendJsonRequest(path, QByteArrayLiteral("PUT"),
+                    QJsonDocument(body).toJson(QJsonDocument::Compact));
+}
+
+void ApiClient::sendJsonRequest(const QString &path, const QByteArray &method,
+                                const QByteArray &body)
+{
     const QUrl url = requestUrl(path);
     const bool allowedScheme = url.scheme() == QStringLiteral("https")
         || (m_allowInsecureHttp && url.scheme() == QStringLiteral("http"));
@@ -35,8 +47,14 @@ void ApiClient::getJson(const QString &path)
 
     QNetworkRequest request(url);
     request.setRawHeader("Accept", "application/json");
+    if (!body.isEmpty()) {
+        request.setHeader(QNetworkRequest::ContentTypeHeader,
+                          QStringLiteral("application/json"));
+    }
 
-    QNetworkReply *reply = m_networkManager->get(request);
+    QNetworkReply *reply = method == QByteArrayLiteral("GET")
+        ? m_networkManager->get(request)
+        : m_networkManager->sendCustomRequest(request, method, body);
     const qint64 startedAtMs = QDateTime::currentMSecsSinceEpoch();
     auto *timeout = new QTimer(reply);
     timeout->setSingleShot(true);
@@ -52,6 +70,7 @@ void ApiClient::getJson(const QString &path)
             qMax<qint64>(0, QDateTime::currentMSecsSinceEpoch() - startedAtMs));
         const int statusCode =
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray responseBody = reply->readAll();
 
         if (reply->property("timedOut").toBool()) {
             emit requestFailed(path, QStringLiteral("API request timed out"),
@@ -59,21 +78,38 @@ void ApiClient::getJson(const QString &path)
             reply->deleteLater();
             return;
         }
+        if (statusCode == 0 && reply->error() != QNetworkReply::NoError) {
+            emit requestFailed(path, reply->errorString(), latencyMs, statusCode);
+            reply->deleteLater();
+            return;
+        }
+        if (statusCode < 200 || statusCode >= 300) {
+            QString message = QStringLiteral("HTTP %1").arg(statusCode);
+            QJsonParseError errorParseResult;
+            const QJsonDocument errorDocument = QJsonDocument::fromJson(
+                responseBody, &errorParseResult);
+            if (errorParseResult.error == QJsonParseError::NoError
+                && errorDocument.isObject()) {
+                const QString serverError = errorDocument.object()
+                    .value(QStringLiteral("error")).toString().trimmed();
+                if (!serverError.isEmpty()) {
+                    message += QStringLiteral(": ") + serverError;
+                }
+            }
+            emit requestFailed(path, message,
+                               latencyMs, statusCode);
+            reply->deleteLater();
+            return;
+        }
+
         if (reply->error() != QNetworkReply::NoError) {
             emit requestFailed(path, reply->errorString(), latencyMs, statusCode);
             reply->deleteLater();
             return;
         }
 
-        if (statusCode < 200 || statusCode >= 300) {
-            emit requestFailed(path, QStringLiteral("HTTP %1").arg(statusCode),
-                               latencyMs, statusCode);
-            reply->deleteLater();
-            return;
-        }
-
         QJsonParseError parseError;
-        const QJsonDocument document = QJsonDocument::fromJson(reply->readAll(), &parseError);
+        const QJsonDocument document = QJsonDocument::fromJson(responseBody, &parseError);
         if (parseError.error != QJsonParseError::NoError) {
             emit requestFailed(path,
                                QStringLiteral("Invalid JSON response: %1").arg(parseError.errorString()),

@@ -21,6 +21,8 @@ namespace {
 constexpr int kSeenServerEventLimit = 256;
 constexpr int kPortableMqttClientIdMaxLength = 23;
 constexpr int kGeneratedMqttClientIdSuffixLength = 12;
+constexpr int kMinimumOverstayThresholdSeconds = 60;
+constexpr int kMaximumOverstayThresholdSeconds = 86400;
 
 QString generatedMqttClientId(QString prefix)
 {
@@ -140,6 +142,57 @@ EventSeverity severityFromText(const QString &severity)
     }
     if (normalized == QStringLiteral("INFO")) return EventSeverity::Info;
     return EventSeverity::Unknown;
+}
+
+bool parseOverstayThreshold(const QJsonDocument &document,
+                            bool requireSuccess,
+                            int &seconds,
+                            QString &applyPolicy,
+                            QString &errorMessage)
+{
+    if (!document.isObject()) {
+        errorMessage = QStringLiteral("The server returned an invalid JSON object.");
+        return false;
+    }
+
+    const QJsonObject object = document.object();
+    const QJsonValue successValue = object.value(QStringLiteral("success"));
+    if (requireSuccess
+        && (!successValue.isBool() || !successValue.toBool())) {
+        errorMessage = object.value(QStringLiteral("error")).toString().trimmed();
+        if (errorMessage.isEmpty()) {
+            errorMessage = QStringLiteral("The server did not confirm the update.");
+        }
+        return false;
+    }
+    if (successValue.isBool() && !successValue.toBool()) {
+        errorMessage = object.value(QStringLiteral("error")).toString().trimmed();
+        if (errorMessage.isEmpty()) {
+            errorMessage = QStringLiteral("The server rejected the request.");
+        }
+        return false;
+    }
+
+    const QJsonValue thresholdValue = object.value(
+        QStringLiteral("thresholdSeconds"));
+    if (!thresholdValue.isDouble()) {
+        errorMessage = QStringLiteral("The response is missing thresholdSeconds.");
+        return false;
+    }
+    const double rawSeconds = thresholdValue.toDouble();
+    seconds = thresholdValue.toInt(-1);
+    if (rawSeconds != static_cast<double>(seconds)
+        || seconds < kMinimumOverstayThresholdSeconds
+        || seconds > kMaximumOverstayThresholdSeconds) {
+        errorMessage = QStringLiteral(
+            "The server returned an invalid thresholdSeconds value.");
+        return false;
+    }
+
+    applyPolicy = object.value(QStringLiteral("applyPolicy"))
+                      .toString().trimmed();
+    errorMessage.clear();
+    return true;
 }
 
 }
@@ -813,6 +866,9 @@ void ParkingController::initializeApiClient()
     m_sessionImagesPath = setting(
         QStringLiteral("api/session_images_path"),
         QStringLiteral("/api/v1/parking-sessions/{session_id}/images")).toString();
+    m_overstayThresholdPath = setting(
+        QStringLiteral("api/overstay_threshold_path"),
+        QStringLiteral("/api/v1/settings/overstay-threshold")).toString();
     m_apiTimeoutMs = setting(QStringLiteral("api/timeout_ms"), 5000).toInt();
     m_allowInsecureHttp =
         setting(QStringLiteral("api/allow_insecure_http"), false).toBool();
@@ -830,6 +886,13 @@ void ParkingController::rebuildApiClient()
 {
     if (m_reconnectTimer) m_reconnectTimer->stop();
     m_snapshotRequestInFlight = false;
+    if (m_overstayRequest != OverstayRequest::None) {
+        const bool updateRequest = m_overstayRequest == OverstayRequest::Update
+            || m_overstayRequest == OverstayRequest::Verify;
+        m_overstayRequest = OverstayRequest::None;
+        emit overstayThresholdRequestFailed(
+            QStringLiteral("The server connection changed."), updateRequest);
+    }
     if (m_apiClient) {
         disconnect(m_apiClient, nullptr, this, nullptr);
         m_apiClient->deleteLater();
@@ -846,7 +909,10 @@ void ParkingController::rebuildApiClient()
     connect(m_apiClient, &ApiClient::jsonReceived, this,
             [this](const QString &path, const QJsonDocument &document,
                    int latencyMs, int httpStatus) {
-                if (path == m_slotsPath) {
+                if (path == m_overstayThresholdPath
+                    && m_overstayRequest != OverstayRequest::None) {
+                    applyOverstayThresholdResponse(document);
+                } else if (path == m_slotsPath) {
                     m_snapshotRequestInFlight = false;
                     m_apiDiagnostic.lastLatencyMs = latencyMs;
                     m_apiDiagnostic.lastHttpStatus = httpStatus;
@@ -864,7 +930,14 @@ void ParkingController::rebuildApiClient()
                 recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_ERROR"),
                             path + QStringLiteral(": ") + message,
                             QStringLiteral("FAILED"));
-                if (path == m_slotsPath) {
+                if (path == m_overstayThresholdPath
+                    && m_overstayRequest != OverstayRequest::None) {
+                    const bool updateRequest =
+                        m_overstayRequest == OverstayRequest::Update
+                        || m_overstayRequest == OverstayRequest::Verify;
+                    m_overstayRequest = OverstayRequest::None;
+                    emit overstayThresholdRequestFailed(message, updateRequest);
+                } else if (path == m_slotsPath) {
                     m_snapshotRequestInFlight = false;
                     m_apiDiagnostic.connected = false;
                     m_apiDiagnostic.status = QStringLiteral("ERROR");
@@ -911,6 +984,85 @@ void ParkingController::reconnectNow()
     publishApiDiagnostic();
     m_snapshotRequestInFlight = true;
     m_apiClient->getJson(m_slotsPath);
+}
+
+void ParkingController::requestOverstayThreshold()
+{
+    if (m_overstayRequest != OverstayRequest::None) return;
+    if (!m_state.apiEnabled || !m_apiClient) {
+        emit overstayThresholdRequestFailed(
+            QStringLiteral("Server API is disabled or not configured."), false);
+        return;
+    }
+
+    m_overstayRequest = OverstayRequest::Fetch;
+    emit overstayThresholdRequestStarted(
+        QStringLiteral("Loading the server setting..."));
+    m_apiClient->getJson(m_overstayThresholdPath);
+}
+
+void ParkingController::updateOverstayThreshold(int seconds)
+{
+    if (m_overstayRequest != OverstayRequest::None) return;
+    if (seconds < kMinimumOverstayThresholdSeconds
+        || seconds > kMaximumOverstayThresholdSeconds) {
+        emit overstayThresholdRequestFailed(
+            QStringLiteral(
+                "thresholdSeconds must be between 60 and 86400."), true);
+        return;
+    }
+    if (!m_state.apiEnabled || !m_apiClient || !m_apiDiagnostic.connected) {
+        emit overstayThresholdRequestFailed(
+            QStringLiteral("Server is not connected."), true);
+        return;
+    }
+
+    m_overstayRequest = OverstayRequest::Update;
+    emit overstayThresholdRequestStarted(
+        QStringLiteral("Applying the new threshold..."));
+    QJsonObject request;
+    request.insert(QStringLiteral("thresholdSeconds"), seconds);
+    m_apiClient->putJson(m_overstayThresholdPath, request);
+}
+
+void ParkingController::applyOverstayThresholdResponse(
+    const QJsonDocument &document)
+{
+    const OverstayRequest completedRequest = m_overstayRequest;
+    const bool updateResponse = completedRequest == OverstayRequest::Update;
+    const bool verificationResponse = completedRequest == OverstayRequest::Verify;
+    int seconds = -1;
+    QString applyPolicy;
+    QString errorMessage;
+    if (!parseOverstayThreshold(document, updateResponse, seconds,
+                                applyPolicy, errorMessage)) {
+        m_overstayRequest = OverstayRequest::None;
+        emit overstayThresholdRequestFailed(
+            errorMessage, updateResponse || verificationResponse);
+        return;
+    }
+
+    if (updateResponse) {
+        m_overstayRequest = OverstayRequest::Verify;
+        emit overstayThresholdRequestStarted(
+            QStringLiteral("Verifying the saved server setting..."));
+        m_apiClient->getJson(m_overstayThresholdPath);
+        return;
+    }
+
+    m_overstayRequest = OverstayRequest::None;
+    emit overstayThresholdReceived(seconds, applyPolicy,
+                                   verificationResponse);
+    if (verificationResponse) {
+        recordEvent(
+            QStringLiteral("SYSTEM"),
+            QStringLiteral("OVERSTAY_THRESHOLD_UPDATED"),
+            QStringLiteral("Applied %1 seconds | policy=%2")
+                .arg(seconds)
+                .arg(applyPolicy.isEmpty()
+                         ? QStringLiteral("NOT_PROVIDED") : applyPolicy),
+            QStringLiteral("DONE"));
+    }
 }
 
 void ParkingController::scheduleReconnect(const QString &reason)
