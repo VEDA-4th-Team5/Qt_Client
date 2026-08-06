@@ -45,6 +45,7 @@
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QSlider>
+#include <QSpinBox>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -697,6 +698,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_xSpin = makeSpin(3000.0, 5.0);
     m_ySpin = makeSpin(3000.0, 5.0);
     auto makeSliderControl = [editorGroup](QSlider **slider, QLabel **valueLabel,
+                                           QSpinBox **valueSpin,
                                            int minimum, int maximum, int step) {
         auto *container = new QWidget(editorGroup);
         auto *layout = new QHBoxLayout(container);
@@ -708,19 +710,34 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         createdSlider->setPageStep(step * 4);
         createdSlider->setTickPosition(QSlider::TicksBelow);
         createdSlider->setTickInterval(step * 4);
-        auto *createdLabel = new QLabel(container);
-        createdLabel->setMinimumWidth(42);
-        createdLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        createdLabel->setStyleSheet(QStringLiteral("color: #455a64; font-weight: 700;"));
         layout->addWidget(createdSlider, 1);
-        layout->addWidget(createdLabel);
+        if (valueSpin) {
+            auto *createdSpin = new QSpinBox(container);
+            createdSpin->setRange(minimum, maximum);
+            createdSpin->setSingleStep(step);
+            createdSpin->setSuffix(QStringLiteral(" px"));
+            createdSpin->setMinimumWidth(92);
+            layout->addWidget(createdSpin);
+            *valueSpin = createdSpin;
+        } else {
+            auto *createdLabel = new QLabel(container);
+            createdLabel->setMinimumWidth(56);
+            createdLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            createdLabel->setStyleSheet(QStringLiteral("color: #455a64; font-weight: 700;"));
+            layout->addWidget(createdLabel);
+            *valueLabel = createdLabel;
+        }
         *slider = createdSlider;
-        *valueLabel = createdLabel;
         return container;
     };
-    QWidget *widthControl = makeSliderControl(&m_widthSlider, &m_widthValueLabel, 16, 420, 4);
-    QWidget *heightControl = makeSliderControl(&m_heightSlider, &m_heightValueLabel, 16, 220, 4);
-    QWidget *rotationControl = makeSliderControl(&m_rotationSlider, &m_rotationValueLabel, -180, 180, 5);
+    QWidget *widthControl = makeSliderControl(&m_widthSlider, &m_widthValueLabel,
+                                              &m_widthSpin, 16, 420, 1);
+    QWidget *heightControl = makeSliderControl(&m_heightSlider, &m_heightValueLabel,
+                                               &m_heightSpin, 16, 220, 1);
+    QWidget *rotationControl = makeSliderControl(&m_rotationSlider, &m_rotationValueLabel,
+                                                 nullptr, -180, 180, 5);
+    m_widthSpin->setObjectName(QStringLiteral("parkingZoneWidthSpin"));
+    m_heightSpin->setObjectName(QStringLiteral("parkingZoneHeightSpin"));
     m_deleteButton = new QPushButton(QStringLiteral("Delete zone"), editorGroup);
     editorLayout->addRow(QStringLiteral("Zone ID"), m_zoneIdEdit);
     editorLayout->addRow(QStringLiteral("Display"), m_displayNameEdit);
@@ -783,6 +800,20 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
             applyEditorFields();
         });
     }
+    connect(m_widthSpin, qOverload<int>(&QSpinBox::valueChanged),
+            this, [this](int value) {
+        if (m_updatingEditor) return;
+        QSignalBlocker blocker(m_widthSlider);
+        m_widthSlider->setValue(value);
+        applyEditorFields();
+    });
+    connect(m_heightSpin, qOverload<int>(&QSpinBox::valueChanged),
+            this, [this](int value) {
+        if (m_updatingEditor) return;
+        QSignalBlocker blocker(m_heightSlider);
+        m_heightSlider->setValue(value);
+        applyEditorFields();
+    });
 
     loadLayout();
     rebuildScene();
@@ -1112,7 +1143,7 @@ void ParkingMapPage::applyEditorFields()
     zone.hallSensorId = normalizedZoneId(m_hallSensorEdit->text());
     zone.enabled = m_enabledCheck->isChecked();
     zone.rect = QRectF(m_xSpin->value(), m_ySpin->value(),
-                       m_widthSlider->value(), m_heightSlider->value());
+                       m_widthSpin->value(), m_heightSpin->value());
     zone.rotation = m_rotationSlider->value();
     if (previousChannel != zone.cameraChannel) {
         zone.rect = nextZoneRectForChannel(zone.cameraChannel);
@@ -2015,7 +2046,8 @@ void ParkingMapPage::updateEditorFromSelection()
     const QList<QWidget *> editorWidgets = {
         m_zoneIdEdit, m_displayNameEdit, m_zoneTypeCombo, m_cameraChannelCombo,
         m_ivaAreaCombo, m_hallSensorEdit, m_enabledCheck, m_xSpin, m_ySpin,
-        m_widthSlider, m_heightSlider, m_rotationSlider, m_deleteButton
+        m_widthSpin, m_heightSpin, m_widthSlider, m_heightSlider,
+        m_rotationSlider, m_deleteButton
     };
     for (QWidget *widget : editorWidgets) {
         if (widget) widget->setEnabled(m_editMode && hasSelection);
@@ -2044,6 +2076,8 @@ void ParkingMapPage::updateEditorFromSelection()
     const QSignalBlocker blockY(m_ySpin);
     const QSignalBlocker blockW(m_widthSlider);
     const QSignalBlocker blockH(m_heightSlider);
+    const QSignalBlocker blockWSpin(m_widthSpin);
+    const QSignalBlocker blockHSpin(m_heightSpin);
     const QSignalBlocker blockRotation(m_rotationSlider);
     m_zoneIdEdit->setText(zone->zoneId);
     m_displayNameEdit->setText(zone->displayName);
@@ -2056,6 +2090,8 @@ void ParkingMapPage::updateEditorFromSelection()
     m_ySpin->setValue(zone->rect.y());
     m_widthSlider->setValue(qRound(zone->rect.width()));
     m_heightSlider->setValue(qRound(zone->rect.height()));
+    m_widthSpin->setValue(qRound(zone->rect.width()));
+    m_heightSpin->setValue(qRound(zone->rect.height()));
     m_rotationSlider->setValue(qRound(zone->rotation));
     m_ivaAreaCombo->setEnabled(m_editMode && zone->zoneType == QStringLiteral("EV"));
     updateGeometrySliderLabels();
@@ -2103,6 +2139,16 @@ void ParkingMapPage::scrollMapToOrigin()
 
 void ParkingMapPage::updateGeometrySliderLabels()
 {
+    if (m_widthSpin && m_widthSlider
+        && m_widthSpin->value() != m_widthSlider->value()) {
+        QSignalBlocker blocker(m_widthSpin);
+        m_widthSpin->setValue(m_widthSlider->value());
+    }
+    if (m_heightSpin && m_heightSlider
+        && m_heightSpin->value() != m_heightSlider->value()) {
+        QSignalBlocker blocker(m_heightSpin);
+        m_heightSpin->setValue(m_heightSlider->value());
+    }
     if (m_widthValueLabel && m_widthSlider) {
         m_widthValueLabel->setText(QStringLiteral("%1 px").arg(m_widthSlider->value()));
     }

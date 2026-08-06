@@ -17,8 +17,46 @@ CameraSettings::CameraSettings(QString configPath)
 
 QString CameraSettings::cameraIp() const
 {
+    const QString environmentIp = qEnvironmentVariable("HANWHA_CAMERA_IP").trimmed();
+    if (!environmentIp.isEmpty()) {
+        return environmentIp;
+    }
     QSettings settings(m_configPath, QSettings::IniFormat);
     return settings.value(QStringLiteral("camera/camera_ip")).toString();
+}
+
+QString CameraSettings::cameraUsername() const
+{
+    const QString environmentUsername = qEnvironmentVariable(
+        "HANWHA_CAMERA_USERNAME");
+    if (!environmentUsername.isEmpty()) {
+        return environmentUsername;
+    }
+    QSettings settings(m_configPath, QSettings::IniFormat);
+    return settings.value(QStringLiteral("camera/username")).toString();
+}
+
+QString CameraSettings::cameraPassword() const
+{
+    const QString environmentPassword = qEnvironmentVariable(
+        "HANWHA_CAMERA_PASSWORD");
+    if (!environmentPassword.isEmpty()) {
+        return environmentPassword;
+    }
+    QSettings settings(m_configPath, QSettings::IniFormat);
+    return settings.value(QStringLiteral("camera/password")).toString();
+}
+
+QString CameraSettings::httpsCertificateSha256() const
+{
+    const QString environmentFingerprint = qEnvironmentVariable(
+        "HANWHA_HTTPS_CERT_SHA256");
+    if (!environmentFingerprint.isEmpty()) {
+        return environmentFingerprint;
+    }
+    QSettings settings(m_configPath, QSettings::IniFormat);
+    return settings.value(
+        QStringLiteral("camera/https_certificate_sha256")).toString();
 }
 
 bool CameraSettings::saveCameraIp(const QString &cameraIpText, QString &newIp,

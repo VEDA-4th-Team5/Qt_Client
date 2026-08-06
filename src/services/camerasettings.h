@@ -11,6 +11,9 @@ public:
 
     const QString &configPath() const { return m_configPath; }
     QString cameraIp() const;
+    QString cameraUsername() const;
+    QString cameraPassword() const;
+    QString httpsCertificateSha256() const;
     QStringList rtspUrls(const QString &profileOverride = QString()) const;
     bool saveCameraIp(const QString &cameraIpText, QString &newIp, QString &errorMessage) const;
 
