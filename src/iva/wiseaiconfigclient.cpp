@@ -316,15 +316,14 @@ void WiseAiConfigClient::handleSslErrors(QNetworkReply *reply,
         m_options.pinnedCertificateSha256);
     const QString receivedFingerprint = formatCertificateSha256(receivedDigest);
     if (configuredDigest.isEmpty()) {
-        m_tlsFailure = receivedFingerprint.isEmpty()
-            ? QStringLiteral("The camera TLS certificate is not trusted")
-            : QStringLiteral(
-                  "The camera TLS certificate is not trusted. Verify and pin SHA-256 %1")
-                  .arg(receivedFingerprint);
-        reply->abort();
-        return;
-    }
-    if (receivedDigest != configuredDigest) {
+        if (receivedFingerprint.isEmpty()) {
+            m_tlsFailure = QStringLiteral("The camera TLS certificate is not trusted");
+            reply->abort();
+            return;
+        }
+        m_options.pinnedCertificateSha256 = receivedFingerprint;
+        emit certificatePinned(receivedFingerprint);
+    } else if (receivedDigest != configuredDigest) {
         m_tlsFailure = QStringLiteral(
             "The camera TLS certificate does not match the configured SHA-256 pin. Received %1")
                            .arg(receivedFingerprint.isEmpty()

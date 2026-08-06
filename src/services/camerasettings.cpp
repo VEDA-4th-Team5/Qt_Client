@@ -86,6 +86,19 @@ bool CameraSettings::saveCameraIp(const QString &cameraIpText, QString &newIp,
     return true;
 }
 
+bool CameraSettings::saveHttpsCertificateSha256(const QString &sha256,
+                                                QString &errorMessage) const
+{
+    QSettings settings(m_configPath, QSettings::IniFormat);
+    settings.setValue(QStringLiteral("camera/https_certificate_sha256"), sha256);
+    settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        errorMessage = QStringLiteral("Failed to save camera_config.ini.");
+        return false;
+    }
+    return true;
+}
+
 QStringList CameraSettings::rtspUrls(const QString &profileOverride) const
 {
     QStringList urls(4);

@@ -39,6 +39,7 @@ public:
     static QString formatCertificateSha256(const QByteArray &digest);
 
 signals:
+    void certificatePinned(const QString &sha256);
     void optionsReceived(const IvaAreaOptions &options);
     void capabilitiesReceived(const WiseAiCapabilities &capabilities);
     void configurationReceived(const IvaAreaConfiguration &configuration);

@@ -16,6 +16,7 @@ public:
     QString httpsCertificateSha256() const;
     QStringList rtspUrls(const QString &profileOverride = QString()) const;
     bool saveCameraIp(const QString &cameraIpText, QString &newIp, QString &errorMessage) const;
+    bool saveHttpsCertificateSha256(const QString &sha256, QString &errorMessage) const;
 
 private:
     QString m_configPath;

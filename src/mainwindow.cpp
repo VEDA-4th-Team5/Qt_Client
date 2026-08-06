@@ -418,6 +418,11 @@ void MainWindow::connectPages()
             m_ivaSettingsPage, &IvaSettingsPage::setCapabilities);
     connect(m_wiseAiConfigClient, &WiseAiConfigClient::configurationReceived,
             m_ivaSettingsPage, &IvaSettingsPage::setConfiguration);
+    connect(m_wiseAiConfigClient, &WiseAiConfigClient::certificatePinned,
+            this, [this](const QString &sha256) {
+                QString errorMsg;
+                m_cameraSettings.saveHttpsCertificateSha256(sha256, errorMsg);
+            });
     connect(m_wiseAiConfigClient, &WiseAiConfigClient::requestFailed,
             m_ivaSettingsPage, &IvaSettingsPage::setRequestError);
     connect(m_wiseAiConfigClient, &WiseAiConfigClient::applyStarted,
