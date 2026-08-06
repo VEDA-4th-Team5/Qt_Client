@@ -401,6 +401,75 @@ if (BUILD_TESTING)
     )
     add_test(NAME camera_settings COMMAND camerasettings_test)
 
+    add_executable(apiclient_json_test
+        tests/apiclient_json_test.cpp
+        src/api/apiclient.cpp
+        src/api/apiclient.h
+    )
+    target_include_directories(apiclient_json_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(apiclient_json_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(apiclient_json_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME api_client_json COMMAND apiclient_json_test)
+
+    add_executable(settingspage_overstay_test
+        tests/settingspage_overstay_test.cpp
+        src/pages/settingspage.cpp
+        src/pages/settingspage.h
+    )
+    target_include_directories(settingspage_overstay_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(settingspage_overstay_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(settingspage_overstay_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME settings_page_overstay COMMAND settingspage_overstay_test)
+
+    add_executable(overstaycontroller_test
+        tests/overstaycontroller_test.cpp
+        src/adapters/incomingmessageadapter.cpp
+        src/adapters/incomingmessageadapter.h
+        src/adapters/serverfireeventadapter.cpp
+        src/adapters/serverfireeventadapter.h
+        src/adapters/serverparkingeventadapter.cpp
+        src/adapters/serverparkingeventadapter.h
+        src/controllers/parkingcontroller.cpp
+        src/controllers/parkingcontroller.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/api/apiclient.cpp
+        src/api/apiclient.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
+        src/api/parkingmodels.h
+        src/api/parkingresponseparser.cpp
+        src/api/parkingresponseparser.h
+        src/services/mqttserviceclient.cpp
+        src/services/mqttserviceclient.h
+    )
+    target_include_directories(overstaycontroller_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(overstaycontroller_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(overstaycontroller_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME overstay_controller COMMAND overstaycontroller_test)
+
     add_executable(parkingresponseparser_evidence_test
         tests/parkingresponseparser_evidence_test.cpp
         src/api/parkingmodels.h
@@ -596,6 +665,11 @@ if (BUILD_TESTING)
         TIMEOUT 30
     )
     set_tests_properties(imagecomparepage PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
+    set_tests_properties(settings_page_overstay PROPERTIES
         ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
         TIMEOUT 30

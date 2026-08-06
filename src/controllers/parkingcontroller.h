@@ -46,6 +46,8 @@ public slots:
     void requestSlotDetail(const QString &slotId);
     void updateServerBaseUrl(const QString &baseUrl);
     void reconnectNow();
+    void requestOverstayThreshold();
+    void updateOverstayThreshold(int seconds);
     void clearAlarms();
     void acknowledgeFireAlarm(const QString &channelId);
     void processIncomingMessage(const QString &message);
@@ -64,6 +66,11 @@ signals:
     void serverConnectionChanged(const QString &status, bool connected);
     void apiDiagnosticChanged(const ApiDiagnosticState &state);
     void serverConfigurationError(const QString &message);
+    void overstayThresholdRequestStarted(const QString &status);
+    void overstayThresholdReceived(int seconds, const QString &applyPolicy,
+                                   bool afterUpdate);
+    void overstayThresholdRequestFailed(const QString &message,
+                                        bool updateRequest);
     void fireAcknowledgementCommandPrepared(const QString &topic,
                                              const QByteArray &payload);
     void fireConfirmationRequested(const QString &channelId,
@@ -98,6 +105,7 @@ private:
                                 const QJsonDocument &document);
     void applyParkingSessionImages(const QString &slotId,
                                    const QJsonDocument &document);
+    void applyOverstayThresholdResponse(const QJsonDocument &document);
     void resetSlotsForSnapshot();
     void notifyStateChanged();
     void refreshAlert();
@@ -119,6 +127,7 @@ private:
     QString m_slotsPath;
     QString m_slotDetailPath;
     QString m_sessionImagesPath;
+    QString m_overstayThresholdPath;
     QHash<QString, QString> m_pendingDetailRequests;
     QHash<QString, QString> m_pendingImageRequests;
     int m_apiTimeoutMs = 5000;
@@ -127,6 +136,8 @@ private:
     int m_currentReconnectDelayMs = 5000;
     bool m_allowInsecureHttp = false;
     bool m_snapshotRequestInFlight = false;
+    enum class OverstayRequest { None, Fetch, Update, Verify };
+    OverstayRequest m_overstayRequest = OverstayRequest::None;
     quint64 m_nextEventSequence = 1;
     ApiDiagnosticState m_apiDiagnostic;
 };

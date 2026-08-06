@@ -28,6 +28,20 @@ Settings 화면에서 서버 주소를 저장하면 로컬 오버라이드 파�
 | GET | `/api/v1/parking-slots` | 전체 주차면과 활성 세션 요약 |
 | GET | `/api/v1/parking-slots/{slotId}` | 선택한 주차면의 세션과 이미지 목록 |
 | GET | `/api/v1/images/{imageId}` | 차량·번호판 증거 이미지 |
+| GET | `/api/v1/settings/overstay-threshold` | 장기 점유 판정 기준 조회 |
+| PUT | `/api/v1/settings/overstay-threshold` | 장기 점유 판정 기준 변경 |
+
+### Overstay threshold
+
+Settings 화면은 시간·분·초 입력을 총 초로 변환하여 PUT하고,
+성공 응답 후 GET으로 서버에 실제 저장된 값을 다시 확인합니다.
+
+```json
+{"thresholdSeconds": 1800}
+```
+
+`thresholdSeconds`의 허용 범위는 60~86400이며, `applyPolicy`는 서버가
+반환한 값을 UI에 표시합니다.
 
 ## 응답 필드
 

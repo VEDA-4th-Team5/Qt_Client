@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QByteArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QObject>
 #include <QString>
 #include <QUrl>
@@ -18,6 +20,7 @@ public:
                        QObject *parent = nullptr);
 
     void getJson(const QString &path);
+    void putJson(const QString &path, const QJsonObject &body);
 
 signals:
     void jsonReceived(const QString &path, const QJsonDocument &document,
@@ -26,6 +29,8 @@ signals:
                        int latencyMs, int httpStatus);
 
 private:
+    void sendJsonRequest(const QString &path, const QByteArray &method,
+                         const QByteArray &body = QByteArray());
     QUrl requestUrl(const QString &path) const;
 
     QNetworkAccessManager *m_networkManager = nullptr;

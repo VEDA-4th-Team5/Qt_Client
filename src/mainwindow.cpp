@@ -374,10 +374,22 @@ void MainWindow::connectPages()
             m_parkingController, &ParkingController::updateServerBaseUrl);
     connect(m_settingsPage, &SettingsPage::reconnectServerRequested,
             m_parkingController, &ParkingController::reconnectNow);
+    connect(m_settingsPage, &SettingsPage::overstayThresholdRefreshRequested,
+            m_parkingController, &ParkingController::requestOverstayThreshold);
+    connect(m_settingsPage, &SettingsPage::overstayThresholdUpdateRequested,
+            m_parkingController, &ParkingController::updateOverstayThreshold);
     connect(m_parkingController, &ParkingController::serverBaseUrlChanged,
             m_settingsPage, &SettingsPage::setServerBaseUrl);
     connect(m_parkingController, &ParkingController::serverConnectionChanged,
             m_settingsPage, &SettingsPage::setServerConnectionStatus);
+    connect(m_parkingController,
+            &ParkingController::overstayThresholdRequestStarted,
+            m_settingsPage, &SettingsPage::setOverstayThresholdRequestStarted);
+    connect(m_parkingController, &ParkingController::overstayThresholdReceived,
+            m_settingsPage, &SettingsPage::setOverstayThreshold);
+    connect(m_parkingController,
+            &ParkingController::overstayThresholdRequestFailed,
+            m_settingsPage, &SettingsPage::setOverstayThresholdError);
     connect(m_parkingController, &ParkingController::serverConfigurationError, this,
             [this](const QString &message) {
                 QMessageBox::warning(this, QStringLiteral("Server API"), message);
