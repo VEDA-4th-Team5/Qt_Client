@@ -4,6 +4,7 @@
 #include "diagnostics/diagnostictypes.h"
 #include "models/monitoringevent.h"
 #include "models/parkingstate.h"
+#include "models/slotidmapper.h"
 
 #include <QObject>
 #include <QHash>
@@ -50,7 +51,7 @@ public slots:
     void updateOverstayThreshold(int seconds);
     void clearAlarms();
     void acknowledgeFireAlarm(const QString &channelId);
-    void processIncomingMessage(const QString &message);
+    void applyManualJsonMessage(const QJsonObject &json);
     void recordEvent(const QString &zone, const QString &eventType,
                      const QString &message, const QString &status);
 
@@ -140,6 +141,7 @@ private:
     OverstayRequest m_overstayRequest = OverstayRequest::None;
     quint64 m_nextEventSequence = 1;
     ApiDiagnosticState m_apiDiagnostic;
+    SlotIdMapper m_slotIdMapper;
 };
 
 #endif
