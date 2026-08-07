@@ -1,4 +1,4 @@
-# Windows(MinGW) 와 Linux/WSL 양쪽에서 빌드된다. 차이는 FFmpeg 를 찾는 방식뿐이다.
+# Windows(MinGW) ?� Linux/WSL ?�쪽?�서 빌드?�다. 차이??FFmpeg �?찾는 방식뿐이??
 
 cmake_minimum_required(VERSION 3.14)
 
@@ -10,12 +10,12 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network Test)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network Test)
 
-# Qt Mqtt 애드온 모듈은 팀 계정 저장소에 없어서 설치가 불가능했다. 대신
-# MqttServiceClient 가 QtNetwork(QTcpSocket) 위에 MQTT 3.1.1 을 직접 구현한다
-# (src/services/mqttserviceclient.cpp) — 추가 모듈 설치 없이 항상 빌드된다.
+# Qt Mqtt ?�드??모듈?� ?� 계정 ?�?�소???�어???�치가 불�??�했?? ?�??
+# MqttServiceClient 가 QtNetwork(QTcpSocket) ?�에 MQTT 3.1.1 ??직접 구현?�다
+# (src/services/mqttserviceclient.cpp) ??추�? 모듈 ?�치 ?�이 ??�� 빌드?�다.
 
 set(DEFAULT_FFMPEG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg")
 
@@ -33,9 +33,9 @@ find_library(FFMPEG_AVCODEC_LIBRARY NAMES avcodec libavcodec PATHS "${FFMPEG_LIB
 find_library(FFMPEG_AVUTIL_LIBRARY NAMES avutil libavutil PATHS "${FFMPEG_LIBRARY_DIR}" NO_DEFAULT_PATH)
 find_library(FFMPEG_SWSCALE_LIBRARY NAMES swscale libswscale PATHS "${FFMPEG_LIBRARY_DIR}" NO_DEFAULT_PATH)
 
-# FFmpeg 는 두 가지 방식으로 들어온다.
-#   1) Windows: 팀 공용 shared build 를 third_party/ffmpeg 에 풀어둔 self-contained 트리
-#   2) Linux: 배포판 개발 패키지. 멀티아치 경로라 include/ + lib/ 짝이 안 맞으므로 pkg-config 로 찾는다
+# FFmpeg ????가지 방식?�로 ?�어?�다.
+#   1) Windows: ?� 공용 shared build �?third_party/ffmpeg ???�?�둔 self-contained ?�리
+#   2) Linux: 배포??개발 ?�키지. 멀?�아�?경로??include/ + lib/ 짝이 ??맞으므�?pkg-config �?찾는??
 add_library(smart_parking_ffmpeg INTERFACE)
 
 if(FFMPEG_AVFORMAT_LIBRARY AND FFMPEG_AVCODEC_LIBRARY
@@ -70,8 +70,6 @@ endif()
 
 add_executable(smart_parking_qt_client
     src/main.cpp
-    src/adapters/incomingmessageadapter.cpp
-    src/adapters/incomingmessageadapter.h
     src/adapters/serverfireeventadapter.cpp
     src/adapters/serverfireeventadapter.h
     src/adapters/serverparkingeventadapter.cpp
@@ -93,6 +91,8 @@ add_executable(smart_parking_qt_client
     src/models/parkingcapturegroup.h
     src/models/parkingstate.cpp
     src/models/parkingstate.h
+    src/models/slotidmapper.cpp
+    src/models/slotidmapper.h
     src/models/parkingzonelayout.cpp
     src/models/parkingzonelayout.h
     src/pages/dashboardpage.cpp
@@ -194,8 +194,6 @@ include(CTest)
 if (BUILD_TESTING)
     add_executable(parkingcontroller_retry_test
         tests/parkingcontroller_retry_test.cpp
-        src/adapters/incomingmessageadapter.cpp
-        src/adapters/incomingmessageadapter.h
         src/adapters/serverfireeventadapter.cpp
         src/adapters/serverfireeventadapter.h
         src/adapters/serverparkingeventadapter.cpp
@@ -206,6 +204,8 @@ if (BUILD_TESTING)
         src/models/monitoringevent.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/api/apiclient.cpp
         src/api/apiclient.h
         src/api/imageloader.cpp
@@ -247,8 +247,6 @@ if (BUILD_TESTING)
 
     add_executable(parkingsimulationservice_test
         tests/parkingsimulationservice_test.cpp
-        src/adapters/incomingmessageadapter.cpp
-        src/adapters/incomingmessageadapter.h
         src/adapters/serverfireeventadapter.cpp
         src/adapters/serverfireeventadapter.h
         src/adapters/serverparkingeventadapter.cpp
@@ -259,6 +257,8 @@ if (BUILD_TESTING)
         src/models/monitoringevent.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/simulation/parkingmockdata.cpp
         src/simulation/parkingmockdata.h
         src/simulation/parkingsimulationservice.cpp
@@ -287,8 +287,6 @@ if (BUILD_TESTING)
 
     add_executable(parkingeventflow_test
         tests/parkingeventflow_test.cpp
-        src/adapters/incomingmessageadapter.cpp
-        src/adapters/incomingmessageadapter.h
         src/adapters/serverfireeventadapter.cpp
         src/adapters/serverfireeventadapter.h
         src/adapters/serverparkingeventadapter.cpp
@@ -299,6 +297,8 @@ if (BUILD_TESTING)
         src/models/monitoringevent.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/services/notificationcenter.cpp
         src/services/notificationcenter.h
         src/services/notificationpolicy.cpp
@@ -360,25 +360,6 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME fire_alarm_popup COMMAND firealarmpopup_test)
-
-    add_executable(incomingmessageadapter_test
-        tests/incomingmessageadapter_test.cpp
-        src/adapters/incomingmessageadapter.cpp
-        src/adapters/incomingmessageadapter.h
-        src/models/parkingstate.cpp
-        src/models/parkingstate.h
-        src/api/parkingmodels.h
-    )
-    target_include_directories(incomingmessageadapter_test PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    )
-    target_link_libraries(incomingmessageadapter_test PRIVATE
-        Qt${QT_VERSION_MAJOR}::Core
-    )
-    set_target_properties(incomingmessageadapter_test PROPERTIES
-        AUTOMOC_COMPILER_PREDEFINES OFF
-    )
-    add_test(NAME incoming_message_adapter COMMAND incomingmessageadapter_test)
 
     add_executable(diagnosticsservice_test
         tests/diagnosticsservice_test.cpp
@@ -451,8 +432,6 @@ if (BUILD_TESTING)
 
     add_executable(overstaycontroller_test
         tests/overstaycontroller_test.cpp
-        src/adapters/incomingmessageadapter.cpp
-        src/adapters/incomingmessageadapter.h
         src/adapters/serverfireeventadapter.cpp
         src/adapters/serverfireeventadapter.h
         src/adapters/serverparkingeventadapter.cpp
@@ -463,6 +442,8 @@ if (BUILD_TESTING)
         src/models/monitoringevent.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/api/apiclient.cpp
         src/api/apiclient.h
         src/api/imageloader.cpp
@@ -629,6 +610,8 @@ if (BUILD_TESTING)
         src/models/parkingcapturegroup.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/api/imageloader.cpp
         src/api/imageloader.h
         src/api/parkingmodels.h
@@ -653,6 +636,8 @@ if (BUILD_TESTING)
         src/models/parkingcapturegroup.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/api/imageloader.cpp
         src/api/imageloader.h
         src/api/parkingmodels.h
@@ -693,6 +678,8 @@ if (BUILD_TESTING)
         src/pages/parkingmappage.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/models/parkingzonelayout.cpp
         src/models/parkingzonelayout.h
     )
@@ -713,6 +700,8 @@ if (BUILD_TESTING)
         src/pages/parkingmappage.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/models/parkingzonelayout.cpp
         src/models/parkingzonelayout.h
     )
@@ -733,6 +722,8 @@ if (BUILD_TESTING)
         src/pages/parkingmappage.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/models/parkingzonelayout.cpp
         src/models/parkingzonelayout.h
     )
@@ -753,6 +744,8 @@ if (BUILD_TESTING)
         src/pages/parkingmappage.h
         src/models/parkingstate.cpp
         src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
         src/models/parkingzonelayout.cpp
         src/models/parkingzonelayout.h
     )
@@ -804,4 +797,21 @@ if (BUILD_TESTING)
             "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
         TIMEOUT 30
     )
+
+    add_executable(slotidmapper_test
+        tests/slotidmapper_test.cpp
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
+    )
+    target_include_directories(slotidmapper_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(slotidmapper_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Test
+    )
+    set_target_properties(slotidmapper_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME slotidmapper COMMAND slotidmapper_test)
 endif()

@@ -55,33 +55,56 @@ int main(int argc, char **argv)
             fireConfirmationCloses.append(channelId);
         });
 
-    controller.processIncomingMessage(QStringLiteral("INVALID"));
+    controller.applyManualJsonMessage(QJsonObject{{QStringLiteral("event_type"), QStringLiteral("INVALID")}});
     if (events.size() != 1) return 3;
     if (events.constLast().id.isEmpty() || !events.constLast().occurredAt.isValid()) return 4;
-    if (events.constLast().eventType != QStringLiteral("RX_ERROR")) return 5;
+    if (events.constLast().eventType != QStringLiteral("RX_UNSUPPORTED")) {
+        qDebug() << "Test failed at 5, event type:" << events.constLast().eventType;
+        return 5;
+    }
     if (events.constLast().status != QStringLiteral("REJECTED")) return 6;
     if (events.constLast().ackState != EventAckState::None) return 7;
     if (notifications.hasNotifications()) return 8;
 
-    controller.processIncomingMessage(QStringLiteral("PARKING_SLOT, P04, OCCUPIED"));
+    controller.applyManualJsonMessage(QJsonObject{
+        {QStringLiteral("event_type"), QStringLiteral("SLOT_OCCUPIED")},
+        {QStringLiteral("slot_id"), QStringLiteral("P-04")},
+        {QStringLiteral("parking_state"), QStringLiteral("OCCUPIED")}
+    });
     if (controller.slotState(QStringLiteral("P-04")) != SlotState::Occupied) return 9;
     if (events.constLast().sourceId != QStringLiteral("P-04")) return 10;
-    if (events.constLast().eventType != QStringLiteral("OCCUPIED")) return 11;
+    if (events.constLast().eventType != QStringLiteral("SLOT_OCCUPIED")) return 11;
 
-    controller.processIncomingMessage(
-        QStringLiteral("EVENT, P03, HALL_SENSOR_ERROR, OPEN, sensor, disconnected"));
+    controller.applyManualJsonMessage(QJsonObject{
+        {QStringLiteral("event_type"), QStringLiteral("SENSOR_ERROR")},
+        {QStringLiteral("slot_id"), QStringLiteral("P-03")},
+        {QStringLiteral("alarm_state"), QStringLiteral("OPEN")},
+        {QStringLiteral("message"), QStringLiteral("sensor, disconnected")}
+    });
     if (events.constLast().sourceId != QStringLiteral("P-03")) return 12;
     if (events.constLast().message != QStringLiteral("sensor, disconnected")) return 13;
     if (events.constLast().ackState != EventAckState::Open) return 14;
     if (notifications.notifications().size() != 1) return 15;
     if (notifications.notifications().constFirst().severity != QStringLiteral("WARNING")) return 16;
 
-    controller.processIncomingMessage(
-        QStringLiteral("EVENT, P03, HALL_SENSOR_CLEAR, CLEARED, sensor recovered"));
+    controller.applyManualJsonMessage(QJsonObject{
+        {QStringLiteral("event_type"), QStringLiteral("SENSOR_RECOVERED")},
+        {QStringLiteral("slot_id"), QStringLiteral("P-03")},
+        {QStringLiteral("alarm_state"), QStringLiteral("CLEARED")},
+        {QStringLiteral("message"), QStringLiteral("sensor recovered")}
+    });
     if (events.constLast().ackState != EventAckState::Cleared) return 17;
     if (notifications.hasNotifications()) return 18;
 
-    controller.processIncomingMessage(QStringLiteral("FIRE_ALARM, CH2, DETECTED"));
+    controller.applyManualJsonMessage(QJsonObject{
+        {QStringLiteral("event_type"), QStringLiteral("FIRE_SUSPECTED")},
+        {QStringLiteral("event_id"), QStringLiteral("ev-123")},
+        {QStringLiteral("alarm_id"), QStringLiteral("al-123")},
+        {QStringLiteral("channel_id"), QStringLiteral("CH2")},
+        {QStringLiteral("alarm_kind"), QStringLiteral("FIRE_SUSPECTED")},
+        {QStringLiteral("alarm_state"), QStringLiteral("OPEN")},
+        {QStringLiteral("active"), true}
+    });
     if (events.constLast().sourceId != QStringLiteral("CH2")) return 19;
     if (events.constLast().eventType != QStringLiteral("FIRE_SUSPECTED")) return 20;
     if (events.constLast().status != QStringLiteral("OPEN")) return 20;
@@ -91,9 +114,22 @@ int main(int argc, char **argv)
     if (notifications.notifications().constFirst().sourceId
         != QStringLiteral("CH2")) return 23;
 
-    controller.processIncomingMessage(QStringLiteral("FIRE_ALARM, CH2, CLEAR"));
-    if (events.constLast().eventType != QStringLiteral("FIRE_CLEARED")) return 23;
-    if (events.constLast().status != QStringLiteral("CLEARED")) return 24;
+    controller.applyManualJsonMessage(QJsonObject{
+        {QStringLiteral("event_type"), QStringLiteral("FIRE_CLEARED")},
+        {QStringLiteral("alarm_id"), QStringLiteral("al-123")},
+        {QStringLiteral("channel_id"), QStringLiteral("CH2")},
+        {QStringLiteral("alarm_state"), QStringLiteral("RESOLVED")},
+        {QStringLiteral("ack_state"), QStringLiteral("resolved")},
+        {QStringLiteral("active"), false}
+    });
+    if (events.constLast().eventType != QStringLiteral("FIRE_CLEARED")) {
+        qDebug() << "Actual eventType:" << events.constLast().eventType;
+        return 23;
+    }
+    if (events.constLast().status != QStringLiteral("CLEARED")) {
+        qDebug() << "Actual status:" << events.constLast().status;
+        return 24;
+    }
     if (events.constLast().ackState != EventAckState::Cleared) return 25;
     if (!controller.state().fireChannels.isEmpty()) return 26;
     if (notifications.hasNotifications()) return 26;
@@ -691,19 +727,23 @@ int main(int argc, char **argv)
     notifications.clearAll();
     const QSet<QString> fireChannelsBeforeRejectedSlotFire =
         controller.state().fireChannels;
-    controller.processIncomingMessage(QStringLiteral(
-        "EVENT, EV04, FIRE_SUSPECTED, OPEN, invalid slot-scoped fire"));
+    controller.applyManualJsonMessage(QJsonObject{
+        {QStringLiteral("event_type"), QStringLiteral("FIRE_SUSPECTED")},
+        {QStringLiteral("slot_id"), QStringLiteral("EV-04")}
+    });
     if (events.constLast().sourceId != QStringLiteral("SYSTEM")) return 123;
     if (events.constLast().eventType
-        != QStringLiteral("FIRE_CHANNEL_ERROR")) return 124;
+        != QStringLiteral("MQTT_FIRE_CONTRACT_ERROR")) return 124;
     if (controller.state().fireChannels
         != fireChannelsBeforeRejectedSlotFire) return 125;
 
-    controller.processIncomingMessage(
-        QStringLiteral("PARKING_SLOT, P16, FIRE_SUSPECTED"));
+    controller.applyManualJsonMessage(QJsonObject{
+        {QStringLiteral("event_type"), QStringLiteral("FIRE_SUSPECTED")},
+        {QStringLiteral("slot_id"), QStringLiteral("P-16")}
+    });
     if (events.constLast().sourceId != QStringLiteral("SYSTEM")) return 126;
     if (events.constLast().eventType
-        != QStringLiteral("FIRE_CHANNEL_ERROR")) return 127;
+        != QStringLiteral("MQTT_FIRE_CONTRACT_ERROR")) return 127;
     if (controller.state().parkingSlots.contains(QStringLiteral("P-16"))) return 128;
 
     return 0;

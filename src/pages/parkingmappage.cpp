@@ -1836,7 +1836,13 @@ void ParkingMapPage::updateZoneVisual(const QString &zoneId)
     item->setToolTip(toolTip);
     label->setText(zone.displayName.isEmpty() ? zone.zoneId : zone.displayName);
     label->setBrush(slotTextColor(zone.enabled));
-    stateLabel->setText(compactVehicleText(visualKnown, visual));
+    QString vehicleText = compactVehicleText(visualKnown, visual);
+    if (visual.ocrStatus == OcrStatus::Requested) {
+        vehicleText += QStringLiteral(" [OCR...]");
+    } else if (visual.ocrStatus == OcrStatus::Unrecognized) {
+        vehicleText += QStringLiteral(" [OCR FAIL]");
+    }
+    stateLabel->setText(vehicleText);
     stateLabel->setBrush(slotTextColor(zone.enabled));
     stateLabel->setPos(6, qMax(22.0, item->rect().height() - 18.0));
     metaLabel->setText(slotMetaText(zone));
