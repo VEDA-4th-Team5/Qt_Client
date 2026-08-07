@@ -6,6 +6,7 @@
 #include "models/parkingstate.h"
 
 #include <QHash>
+#include <QImage>
 #include <QList>
 #include <QSet>
 #include <QStringList>
@@ -16,6 +17,7 @@ class QLabel;
 class QQuickWidget;
 class QTableWidget;
 class QTimer;
+class RtspVideoItem;
 
 class DashboardPage : public QWidget
 {
@@ -31,6 +33,7 @@ public:
     void setFireAlarmStates(const QHash<QString, ChannelFireAlarmState> &alarms);
     void prependEvent(const MonitoringEvent &event);
     void setRtspUrls(const QStringList &lowRtspUrls, const QStringList &highRtspUrls);
+    QImage currentRtspFrame(int channelIndex) const;
 
 signals:
     void rtspDiagnosticsChanged(const QList<RtspChannelDiagnostic> &channels);
@@ -49,6 +52,7 @@ private:
     QGridLayout *m_videoGrid = nullptr;
     QList<QWidget *> m_videoChannelWidgets;
     QList<QQuickWidget *> m_videoQuickWidgets;
+    QList<RtspVideoItem *> m_rtspVideoItems;
     QLabel *m_totalSlotsLabel = nullptr;
     QLabel *m_occupiedSlotsLabel = nullptr;
     QLabel *m_vacantSlotsLabel = nullptr;

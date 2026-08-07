@@ -1,5 +1,7 @@
 #include "dashboardpage.h"
 
+#include "RtspVideoItem.h"
+
 #include <QAbstractItemView>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -109,11 +111,23 @@ QWidget *DashboardPage::createVideoChannel(int channelIndex, const QString &chan
     if (QQuickItem *rootObject = videoView->rootObject()) {
         rootObject->setProperty("channelIndex", channelIndex);
         connect(rootObject, SIGNAL(clicked()), this, SLOT(handleVideoChannelClicked()));
+        m_rtspVideoItems.append(rootObject->findChild<RtspVideoItem *>());
+    } else {
+        m_rtspVideoItems.append(nullptr);
     }
     layout->addWidget(videoView, 1);
     m_videoChannelWidgets.append(frame);
     m_videoQuickWidgets.append(videoView);
     return frame;
+}
+
+QImage DashboardPage::currentRtspFrame(int channelIndex) const
+{
+    if (channelIndex < 0 || channelIndex >= m_rtspVideoItems.size()) {
+        return {};
+    }
+    RtspVideoItem *videoItem = m_rtspVideoItems.at(channelIndex);
+    return videoItem ? videoItem->currentFrame() : QImage();
 }
 
 void DashboardPage::startDelayedVideoStreams()

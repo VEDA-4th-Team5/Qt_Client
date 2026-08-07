@@ -8,11 +8,13 @@
 #include "pages/evidencepage.h"
 #include "pages/eventspage.h"
 #include "pages/imagecomparepage.h"
+#include "pages/ivasettingspage.h"
 #include "pages/parkingmappage.h"
 #include "pages/settingspage.h"
 #include "services/camerasettings.h"
 #include "services/notificationcenter.h"
 #include "simulation/parkingsimulationservice.h"
+#include "iva/wiseaiconfigclient.h"
 
 
 #include <QButtonGroup>
@@ -62,6 +64,14 @@ MainWindow::MainWindow(QWidget *parent)
 {
     m_diagnosticsService = new DiagnosticsService(this);
     buildUi();
+    WiseAiConnectionOptions wiseAiOptions;
+    wiseAiOptions.baseUrl = QUrl(QStringLiteral("https://%1")
+                                     .arg(m_cameraSettings.cameraIp()));
+    wiseAiOptions.username = m_cameraSettings.cameraUsername();
+    wiseAiOptions.password = m_cameraSettings.cameraPassword();
+    wiseAiOptions.pinnedCertificateSha256 =
+        m_cameraSettings.httpsCertificateSha256();
+    m_wiseAiConfigClient = new WiseAiConfigClient(wiseAiOptions, this);
     m_parkingController = new ParkingController(clientConfigPath(), clientLocalConfigPath(), this);
     m_parkingSimulationService = new ParkingSimulationService(m_parkingController, this);
     connectPages();
@@ -138,7 +148,8 @@ void MainWindow::buildUi()
     m_imageCompareNavButton = addNavButton(
         QStringLiteral("Image Compare"), 4);
     addNavButton(QStringLiteral("Settings"), 5);
-    addNavButton(QStringLiteral("Debug"), 6);
+    addNavButton(QStringLiteral("IVA Setup"), 6);
+    addNavButton(QStringLiteral("Debug"), 7);
     connect(m_evidenceNavButton, &QPushButton::clicked, this, [this]() {
         if (m_evidencePage) {
             m_evidencePage->requestCurrentEvidence();
@@ -201,6 +212,7 @@ void MainWindow::buildUi()
     m_evidencePage = new EvidencePage(m_pages);
     m_imageComparePage = new ImageComparePage(m_pages);
     m_settingsPage = new SettingsPage(m_cameraSettings.configPath(), m_cameraSettings.cameraIp(), m_pages);
+    m_ivaSettingsPage = new IvaSettingsPage(m_cameraSettings.cameraIp(), m_pages);
     m_debugPage = new DebugPage(m_pages);
     m_pages->addWidget(m_dashboardPage);
     m_pages->addWidget(m_parkingMapPage);
@@ -208,6 +220,7 @@ void MainWindow::buildUi()
     m_pages->addWidget(m_evidencePage);
     m_pages->addWidget(m_imageComparePage);
     m_pages->addWidget(m_settingsPage);
+    m_pages->addWidget(m_ivaSettingsPage);
     m_pages->addWidget(m_debugPage);
     contentLayout->addWidget(m_pages, 1);
     rootLayout->addWidget(sidebar);
@@ -394,6 +407,36 @@ void MainWindow::connectPages()
             [this](const QString &message) {
                 QMessageBox::warning(this, QStringLiteral("Server API"), message);
             });
+    connect(m_ivaSettingsPage, &IvaSettingsPage::refreshRequested,
+            m_wiseAiConfigClient, &WiseAiConfigClient::fetchConfiguration);
+    connect(m_ivaSettingsPage, &IvaSettingsPage::applyRequested,
+            m_wiseAiConfigClient,
+            &WiseAiConfigClient::applyChannelConfiguration);
+    connect(m_wiseAiConfigClient, &WiseAiConfigClient::optionsReceived,
+            m_ivaSettingsPage, &IvaSettingsPage::setOptions);
+    connect(m_wiseAiConfigClient, &WiseAiConfigClient::capabilitiesReceived,
+            m_ivaSettingsPage, &IvaSettingsPage::setCapabilities);
+    connect(m_wiseAiConfigClient, &WiseAiConfigClient::configurationReceived,
+            m_ivaSettingsPage, &IvaSettingsPage::setConfiguration);
+    connect(m_wiseAiConfigClient, &WiseAiConfigClient::certificatePinned,
+            this, [this](const QString &sha256) {
+                QString errorMsg;
+                m_cameraSettings.saveHttpsCertificateSha256(sha256, errorMsg);
+            });
+    connect(m_wiseAiConfigClient, &WiseAiConfigClient::requestFailed,
+            m_ivaSettingsPage, &IvaSettingsPage::setRequestError);
+    connect(m_wiseAiConfigClient, &WiseAiConfigClient::applyStarted,
+            m_ivaSettingsPage, &IvaSettingsPage::setApplyStarted);
+    connect(m_wiseAiConfigClient, &WiseAiConfigClient::applySucceeded,
+            m_ivaSettingsPage, &IvaSettingsPage::setApplySuccess);
+    connect(m_wiseAiConfigClient, &WiseAiConfigClient::applyFailed,
+            m_ivaSettingsPage, &IvaSettingsPage::setApplyError);
+    connect(m_ivaSettingsPage, &IvaSettingsPage::previewFrameRequested,
+            this, [this](int channel) {
+        if (!m_dashboardPage || !m_ivaSettingsPage) return;
+        m_ivaSettingsPage->setPreviewFrame(
+            channel, m_dashboardPage->currentRtspFrame(channel));
+    });
 }
 
 void MainWindow::showFireAlarmPopup(const QString &channelId,
@@ -744,6 +787,14 @@ void MainWindow::saveCameraIp(const QString &cameraIpText)
         return;
     }
     m_settingsPage->setCameraIp(newIp);
+    m_ivaSettingsPage->setCameraIp(newIp);
+    WiseAiConnectionOptions wiseAiOptions;
+    wiseAiOptions.baseUrl = QUrl(QStringLiteral("https://%1").arg(newIp));
+    wiseAiOptions.username = m_cameraSettings.cameraUsername();
+    wiseAiOptions.password = m_cameraSettings.cameraPassword();
+    wiseAiOptions.pinnedCertificateSha256 =
+        m_cameraSettings.httpsCertificateSha256();
+    m_wiseAiConfigClient->setConnectionOptions(wiseAiOptions);
     m_dashboardPage->setRtspUrls(
         m_cameraSettings.rtspUrls(QStringLiteral("profile3")),
         m_cameraSettings.rtspUrls(QStringLiteral("profile2")));

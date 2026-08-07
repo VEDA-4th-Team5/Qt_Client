@@ -17,8 +17,46 @@ CameraSettings::CameraSettings(QString configPath)
 
 QString CameraSettings::cameraIp() const
 {
+    const QString environmentIp = qEnvironmentVariable("HANWHA_CAMERA_IP").trimmed();
+    if (!environmentIp.isEmpty()) {
+        return environmentIp;
+    }
     QSettings settings(m_configPath, QSettings::IniFormat);
     return settings.value(QStringLiteral("camera/camera_ip")).toString();
+}
+
+QString CameraSettings::cameraUsername() const
+{
+    const QString environmentUsername = qEnvironmentVariable(
+        "HANWHA_CAMERA_USERNAME");
+    if (!environmentUsername.isEmpty()) {
+        return environmentUsername;
+    }
+    QSettings settings(m_configPath, QSettings::IniFormat);
+    return settings.value(QStringLiteral("camera/username")).toString();
+}
+
+QString CameraSettings::cameraPassword() const
+{
+    const QString environmentPassword = qEnvironmentVariable(
+        "HANWHA_CAMERA_PASSWORD");
+    if (!environmentPassword.isEmpty()) {
+        return environmentPassword;
+    }
+    QSettings settings(m_configPath, QSettings::IniFormat);
+    return settings.value(QStringLiteral("camera/password")).toString();
+}
+
+QString CameraSettings::httpsCertificateSha256() const
+{
+    const QString environmentFingerprint = qEnvironmentVariable(
+        "HANWHA_HTTPS_CERT_SHA256");
+    if (!environmentFingerprint.isEmpty()) {
+        return environmentFingerprint;
+    }
+    QSettings settings(m_configPath, QSettings::IniFormat);
+    return settings.value(
+        QStringLiteral("camera/https_certificate_sha256")).toString();
 }
 
 bool CameraSettings::saveCameraIp(const QString &cameraIpText, QString &newIp,
@@ -40,6 +78,19 @@ bool CameraSettings::saveCameraIp(const QString &cameraIpText, QString &newIp,
     newIp = address.toString();
     QSettings settings(m_configPath, QSettings::IniFormat);
     settings.setValue(QStringLiteral("camera/camera_ip"), newIp);
+    settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        errorMessage = QStringLiteral("Failed to save camera_config.ini.");
+        return false;
+    }
+    return true;
+}
+
+bool CameraSettings::saveHttpsCertificateSha256(const QString &sha256,
+                                                QString &errorMessage) const
+{
+    QSettings settings(m_configPath, QSettings::IniFormat);
+    settings.setValue(QStringLiteral("camera/https_certificate_sha256"), sha256);
     settings.sync();
     if (settings.status() != QSettings::NoError) {
         errorMessage = QStringLiteral("Failed to save camera_config.ini.");

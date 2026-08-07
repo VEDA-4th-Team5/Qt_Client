@@ -15,6 +15,7 @@ class EvidencePage;
 class EventsPage;
 class FireAlarmPopup;
 class ImageComparePage;
+class IvaSettingsPage;
 class QCloseEvent;
 class QFrame;
 class QLabel;
@@ -24,6 +25,7 @@ class ParkingMapPage;
 class ParkingSimulationService;
 class QPushButton;
 class SettingsPage;
+class WiseAiConfigClient;
 class QStackedWidget;
 class QToolButton;
 
@@ -71,11 +73,13 @@ private:
     EventsPage *m_eventsPage = nullptr;
     EvidencePage *m_evidencePage = nullptr;
     ImageComparePage *m_imageComparePage = nullptr;
+    IvaSettingsPage *m_ivaSettingsPage = nullptr;
     SettingsPage *m_settingsPage = nullptr;
     DebugPage *m_debugPage = nullptr;
     DiagnosticsService *m_diagnosticsService = nullptr;
     ParkingController *m_parkingController = nullptr;
     ParkingSimulationService *m_parkingSimulationService = nullptr;
+    WiseAiConfigClient *m_wiseAiConfigClient = nullptr;
 };
 
 #endif

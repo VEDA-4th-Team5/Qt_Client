@@ -105,6 +105,8 @@ add_executable(smart_parking_qt_client
     src/pages/eventspage.h
     src/pages/imagecomparepage.cpp
     src/pages/imagecomparepage.h
+    src/pages/ivasettingspage.cpp
+    src/pages/ivasettingspage.h
     src/pages/parkingmappage.cpp
     src/pages/parkingmappage.h
     src/pages/settingspage.cpp
@@ -128,6 +130,19 @@ add_executable(smart_parking_qt_client
     src/api/parkingmodels.h
     src/api/parkingresponseparser.cpp
     src/api/parkingresponseparser.h
+    src/iva/ivaareamodels.h
+    src/iva/ivaareacapabilityparser.cpp
+    src/iva/ivaareacapabilityparser.h
+    src/iva/ivaareaoptionsparser.cpp
+    src/iva/ivaareaoptionsparser.h
+    src/iva/ivaareaparser.cpp
+    src/iva/ivaareaparser.h
+    src/iva/ivaareaupdatebuilder.cpp
+    src/iva/ivaareaupdatebuilder.h
+    src/iva/ivavideocanvas.cpp
+    src/iva/ivavideocanvas.h
+    src/iva/wiseaiconfigclient.cpp
+    src/iva/wiseaiconfigclient.h
     rtsp_legacy/RtspVideoItem.cpp
     rtsp_legacy/RtspVideoItem.h
 )
@@ -486,6 +501,121 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME parkingresponseparser_evidence COMMAND parkingresponseparser_evidence_test)
+
+    add_executable(ivaareaparser_test
+        tests/ivaareaparser_test.cpp
+        src/iva/ivaareamodels.h
+        src/iva/ivaareaparser.cpp
+        src/iva/ivaareaparser.h
+    )
+    target_include_directories(ivaareaparser_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(ivaareaparser_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(ivaareaparser_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME ivaarea_parser COMMAND ivaareaparser_test)
+
+    add_executable(ivaareacapabilityparser_test
+        tests/ivaareacapabilityparser_test.cpp
+        src/iva/ivaareamodels.h
+        src/iva/ivaareacapabilityparser.cpp
+        src/iva/ivaareacapabilityparser.h
+    )
+    target_include_directories(ivaareacapabilityparser_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(ivaareacapabilityparser_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(ivaareacapabilityparser_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME ivaarea_capability_parser COMMAND ivaareacapabilityparser_test)
+
+    add_executable(ivaareaupdatebuilder_test
+        tests/ivaareaupdatebuilder_test.cpp
+        src/iva/ivaareamodels.h
+        src/iva/ivaareaoptionsparser.cpp
+        src/iva/ivaareaoptionsparser.h
+        src/iva/ivaareaupdatebuilder.cpp
+        src/iva/ivaareaupdatebuilder.h
+    )
+    target_include_directories(ivaareaupdatebuilder_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(ivaareaupdatebuilder_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(ivaareaupdatebuilder_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME ivaarea_update_builder COMMAND ivaareaupdatebuilder_test)
+
+    add_executable(wiseaiconfigclient_test
+        tests/wiseaiconfigclient_test.cpp
+        src/iva/ivaareamodels.h
+        src/iva/ivaareacapabilityparser.cpp
+        src/iva/ivaareacapabilityparser.h
+        src/iva/ivaareaoptionsparser.cpp
+        src/iva/ivaareaoptionsparser.h
+        src/iva/ivaareaparser.cpp
+        src/iva/ivaareaparser.h
+        src/iva/ivaareaupdatebuilder.cpp
+        src/iva/ivaareaupdatebuilder.h
+        src/iva/wiseaiconfigclient.cpp
+        src/iva/wiseaiconfigclient.h
+    )
+    target_include_directories(wiseaiconfigclient_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(wiseaiconfigclient_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(wiseaiconfigclient_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME wiseai_config_client COMMAND wiseaiconfigclient_test)
+
+    add_executable(ivavideocanvas_test
+        tests/ivavideocanvas_test.cpp
+        src/iva/ivaareamodels.h
+        src/iva/ivavideocanvas.cpp
+        src/iva/ivavideocanvas.h
+    )
+    target_include_directories(ivavideocanvas_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(ivavideocanvas_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(ivavideocanvas_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME iva_video_canvas COMMAND ivavideocanvas_test)
+
+    add_executable(ivasettingspage_test
+        tests/ivasettingspage_test.cpp
+        src/iva/ivaareamodels.h
+        src/iva/ivavideocanvas.cpp
+        src/iva/ivavideocanvas.h
+        src/pages/ivasettingspage.cpp
+        src/pages/ivasettingspage.h
+    )
+    target_include_directories(ivasettingspage_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(ivasettingspage_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(ivasettingspage_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME iva_settings_page COMMAND ivasettingspage_test)
 
     add_executable(evidencepage_test
         tests/evidencepage_test.cpp

@@ -25,6 +25,10 @@ int main(int argc, char *argv[])
     {
         QSettings initial(configPath, QSettings::IniFormat);
         initial.setValue(QStringLiteral("camera/camera_ip"), QStringLiteral("192.168.1.20"));
+        initial.setValue(QStringLiteral("camera/username"), QStringLiteral("local-user"));
+        initial.setValue(QStringLiteral("camera/password"), QStringLiteral("local-password"));
+        initial.setValue(QStringLiteral("camera/https_certificate_sha256"),
+                         QStringLiteral("AA:BB"));
         initial.sync();
     }
 
@@ -37,6 +41,11 @@ int main(int argc, char *argv[])
                  "saved address must not preserve an old subnet prefix")) return 1;
     if (!require(settings.cameraIp() == QStringLiteral("10.40.2.77"),
                  "the complete IPv4 address must be persisted")) return 1;
+    if (!require(settings.cameraUsername() == QStringLiteral("local-user")
+                     && settings.cameraPassword() == QStringLiteral("local-password"),
+                 "camera credentials must be read from the local-only config")) return 1;
+    if (!require(settings.httpsCertificateSha256() == QStringLiteral("AA:BB"),
+                 "camera certificate pin must be read from the local-only config")) return 1;
 
     error.clear();
     if (!require(!settings.saveCameraIp(QStringLiteral("172.20.35"), savedIp, error),
