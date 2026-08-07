@@ -9,7 +9,9 @@
 #include "services/mqttserviceclient.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -211,12 +213,14 @@ ParkingController::ParkingController(const QString &sharedConfigPath,
             this, &ParkingController::reconnectNow);
 
     QString mapperError;
-    const QString localMappingPath = QDir(sharedConfigPath).filePath(QStringLiteral("slot_mapping.local.json"));
-    if (QFile::exists(localMappingPath)) {
-        m_slotIdMapper.loadFromFile(localMappingPath, mapperError);
-    } else {
-        const QString exampleMappingPath = QDir(sharedConfigPath).filePath(QStringLiteral("slot_mapping.example.json"));
-        m_slotIdMapper.loadFromFile(exampleMappingPath, mapperError);
+    const QDir configDir = QFileInfo(sharedConfigPath).absoluteDir();
+    const QString localMappingPath =
+        configDir.filePath(QStringLiteral("slot_mapping.local.json"));
+    if (QFileInfo::exists(localMappingPath)) {
+        if (!m_slotIdMapper.loadFromFile(localMappingPath, mapperError)) {
+            qWarning().noquote()
+                << QStringLiteral("Slot mapping disabled: %1").arg(mapperError);
+        }
     }
 }
 
@@ -691,9 +695,18 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
         || (stateTopic && event.alarmState == QStringLiteral("NONE")
             && !alarmOpen);
     
-    const bool ocrRequested = event.eventType == QStringLiteral("OCR_REQUESTED");
-    const bool ocrCompleted = event.eventType == QStringLiteral("OCR_COMPLETED") || event.eventType == QStringLiteral("VEHICLE_CLASSIFIED");
-    const bool ocrUnrecognized = event.eventType == QStringLiteral("OCR_UNRECOGNIZED");
+    const bool ocrRequested =
+        event.ocrStatus == QStringLiteral("PENDING")
+        || event.eventType == QStringLiteral("OCR_REQUESTED");
+    const bool ocrCompleted =
+        event.ocrStatus == QStringLiteral("RECOGNIZED")
+        || event.ocrStatus == QStringLiteral("COMPLETED")
+        || event.eventType == QStringLiteral("OCR_COMPLETED")
+        || event.eventType == QStringLiteral("VEHICLE_CLASSIFIED");
+    const bool ocrUnrecognized =
+        event.ocrStatus == QStringLiteral("FAILED")
+        || event.ocrStatus == QStringLiteral("UNRECOGNIZED")
+        || event.eventType == QStringLiteral("OCR_UNRECOGNIZED");
 
     const bool hasStateMeaning = occupied || vacant || alarmOpen
         || monitoringStatus == QStringLiteral("CLEARED")

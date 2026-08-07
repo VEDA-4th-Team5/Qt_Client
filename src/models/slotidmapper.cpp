@@ -53,32 +53,34 @@ bool SlotIdMapper::loadFromFile(const QString &path, QString &errorMessage)
             return false;
         }
         const QJsonObject obj = entry.toObject();
-        const QString serverSlotId = normalizeId(
-            obj.value(QStringLiteral("server_slot_id")).toString());
-        const QString zoneId = normalizeId(
-            obj.value(QStringLiteral("zone_id")).toString());
+        const QString serverSlotId =
+            obj.value(QStringLiteral("server_slot_id")).toString().trimmed();
+        const QString zoneId =
+            obj.value(QStringLiteral("zone_id")).toString().trimmed().toUpper();
+        const QString serverKey = normalizeId(serverSlotId);
+        const QString zoneKey = normalizeId(zoneId);
 
         if (serverSlotId.isEmpty() || zoneId.isEmpty()) {
             errorMessage = QStringLiteral(
                 "Slot mapping entry %1 is missing server_slot_id or zone_id").arg(i);
             return false;
         }
-        if (serverToZone.contains(serverSlotId)) {
+        if (serverToZone.contains(serverKey)) {
             errorMessage = QStringLiteral(
                 "Duplicate server_slot_id \"%1\" in mapping entry %2")
                                .arg(serverSlotId)
                                .arg(i);
             return false;
         }
-        if (zoneToServer.contains(zoneId)) {
+        if (zoneToServer.contains(zoneKey)) {
             errorMessage = QStringLiteral(
                 "Duplicate zone_id \"%1\" in mapping entry %2")
                                .arg(zoneId)
                                .arg(i);
             return false;
         }
-        serverToZone.insert(serverSlotId, zoneId);
-        zoneToServer.insert(zoneId, serverSlotId);
+        serverToZone.insert(serverKey, zoneId);
+        zoneToServer.insert(zoneKey, serverSlotId);
     }
 
     m_serverToZone = serverToZone;
@@ -125,9 +127,9 @@ int SlotIdMapper::mappingCount() const
 QList<QPair<QString, QString>> SlotIdMapper::allMappings() const
 {
     QList<QPair<QString, QString>> result;
-    result.reserve(m_serverToZone.size());
-    for (auto it = m_serverToZone.constBegin(); it != m_serverToZone.constEnd(); ++it) {
-        result.append({it.key(), it.value()});
+    result.reserve(m_zoneToServer.size());
+    for (auto it = m_zoneToServer.constBegin(); it != m_zoneToServer.constEnd(); ++it) {
+        result.append({it.value(), it.key()});
     }
     return result;
 }

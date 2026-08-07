@@ -1,4 +1,4 @@
-# Windows(MinGW) ?� Linux/WSL ?�쪽?�서 빌드?�다. 차이??FFmpeg �?찾는 방식뿐이??
+# Windows(MinGW) ?� Linux/WSL ?�쪽?�서 빌드?�다. 차이??FFmpeg �?찾는 방식뿐이??
 
 cmake_minimum_required(VERSION 3.14)
 
@@ -10,12 +10,12 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network Test)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network Test)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Quick QuickWidgets Qml Network)
 
-# Qt Mqtt ?�드??모듈?� ?� 계정 ?�?�소???�어???�치가 불�??�했?? ?�??
-# MqttServiceClient 가 QtNetwork(QTcpSocket) ?�에 MQTT 3.1.1 ??직접 구현?�다
-# (src/services/mqttserviceclient.cpp) ??추�? 모듈 ?�치 ?�이 ??�� 빌드?�다.
+# Qt Mqtt ?�드??모듈?� ?� 계정 ?�?�소???�어???�치가 불�??�했?? ?�??
+# MqttServiceClient 가 QtNetwork(QTcpSocket) ?�에 MQTT 3.1.1 ??직접 구현?�다
+# (src/services/mqttserviceclient.cpp) ??추�? 모듈 ?�치 ?�이 ??�� 빌드?�다.
 
 set(DEFAULT_FFMPEG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg")
 
@@ -33,9 +33,9 @@ find_library(FFMPEG_AVCODEC_LIBRARY NAMES avcodec libavcodec PATHS "${FFMPEG_LIB
 find_library(FFMPEG_AVUTIL_LIBRARY NAMES avutil libavutil PATHS "${FFMPEG_LIBRARY_DIR}" NO_DEFAULT_PATH)
 find_library(FFMPEG_SWSCALE_LIBRARY NAMES swscale libswscale PATHS "${FFMPEG_LIBRARY_DIR}" NO_DEFAULT_PATH)
 
-# FFmpeg ????가지 방식?�로 ?�어?�다.
-#   1) Windows: ?� 공용 shared build �?third_party/ffmpeg ???�?�둔 self-contained ?�리
-#   2) Linux: 배포??개발 ?�키지. 멀?�아�?경로??include/ + lib/ 짝이 ??맞으므�?pkg-config �?찾는??
+# FFmpeg ????가지 방식?�로 ?�어?�다.
+#   1) Windows: ?� 공용 shared build �?third_party/ffmpeg ???�?�둔 self-contained ?�리
+#   2) Linux: 배포??개발 ?�키지. 멀?�아�?경로??include/ + lib/ 짝이 ??맞으므�?pkg-config �?찾는??
 add_library(smart_parking_ffmpeg INTERFACE)
 
 if(FFMPEG_AVFORMAT_LIBRARY AND FFMPEG_AVCODEC_LIBRARY
@@ -192,6 +192,7 @@ set_target_properties(smart_parking_qt_client PROPERTIES
 
 include(CTest)
 if (BUILD_TESTING)
+    find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
     add_executable(parkingcontroller_retry_test
         tests/parkingcontroller_retry_test.cpp
         src/adapters/serverfireeventadapter.cpp

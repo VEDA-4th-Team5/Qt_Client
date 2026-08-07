@@ -34,6 +34,9 @@ bool ServerParkingEventAdapter::parse(const QJsonObject &object,
     parsed.plateNumber = object.value(QStringLiteral("plate_number")).toString().trimmed();
     parsed.vehicleType = upperString(object, QStringLiteral("vehicle_type"));
     parsed.vehicleClassification = upperString(object, QStringLiteral("vehicle_classification"));
+    if (parsed.vehicleType.isEmpty()) {
+        parsed.vehicleType = parsed.vehicleClassification;
+    }
     parsed.parkingState = upperString(object, QStringLiteral("parking_state"));
     parsed.alarmKind = upperString(object, QStringLiteral("alarm_kind"));
     if (parsed.alarmKind.isEmpty()) {

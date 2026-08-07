@@ -72,8 +72,8 @@ private slots:
         QCOMPARE(mapper.toZoneId(QStringLiteral("slot_02")), QStringLiteral("P-01"));
 
         // Reverse lookup
-        QCOMPARE(mapper.toServerSlotId(QStringLiteral("EV-01")), QStringLiteral("SLOT_01"));
-        QCOMPARE(mapper.toServerSlotId(QStringLiteral("P-01")), QStringLiteral("SLOT_02"));
+        QCOMPARE(mapper.toServerSlotId(QStringLiteral("EV-01")), QStringLiteral("slot_01"));
+        QCOMPARE(mapper.toServerSlotId(QStringLiteral("P-01")), QStringLiteral("slot_02"));
     }
 
     void caseInsensitiveLookup()
@@ -98,7 +98,7 @@ private slots:
         QVERIFY(mapper.loadFromFile(path, error));
         QCOMPARE(mapper.toZoneId(QStringLiteral("SLOT_03")), QStringLiteral("EV-05"));
         QCOMPARE(mapper.toZoneId(QStringLiteral("slot_03")), QStringLiteral("EV-05"));
-        QCOMPARE(mapper.toServerSlotId(QStringLiteral("EV-05")), QStringLiteral("SLOT_03"));
+        QCOMPARE(mapper.toServerSlotId(QStringLiteral("EV-05")), QStringLiteral("Slot_03"));
     }
 
     void passthroughMode()
@@ -278,7 +278,7 @@ private slots:
         QCOMPARE(all.size(), 3);
         // Each pair is server->zone
         for (const auto &pair : all) {
-            QVERIFY(pair.first.startsWith(QStringLiteral("SLOT_")));
+            QVERIFY(pair.first.startsWith(QStringLiteral("slot_")));
             QVERIFY(pair.second.startsWith(QStringLiteral("EV-")));
         }
     }
