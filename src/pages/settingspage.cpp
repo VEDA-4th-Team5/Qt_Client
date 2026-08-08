@@ -34,7 +34,7 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
         {QStringLiteral("http"), QStringLiteral("https")});
     m_serverHostInput = new QLineEdit(group);
     m_serverHostInput->setObjectName(QStringLiteral("serverApiHostInput"));
-    m_serverHostInput->setPlaceholderText(QStringLiteral("e.g. 172.20.32.97"));
+    m_serverHostInput->setPlaceholderText(QStringLiteral("e.g. raspberry-pi.local"));
     m_serverPortInput = new QSpinBox(group);
     m_serverPortInput->setObjectName(QStringLiteral("serverApiPortInput"));
     m_serverPortInput->setRange(1, 65535);

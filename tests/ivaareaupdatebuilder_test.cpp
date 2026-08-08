@@ -87,6 +87,10 @@ int main(int argc, char *argv[])
     if (!require(definition.value(QStringLiteral("handoverIndex")).toInt() == 3
                      && !definition.contains(QStringLiteral("vendorExtension")),
                  "WebViewer whitelist must preserve handoverIndex and omit unknown fields")) return 1;
+    if (!require(IvaAreaUpdateBuilder::buildChannelPayload(
+                     2, true, {}, *channelOptions, payload, error)
+                     && payload.value(QStringLiteral("definedArea")).toArray().isEmpty(),
+                 "an empty channel must produce an empty definedArea verification payload")) return 1;
 
     area.areaCoordinates.removeLast();
     if (!require(!IvaAreaUpdateBuilder::buildChannelPayload(

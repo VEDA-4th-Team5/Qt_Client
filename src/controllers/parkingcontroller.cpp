@@ -5,6 +5,7 @@
 #include "adapters/serverparkingeventadapter.h"
 #include "api/apiclient.h"
 #include "api/imageloader.h"
+#include "api/parkingroi.h"
 #include "api/parkingresponseparser.h"
 #include "services/mqttserviceclient.h"
 
@@ -26,6 +27,21 @@ constexpr int kPortableMqttClientIdMaxLength = 23;
 constexpr int kGeneratedMqttClientIdSuffixLength = 12;
 constexpr int kMinimumOverstayThresholdSeconds = 60;
 constexpr int kMaximumOverstayThresholdSeconds = 86400;
+
+bool isParkingRoiSlotId(const QString &slotId)
+{
+    static const QRegularExpression pattern(QStringLiteral("^EV0[1-4]$"));
+    return pattern.match(slotId).hasMatch();
+}
+
+QString parkingRoiTag(const QString &kind, quint64 generation,
+                      const QString &slotId = QString(),
+                      bool appliedImmediately = false)
+{
+    return QStringLiteral("parking-roi|%1|%2|%3|%4")
+        .arg(kind).arg(generation).arg(slotId)
+        .arg(appliedImmediately ? 1 : 0);
+}
 
 QString generatedMqttClientId(QString prefix)
 {
@@ -927,6 +943,12 @@ void ParkingController::initializeApiClient()
     m_overstayThresholdPath = setting(
         QStringLiteral("api/overstay_threshold_path"),
         QStringLiteral("/api/v1/settings/overstay-threshold")).toString();
+    m_parkingRoiListPath = setting(
+        QStringLiteral("api/parking_roi_list_path"),
+        QStringLiteral("/api/v1/settings/parking-slots/roi")).toString();
+    m_parkingRoiPathTemplate = setting(
+        QStringLiteral("api/parking_roi_path"),
+        QStringLiteral("/api/v1/settings/parking-slots/{slot_id}/roi")).toString();
     m_apiTimeoutMs = setting(QStringLiteral("api/timeout_ms"), 5000).toInt();
     m_allowInsecureHttp =
         setting(QStringLiteral("api/allow_insecure_http"), false).toBool();
@@ -951,6 +973,12 @@ void ParkingController::rebuildApiClient()
         emit overstayThresholdRequestFailed(
             QStringLiteral("The server connection changed."), updateRequest);
     }
+    const QStringList pendingRoiTags = m_pendingParkingRoiTags.values();
+    for (const QString &tag : pendingRoiTags) {
+        applyParkingRoiError(tag,
+            QStringLiteral("The server connection changed."));
+    }
+    m_pendingParkingRoiTags.clear();
     if (m_apiClient) {
         disconnect(m_apiClient, nullptr, this, nullptr);
         m_apiClient->deleteLater();
@@ -1012,6 +1040,24 @@ void ParkingController::rebuildApiClient()
                     emit slotDetailFailed(slotId, message);
                 } else {
                     emit detailError(message);
+                }
+            });
+    connect(m_apiClient, &ApiClient::taggedJsonReceived, this,
+            [this](const QString &requestTag, const QString &,
+                   const QJsonDocument &document, int, int) {
+                if (requestTag.startsWith(QStringLiteral("parking-roi|"))) {
+                    applyParkingRoiResponse(requestTag, document);
+                }
+            });
+    connect(m_apiClient, &ApiClient::taggedRequestFailed, this,
+            [this](const QString &requestTag, const QString &path,
+                   const QString &message, int, int) {
+                recordEvent(QStringLiteral("SYSTEM"),
+                            QStringLiteral("PARKING_ROI_API_ERROR"),
+                            path + QStringLiteral(": ") + message,
+                            QStringLiteral("FAILED"));
+                if (requestTag.startsWith(QStringLiteral("parking-roi|"))) {
+                    applyParkingRoiError(requestTag, message);
                 }
             });
 
@@ -1081,6 +1127,154 @@ void ParkingController::updateOverstayThreshold(int seconds)
     QJsonObject request;
     request.insert(QStringLiteral("thresholdSeconds"), seconds);
     m_apiClient->putJson(m_overstayThresholdPath, request);
+}
+
+void ParkingController::requestParkingRois(quint64 generation)
+{
+    if (!m_state.apiEnabled || !m_apiClient) {
+        emit parkingRoiRequestFailed(
+            QString(), QStringLiteral("Server API is disabled or not configured."),
+            generation, false);
+        return;
+    }
+    const QString tag = parkingRoiTag(QStringLiteral("list"), generation);
+    m_pendingParkingRoiTags.insert(tag);
+    m_apiClient->getJsonTagged(m_parkingRoiListPath, tag);
+}
+
+void ParkingController::requestParkingRoi(const QString &slotId,
+                                          quint64 generation)
+{
+    const QString normalized = slotId.trimmed().toUpper();
+    if (!isParkingRoiSlotId(normalized)) {
+        emit parkingRoiRequestFailed(
+            normalized, QStringLiteral("Parking slot was not found."),
+            generation, false);
+        return;
+    }
+    if (!m_state.apiEnabled || !m_apiClient) {
+        emit parkingRoiRequestFailed(
+            normalized, QStringLiteral("Server API is disabled or not configured."),
+            generation, false);
+        return;
+    }
+    const QString tag = parkingRoiTag(QStringLiteral("get"), generation,
+                                      normalized);
+    m_pendingParkingRoiTags.insert(tag);
+    m_apiClient->getJsonTagged(parkingRoiPath(normalized), tag);
+}
+
+void ParkingController::updateParkingRoi(const QString &slotId,
+                                         const ParkingRoi &roi,
+                                         quint64 generation)
+{
+    const QString normalized = slotId.trimmed().toUpper();
+    QString validationError;
+    if (!isParkingRoiSlotId(normalized)) {
+        emit parkingRoiRequestFailed(
+            normalized, QStringLiteral("Parking slot was not found."),
+            generation, true);
+        return;
+    }
+    if (!roi.isValid(&validationError)) {
+        emit parkingRoiRequestFailed(normalized, validationError,
+                                     generation, true);
+        return;
+    }
+    if (!m_state.apiEnabled || !m_apiClient) {
+        emit parkingRoiRequestFailed(
+            normalized, QStringLiteral("Server API is disabled or not configured."),
+            generation, true);
+        return;
+    }
+    const QString tag = parkingRoiTag(QStringLiteral("put"), generation,
+                                      normalized);
+    m_pendingParkingRoiTags.insert(tag);
+    m_apiClient->putJsonTagged(parkingRoiPath(normalized),
+                               ParkingRoiCodec::toJson(roi), tag);
+}
+
+void ParkingController::applyParkingRoiResponse(
+    const QString &requestTag, const QJsonDocument &document)
+{
+    if (!m_pendingParkingRoiTags.remove(requestTag)) return;
+    const QStringList parts = requestTag.split(QLatin1Char('|'));
+    if (parts.size() < 5) return;
+    const QString kind = parts.at(1);
+    bool generationOk = false;
+    const quint64 generation = parts.at(2).toULongLong(&generationOk);
+    const QString expectedSlot = parts.at(3);
+    if (!generationOk) return;
+
+    QString error;
+    if (kind == QStringLiteral("list")) {
+        ParkingRoiMap rois;
+        if (!ParkingRoiCodec::parseList(document, rois, error)) {
+            emit parkingRoiRequestFailed(QString(), error, generation, false);
+            return;
+        }
+        emit parkingRoiListReceived(rois, generation);
+        return;
+    }
+
+    QString responseSlot;
+    ParkingRoi roi;
+    bool appliedImmediately = false;
+    if (!ParkingRoiCodec::parseSingle(document, responseSlot, roi,
+                                      &appliedImmediately, error)) {
+        emit parkingRoiRequestFailed(expectedSlot, error, generation,
+                                     kind != QStringLiteral("get"));
+        return;
+    }
+    if (responseSlot != expectedSlot) {
+        emit parkingRoiRequestFailed(
+            expectedSlot, QStringLiteral("The server returned a different parking slot."),
+            generation, kind != QStringLiteral("get"));
+        return;
+    }
+
+    if (kind == QStringLiteral("put")) {
+        const QString verifyTag = parkingRoiTag(
+            QStringLiteral("verify"), generation, expectedSlot,
+            appliedImmediately);
+        m_pendingParkingRoiTags.insert(verifyTag);
+        m_apiClient->getJsonTagged(parkingRoiPath(expectedSlot), verifyTag);
+        return;
+    }
+
+    const bool afterSave = kind == QStringLiteral("verify");
+    const bool verifiedAppliedImmediately = afterSave
+        && parts.at(4) == QStringLiteral("1");
+    emit parkingRoiReceived(responseSlot, roi, generation, afterSave,
+                            verifiedAppliedImmediately);
+    if (afterSave) {
+        recordEvent(
+            responseSlot, QStringLiteral("PARKING_ROI_UPDATED"),
+            QStringLiteral("Normalized ROI saved and verified"),
+            QStringLiteral("DONE"));
+    }
+}
+
+void ParkingController::applyParkingRoiError(
+    const QString &requestTag, const QString &message)
+{
+    if (!m_pendingParkingRoiTags.remove(requestTag)) return;
+    const QStringList parts = requestTag.split(QLatin1Char('|'));
+    if (parts.size() < 5) return;
+    bool generationOk = false;
+    const quint64 generation = parts.at(2).toULongLong(&generationOk);
+    if (!generationOk) return;
+    const QString kind = parts.at(1);
+    emit parkingRoiRequestFailed(parts.at(3), message, generation,
+                                 kind == QStringLiteral("put")
+                                     || kind == QStringLiteral("verify"));
+}
+
+QString ParkingController::parkingRoiPath(const QString &slotId) const
+{
+    QString path = m_parkingRoiPathTemplate;
+    path.replace(QStringLiteral("{slot_id}"), slotId);
+    return path;
 }
 
 void ParkingController::applyOverstayThresholdResponse(

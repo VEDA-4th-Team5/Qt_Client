@@ -9,6 +9,7 @@
 class QAuthenticator;
 class QNetworkReply;
 class QSslError;
+class QTimer;
 
 struct WiseAiConnectionOptions
 {
@@ -33,6 +34,7 @@ public:
     void applyChannelConfiguration(int channel,
                                    bool enabled,
                                    const QList<IvaAreaDefinition> &areas);
+    void deleteArea(int channel, int areaIndex);
     void cancel();
 
     static QByteArray normalizeCertificateSha256(const QString &fingerprint);
@@ -59,6 +61,7 @@ private:
         FetchConfiguration,
         PreflightConfiguration,
         PutUpdate,
+        DeleteUpdate,
         VerifyUpdate,
         PutRollback,
         VerifyRollback
@@ -69,11 +72,15 @@ private:
         QJsonObject baselineRawChannel;
         QJsonObject intendedPayload;
         QJsonObject rollbackPayload;
+        int deletedAreaIndex = -1;
+        int verificationAttempt = 0;
     };
 
     bool validateConnection(QString &errorMessage) const;
     void startGet(RequestKind kind, const QUrl &url);
     void startPut(RequestKind kind, const QJsonObject &payload);
+    void startDelete(RequestKind kind, const QUrl &url);
+    void scheduleVerification(RequestKind kind);
     void startRequest(RequestKind kind,
                       const QNetworkRequest &request,
                       const QByteArray &body = {});
@@ -94,12 +101,14 @@ private:
                            WiseAiCapabilities &capabilities,
                            QString &errorMessage) const;
     QUrl configurationUrl(bool addSequenceId = true) const;
+    QUrl deleteAreaUrl(int channel, int areaIndex) const;
     QUrl optionsUrl() const;
     QUrl capabilitiesUrl() const;
 
     WiseAiConnectionOptions m_options;
     QNetworkAccessManager m_network;
     QNetworkReply *m_pendingReply = nullptr;
+    QTimer *m_verificationTimer = nullptr;
     RequestKind m_requestKind = RequestKind::None;
     QString m_tlsFailure;
     IvaAreaOptions m_lastOptions;

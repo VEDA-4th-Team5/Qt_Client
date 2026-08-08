@@ -130,6 +130,54 @@ QList<QPointF> IvaVideoCanvas::rectangleCoordinates(const QRectF &rectangle)
             QPointF(right, bottom), QPointF(left, bottom)};
 }
 
+QRectF IvaVideoCanvas::normalizedFromSource(const QRectF &sourceRectangle,
+                                            const QSize &sourceResolution)
+{
+    if (!sourceResolution.isValid()) return {};
+    const QRectF bounds(QPointF(0.0, 0.0), QSizeF(sourceResolution));
+    const QRectF bounded = sourceRectangle.normalized().intersected(bounds);
+    if (bounded.isEmpty()) return {};
+    return QRectF(bounded.x() / sourceResolution.width(),
+                  bounded.y() / sourceResolution.height(),
+                  bounded.width() / sourceResolution.width(),
+                  bounded.height() / sourceResolution.height());
+}
+
+QRectF IvaVideoCanvas::sourceFromNormalized(
+    const QRectF &normalizedRectangle, const QSize &sourceResolution)
+{
+    if (!sourceResolution.isValid()) return {};
+    const QRectF bounded = normalizedRectangle.normalized().intersected(
+        QRectF(0.0, 0.0, 1.0, 1.0));
+    if (bounded.isEmpty()) return {};
+    return QRectF(bounded.x() * sourceResolution.width(),
+                  bounded.y() * sourceResolution.height(),
+                  bounded.width() * sourceResolution.width(),
+                  bounded.height() * sourceResolution.height());
+}
+
+void IvaVideoCanvas::setParkingRoiOverlays(
+    const QRectF &savedNormalizedRectangle,
+    const QRectF &selectedNormalizedRectangle)
+{
+    updateParkingRoiItem(m_savedParkingRoiItem, savedNormalizedRectangle,
+                         QColor(QStringLiteral("#76ff03")), Qt::SolidLine, 2.5);
+    updateParkingRoiItem(m_selectedParkingRoiItem, selectedNormalizedRectangle,
+                         QColor(QStringLiteral("#ffca28")), Qt::DashLine, 3.0);
+}
+
+void IvaVideoCanvas::clearParkingRoiOverlays()
+{
+    QGraphicsRectItem **items[] = {
+        &m_savedParkingRoiItem, &m_selectedParkingRoiItem};
+    for (QGraphicsRectItem **item : items) {
+        if (!*item) continue;
+        m_scene->removeItem(*item);
+        delete *item;
+        *item = nullptr;
+    }
+}
+
 void IvaVideoCanvas::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton) {
@@ -150,6 +198,8 @@ void IvaVideoCanvas::mousePressEvent(QMouseEvent *event)
         return;
     }
     if (!m_frameCompatible || !m_coordinateResolution.isValid()) {
+        emit rectangleRejected(
+            QStringLiteral("The selected area is outside the image."));
         event->accept();
         return;
     }
@@ -191,6 +241,8 @@ void IvaVideoCanvas::mouseReleaseEvent(QMouseEvent *event)
         m_scene->removeItem(m_draftItem);
         delete m_draftItem;
         m_draftItem = nullptr;
+        emit rectangleRejected(
+            QStringLiteral("The selected area is too small."));
     }
     event->accept();
 }
@@ -249,4 +301,25 @@ void IvaVideoCanvas::fitScene()
     if (m_coordinateResolution.isValid() && viewport()->size().isValid()) {
         fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
     }
+}
+
+void IvaVideoCanvas::updateParkingRoiItem(
+    QGraphicsRectItem *&item, const QRectF &normalizedRectangle,
+    const QColor &color, Qt::PenStyle penStyle, qreal zValue)
+{
+    const QRectF sourceRectangle = sourceFromNormalized(
+        normalizedRectangle, m_coordinateResolution);
+    if (sourceRectangle.isEmpty()) {
+        if (item) {
+            m_scene->removeItem(item);
+            delete item;
+            item = nullptr;
+        }
+        return;
+    }
+    if (!item) item = m_scene->addRect(sourceRectangle);
+    else item->setRect(sourceRectangle);
+    item->setPen(QPen(color, 4.0, penStyle));
+    item->setBrush(QColor(color.red(), color.green(), color.blue(), 45));
+    item->setZValue(zValue);
 }

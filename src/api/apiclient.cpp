@@ -30,8 +30,22 @@ void ApiClient::putJson(const QString &path, const QJsonObject &body)
                     QJsonDocument(body).toJson(QJsonDocument::Compact));
 }
 
+void ApiClient::getJsonTagged(const QString &path, const QString &requestTag)
+{
+    sendJsonRequest(path, QByteArrayLiteral("GET"), QByteArray(), requestTag);
+}
+
+void ApiClient::putJsonTagged(const QString &path, const QJsonObject &body,
+                              const QString &requestTag)
+{
+    sendJsonRequest(path, QByteArrayLiteral("PUT"),
+                    QJsonDocument(body).toJson(QJsonDocument::Compact),
+                    requestTag);
+}
+
 void ApiClient::sendJsonRequest(const QString &path, const QByteArray &method,
-                                const QByteArray &body)
+                                const QByteArray &body,
+                                const QString &requestTag)
 {
     const QUrl url = requestUrl(path);
     const bool allowedScheme = url.scheme() == QStringLiteral("https")
@@ -39,9 +53,10 @@ void ApiClient::sendJsonRequest(const QString &path, const QByteArray &method,
     if (!url.isValid() || !allowedScheme || url.host().isEmpty()) {
         const QString safeUrl = url.toString(
             QUrl::RemoveUserInfo | QUrl::RemoveQuery | QUrl::RemoveFragment);
-        emit requestFailed(path,
-                           QStringLiteral("Invalid or disallowed API URL: %1").arg(safeUrl),
-                           0, 0);
+        const QString message = QStringLiteral(
+            "Invalid or disallowed API URL: %1").arg(safeUrl);
+        if (requestTag.isEmpty()) emit requestFailed(path, message, 0, 0);
+        else emit taggedRequestFailed(requestTag, path, message, 0, 0);
         return;
     }
 
@@ -64,7 +79,8 @@ void ApiClient::sendJsonRequest(const QString &path, const QByteArray &method,
     });
     timeout->start(m_timeoutMs);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, timeout, path, startedAtMs]() {
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, timeout, path, requestTag, startedAtMs]() {
         timeout->stop();
         const int latencyMs = static_cast<int>(
             qMax<qint64>(0, QDateTime::currentMSecsSinceEpoch() - startedAtMs));
@@ -73,13 +89,23 @@ void ApiClient::sendJsonRequest(const QString &path, const QByteArray &method,
         const QByteArray responseBody = reply->readAll();
 
         if (reply->property("timedOut").toBool()) {
-            emit requestFailed(path, QStringLiteral("API request timed out"),
-                               latencyMs, statusCode);
+            const QString message = QStringLiteral("API request timed out");
+            if (requestTag.isEmpty()) {
+                emit requestFailed(path, message, latencyMs, statusCode);
+            } else {
+                emit taggedRequestFailed(requestTag, path, message,
+                                         latencyMs, statusCode);
+            }
             reply->deleteLater();
             return;
         }
         if (statusCode == 0 && reply->error() != QNetworkReply::NoError) {
-            emit requestFailed(path, reply->errorString(), latencyMs, statusCode);
+            if (requestTag.isEmpty()) {
+                emit requestFailed(path, reply->errorString(), latencyMs, statusCode);
+            } else {
+                emit taggedRequestFailed(requestTag, path, reply->errorString(),
+                                         latencyMs, statusCode);
+            }
             reply->deleteLater();
             return;
         }
@@ -96,14 +122,23 @@ void ApiClient::sendJsonRequest(const QString &path, const QByteArray &method,
                     message += QStringLiteral(": ") + serverError;
                 }
             }
-            emit requestFailed(path, message,
-                               latencyMs, statusCode);
+            if (requestTag.isEmpty()) {
+                emit requestFailed(path, message, latencyMs, statusCode);
+            } else {
+                emit taggedRequestFailed(requestTag, path, message,
+                                         latencyMs, statusCode);
+            }
             reply->deleteLater();
             return;
         }
 
         if (reply->error() != QNetworkReply::NoError) {
-            emit requestFailed(path, reply->errorString(), latencyMs, statusCode);
+            if (requestTag.isEmpty()) {
+                emit requestFailed(path, reply->errorString(), latencyMs, statusCode);
+            } else {
+                emit taggedRequestFailed(requestTag, path, reply->errorString(),
+                                         latencyMs, statusCode);
+            }
             reply->deleteLater();
             return;
         }
@@ -111,14 +146,24 @@ void ApiClient::sendJsonRequest(const QString &path, const QByteArray &method,
         QJsonParseError parseError;
         const QJsonDocument document = QJsonDocument::fromJson(responseBody, &parseError);
         if (parseError.error != QJsonParseError::NoError) {
-            emit requestFailed(path,
-                               QStringLiteral("Invalid JSON response: %1").arg(parseError.errorString()),
-                               latencyMs, statusCode);
+            const QString message = QStringLiteral(
+                "Invalid JSON response: %1").arg(parseError.errorString());
+            if (requestTag.isEmpty()) {
+                emit requestFailed(path, message, latencyMs, statusCode);
+            } else {
+                emit taggedRequestFailed(requestTag, path, message,
+                                         latencyMs, statusCode);
+            }
             reply->deleteLater();
             return;
         }
 
-        emit jsonReceived(path, document, latencyMs, statusCode);
+        if (requestTag.isEmpty()) {
+            emit jsonReceived(path, document, latencyMs, statusCode);
+        } else {
+            emit taggedJsonReceived(requestTag, path, document,
+                                    latencyMs, statusCode);
+        }
         reply->deleteLater();
     });
 }

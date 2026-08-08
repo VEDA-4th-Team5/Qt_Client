@@ -2,6 +2,7 @@
 #define PARKINGCONTROLLER_H
 
 #include "diagnostics/diagnostictypes.h"
+#include "api/parkingroi.h"
 #include "models/monitoringevent.h"
 #include "models/parkingstate.h"
 #include "models/slotidmapper.h"
@@ -49,6 +50,10 @@ public slots:
     void reconnectNow();
     void requestOverstayThreshold();
     void updateOverstayThreshold(int seconds);
+    void requestParkingRois(quint64 generation);
+    void requestParkingRoi(const QString &slotId, quint64 generation);
+    void updateParkingRoi(const QString &slotId, const ParkingRoi &roi,
+                          quint64 generation);
     void clearAlarms();
     void acknowledgeFireAlarm(const QString &channelId);
     void applyManualJsonMessage(const QJsonObject &json);
@@ -72,6 +77,15 @@ signals:
                                    bool afterUpdate);
     void overstayThresholdRequestFailed(const QString &message,
                                         bool updateRequest);
+    void parkingRoiListReceived(const ParkingRoiMap &rois,
+                                quint64 generation);
+    void parkingRoiReceived(const QString &slotId, const ParkingRoi &roi,
+                            quint64 generation, bool afterSave,
+                            bool appliedImmediately);
+    void parkingRoiRequestFailed(const QString &slotId,
+                                 const QString &message,
+                                 quint64 generation,
+                                 bool saveRequest);
     void fireAcknowledgementCommandPrepared(const QString &topic,
                                              const QByteArray &payload);
     void fireConfirmationRequested(const QString &channelId,
@@ -107,6 +121,11 @@ private:
     void applyParkingSessionImages(const QString &slotId,
                                    const QJsonDocument &document);
     void applyOverstayThresholdResponse(const QJsonDocument &document);
+    void applyParkingRoiResponse(const QString &requestTag,
+                                 const QJsonDocument &document);
+    void applyParkingRoiError(const QString &requestTag,
+                              const QString &message);
+    QString parkingRoiPath(const QString &slotId) const;
     void resetSlotsForSnapshot();
     void notifyStateChanged();
     void refreshAlert();
@@ -129,8 +148,11 @@ private:
     QString m_slotDetailPath;
     QString m_sessionImagesPath;
     QString m_overstayThresholdPath;
+    QString m_parkingRoiListPath;
+    QString m_parkingRoiPathTemplate;
     QHash<QString, QString> m_pendingDetailRequests;
     QHash<QString, QString> m_pendingImageRequests;
+    QSet<QString> m_pendingParkingRoiTags;
     int m_apiTimeoutMs = 5000;
     int m_reconnectIntervalMs = 5000;
     int m_maxReconnectIntervalMs = 60000;

@@ -1,10 +1,12 @@
 #pragma once
 
+#include "api/parkingroi.h"
 #include "iva/ivaareamodels.h"
 
 #include <QWidget>
 
 class QCheckBox;
+class QComboBox;
 class QHideEvent;
 class QLabel;
 class QLineEdit;
@@ -37,13 +39,21 @@ public:
     void setApplyError(int channel,
                        const QString &message,
                        bool rollbackSucceeded);
+    void setPiRoiResult(const QString &slotId, const ParkingRoi &roi,
+                        quint64 generation, bool afterSave,
+                        bool appliedImmediately);
+    void setPiRoiError(const QString &slotId, const QString &message,
+                       quint64 generation, bool saveRequest);
 
 signals:
     void refreshRequested();
     void applyRequested(int channel,
                         bool enabled,
                         const QList<IvaAreaDefinition> &areas);
+    void deleteAreaRequested(int channel, int areaIndex);
     void previewFrameRequested(int channel);
+    void piRoiSaveRequested(const QString &slotId, const ParkingRoi &roi,
+                            quint64 generation);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -57,12 +67,16 @@ private:
     void clearEditor();
     void populateChecklist(QListWidget *list,
                            const QStringList &available,
-                           const QStringList &selected);
+                           const QStringList &selected,
+                           bool emptyMeansAll = false);
     QStringList checkedValues(const QListWidget *list) const;
     bool collectEditedArea(IvaAreaDefinition &editedArea,
                            QString &errorMessage) const;
     void addCoordinateRow(double x, double y);
     void selectChannel(int channel);
+    void selectMappedParkingArea();
+    int mappedParkingAreaIndex() const;
+    QString mappedParkingAreaName() const;
     void updateVideoOverlays();
     void createRectangleDraft(const QRectF &sourceRectangle);
     void discardRectangleDraft();
@@ -91,14 +105,25 @@ private:
     QPushButton *m_addPointButton = nullptr;
     QPushButton *m_removePointButton = nullptr;
     QPushButton *m_applyButton = nullptr;
-    QPushButton *m_drawRectangleButton = nullptr;
+    QPushButton *m_deleteAreaButton = nullptr;
     QPushButton *m_discardDraftButton = nullptr;
     QPushButton *m_refreshButton = nullptr;
+    QComboBox *m_piSlotCombo = nullptr;
+    QPushButton *m_sendPiRoiButton = nullptr;
+    QLabel *m_piRoiStatusLabel = nullptr;
     QTimer *m_previewTimer = nullptr;
     int m_selectedArea = -1;
     int m_selectedChannel = 0;
     int m_draftChannel = -1;
     int m_draftAreaIndex = -1;
+    bool m_draftReplacesExisting = false;
+    IvaAreaDefinition m_draftOriginalArea;
+    quint64 m_piRoiGeneration = (quint64(1) << 63);
+    bool m_piRoiRequestInFlight = false;
+    QString m_pendingPiSlotId;
+    QSize m_currentPreviewFrameSize;
+    int m_pendingDeletedAreaIndex = -1;
+    QString m_pendingDeletedAreaName;
     bool m_requestInFlight = false;
     bool m_loadedOnce = false;
     bool m_hasOptions = false;

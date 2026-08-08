@@ -15,6 +15,7 @@
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QSslError>
+#include <QTimer>
 #include <QUrlQuery>
 
 #include <algorithm>
@@ -78,6 +79,13 @@ WiseAiConfigClient::WiseAiConfigClient(WiseAiConnectionOptions options,
             this, &WiseAiConfigClient::handleAuthentication);
     connect(&m_network, &QNetworkAccessManager::sslErrors,
             this, &WiseAiConfigClient::handleSslErrors);
+    m_verificationTimer = new QTimer(this);
+    m_verificationTimer->setSingleShot(true);
+    connect(m_verificationTimer, &QTimer::timeout, this, [this]() {
+        const RequestKind kind = m_requestKind;
+        m_requestKind = RequestKind::None;
+        startGet(kind, configurationUrl());
+    });
 }
 
 void WiseAiConfigClient::setConnectionOptions(WiseAiConnectionOptions options)
@@ -93,7 +101,8 @@ void WiseAiConfigClient::setConnectionOptions(WiseAiConnectionOptions options)
 
 bool WiseAiConfigClient::isBusy() const
 {
-    return m_pendingReply != nullptr;
+    return m_pendingReply != nullptr
+        || (m_verificationTimer && m_verificationTimer->isActive());
 }
 
 void WiseAiConfigClient::fetchConfiguration()
@@ -187,8 +196,97 @@ void WiseAiConfigClient::applyChannelConfiguration(
     startGet(RequestKind::PreflightConfiguration, configurationUrl());
 }
 
+void WiseAiConfigClient::deleteArea(int channel, int areaIndex)
+{
+    if (isBusy()) {
+        emit applyFailed(channel,
+                         QStringLiteral("Another WiseAI request is already running"),
+                         false);
+        return;
+    }
+    QString errorMessage;
+    if (!validateConnection(errorMessage)) {
+        emit applyFailed(channel, errorMessage, false);
+        return;
+    }
+    if (!m_hasOptions || !m_hasCapabilities || !m_hasConfiguration) {
+        emit applyFailed(channel,
+                         QStringLiteral("Refresh camera configuration before deleting an Area"),
+                         false);
+        return;
+    }
+
+    const IvaChannelOptions *channelOptions = m_lastOptions.forChannel(channel);
+    const IvaChannelCapability *channelCapability = m_lastCapabilities.forChannel(
+        channel);
+    const QJsonObject baselineRaw = channelObject(m_lastConfiguration, channel);
+    if (!channelOptions || !channelCapability
+        || !channelCapability->ivaAreaSupported
+        || !channelCapability->maxResolution.isValid()
+        || baselineRaw.isEmpty()) {
+        emit applyFailed(channel,
+                         QStringLiteral("Camera options, capability, or baseline are missing for CH%1")
+                             .arg(channel + 1),
+                         false);
+        return;
+    }
+
+    QList<IvaAreaDefinition> baselineAreas;
+    QList<IvaAreaDefinition> remainingAreas;
+    bool found = false;
+    for (const IvaAreaDefinition &area : m_lastConfiguration.areas) {
+        if (area.channel != channel) {
+            continue;
+        }
+        baselineAreas.append(area);
+        if (area.areaIndex == areaIndex) {
+            found = true;
+        } else {
+            remainingAreas.append(area);
+        }
+    }
+    if (!found) {
+        emit applyFailed(channel,
+                         QStringLiteral("IVA Area %1 was not found on CH%2")
+                             .arg(areaIndex)
+                             .arg(channel + 1),
+                         false);
+        return;
+    }
+
+    const bool enabled = baselineRaw.value(QStringLiteral("enable")).toBool();
+    QJsonObject intendedPayload;
+    if (!IvaAreaUpdateBuilder::buildChannelPayload(
+            channel, enabled, remainingAreas, *channelOptions, intendedPayload,
+            errorMessage, channelCapability->maxResolution)) {
+        emit applyFailed(channel, errorMessage, false);
+        return;
+    }
+    QJsonObject rollbackPayload;
+    if (!IvaAreaUpdateBuilder::buildChannelPayload(
+            channel, enabled, baselineAreas, *channelOptions, rollbackPayload,
+            errorMessage, channelCapability->maxResolution)) {
+        emit applyFailed(channel,
+                         QStringLiteral("The last-good camera state cannot be used for rollback: %1")
+                             .arg(errorMessage),
+                         false);
+        return;
+    }
+
+    m_pendingUpdate.channel = channel;
+    m_pendingUpdate.baselineRawChannel = baselineRaw;
+    m_pendingUpdate.intendedPayload = intendedPayload;
+    m_pendingUpdate.rollbackPayload = rollbackPayload;
+    m_pendingUpdate.deletedAreaIndex = areaIndex;
+    emit applyStarted(channel);
+    startGet(RequestKind::PreflightConfiguration, configurationUrl());
+}
+
 void WiseAiConfigClient::cancel()
 {
+    if (m_verificationTimer) {
+        m_verificationTimer->stop();
+    }
     if (m_pendingReply) {
         m_pendingReply->abort();
     }
@@ -259,6 +357,26 @@ void WiseAiConfigClient::startPut(RequestKind kind, const QJsonObject &payload)
 {
     startRequest(kind, createRequest(configurationUrl(false), true),
                  QJsonDocument(payload).toJson(QJsonDocument::Compact));
+}
+
+void WiseAiConfigClient::startDelete(RequestKind kind, const QUrl &url)
+{
+    m_tlsFailure.clear();
+    m_requestKind = kind;
+    m_pendingReply = m_network.deleteResource(createRequest(url, false));
+    connect(m_pendingReply, &QNetworkReply::finished,
+            this, &WiseAiConfigClient::finishRequest);
+}
+
+void WiseAiConfigClient::scheduleVerification(RequestKind kind)
+{
+    static constexpr int delaysMs[] = {250, 750, 1500};
+    static constexpr int delayCount = 3;
+    const int attempt = qBound(0, m_pendingUpdate.verificationAttempt,
+                               delayCount - 1);
+    ++m_pendingUpdate.verificationAttempt;
+    m_requestKind = kind;
+    m_verificationTimer->start(delaysMs[attempt]);
 }
 
 void WiseAiConfigClient::startRequest(RequestKind kind,
@@ -415,11 +533,18 @@ void WiseAiConfigClient::processSuccess(RequestKind kind,
     }
 
     if (kind == RequestKind::PutUpdate) {
-        startGet(RequestKind::VerifyUpdate, configurationUrl());
+        m_pendingUpdate.verificationAttempt = 0;
+        scheduleVerification(RequestKind::VerifyUpdate);
+        return;
+    }
+    if (kind == RequestKind::DeleteUpdate) {
+        m_pendingUpdate.verificationAttempt = 0;
+        scheduleVerification(RequestKind::VerifyUpdate);
         return;
     }
     if (kind == RequestKind::PutRollback) {
-        startGet(RequestKind::VerifyRollback, configurationUrl());
+        m_pendingUpdate.verificationAttempt = 0;
+        scheduleVerification(RequestKind::VerifyRollback);
         return;
     }
 
@@ -463,7 +588,13 @@ void WiseAiConfigClient::processSuccess(RequestKind kind,
                 false);
             return;
         }
-        startPut(RequestKind::PutUpdate, m_pendingUpdate.intendedPayload);
+        if (m_pendingUpdate.deletedAreaIndex >= 0) {
+            startDelete(RequestKind::DeleteUpdate,
+                        deleteAreaUrl(m_pendingUpdate.channel,
+                                      m_pendingUpdate.deletedAreaIndex));
+        } else {
+            startPut(RequestKind::PutUpdate, m_pendingUpdate.intendedPayload);
+        }
         return;
     }
 
@@ -477,6 +608,10 @@ void WiseAiConfigClient::processSuccess(RequestKind kind,
             m_pendingUpdate = {};
             emit configurationReceived(configuration);
             emit applySucceeded(channel, configuration);
+            return;
+        }
+        if (m_pendingUpdate.verificationAttempt < 3) {
+            scheduleVerification(RequestKind::VerifyUpdate);
             return;
         }
         startPut(RequestKind::PutRollback, m_pendingUpdate.rollbackPayload);
@@ -495,6 +630,10 @@ void WiseAiConfigClient::processSuccess(RequestKind kind,
                 true);
             return;
         }
+        if (m_pendingUpdate.verificationAttempt < 3) {
+            scheduleVerification(RequestKind::VerifyRollback);
+            return;
+        }
         finishApplyFailure(
             QStringLiteral("Camera verification failed and rollback could not be verified: %1")
                 .arg(errorMessage),
@@ -511,8 +650,10 @@ void WiseAiConfigClient::processFailure(RequestKind kind,
         emit requestFailed(message);
         return;
     }
-    if (kind == RequestKind::PutUpdate) {
-        startGet(RequestKind::VerifyUpdate, configurationUrl());
+    if (kind == RequestKind::PutUpdate
+        || kind == RequestKind::DeleteUpdate) {
+        m_pendingUpdate.verificationAttempt = 0;
+        scheduleVerification(RequestKind::VerifyUpdate);
         return;
     }
     if (kind == RequestKind::PutRollback) {
@@ -621,6 +762,18 @@ QUrl WiseAiConfigClient::configurationUrl(bool addSequenceId) const
     } else {
         url.setQuery(QString());
     }
+    return url;
+}
+
+QUrl WiseAiConfigClient::deleteAreaUrl(int channel, int areaIndex) const
+{
+    QUrl url = m_options.baseUrl;
+    url.setPath(QStringLiteral(
+        "/opensdk/WiseAI/configuration/ivaarea/definedarea"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("channel"), QString::number(channel));
+    query.addQueryItem(QStringLiteral("index"), QString::number(areaIndex));
+    url.setQuery(query);
     return url;
 }
 

@@ -10,6 +10,7 @@
 #include "pages/imagecomparepage.h"
 #include "pages/ivasettingspage.h"
 #include "pages/parkingmappage.h"
+#include "pages/parkingroisettingspage.h"
 #include "pages/settingspage.h"
 #include "services/camerasettings.h"
 #include "services/notificationcenter.h"
@@ -149,7 +150,8 @@ void MainWindow::buildUi()
         QStringLiteral("Image Compare"), 4);
     addNavButton(QStringLiteral("Settings"), 5);
     addNavButton(QStringLiteral("IVA Setup"), 6);
-    addNavButton(QStringLiteral("Debug"), 7);
+    addNavButton(QStringLiteral("Parking ROI"), 7);
+    addNavButton(QStringLiteral("Debug"), 8);
     connect(m_evidenceNavButton, &QPushButton::clicked, this, [this]() {
         if (m_evidencePage) {
             m_evidencePage->requestCurrentEvidence();
@@ -213,6 +215,7 @@ void MainWindow::buildUi()
     m_imageComparePage = new ImageComparePage(m_pages);
     m_settingsPage = new SettingsPage(m_cameraSettings.configPath(), m_cameraSettings.cameraIp(), m_pages);
     m_ivaSettingsPage = new IvaSettingsPage(m_cameraSettings.cameraIp(), m_pages);
+    m_parkingRoiSettingsPage = new ParkingRoiSettingsPage(m_pages);
     m_debugPage = new DebugPage(m_pages);
     m_pages->addWidget(m_dashboardPage);
     m_pages->addWidget(m_parkingMapPage);
@@ -221,6 +224,7 @@ void MainWindow::buildUi()
     m_pages->addWidget(m_imageComparePage);
     m_pages->addWidget(m_settingsPage);
     m_pages->addWidget(m_ivaSettingsPage);
+    m_pages->addWidget(m_parkingRoiSettingsPage);
     m_pages->addWidget(m_debugPage);
     contentLayout->addWidget(m_pages, 1);
     rootLayout->addWidget(sidebar);
@@ -412,6 +416,8 @@ void MainWindow::connectPages()
     connect(m_ivaSettingsPage, &IvaSettingsPage::applyRequested,
             m_wiseAiConfigClient,
             &WiseAiConfigClient::applyChannelConfiguration);
+    connect(m_ivaSettingsPage, &IvaSettingsPage::deleteAreaRequested,
+            m_wiseAiConfigClient, &WiseAiConfigClient::deleteArea);
     connect(m_wiseAiConfigClient, &WiseAiConfigClient::optionsReceived,
             m_ivaSettingsPage, &IvaSettingsPage::setOptions);
     connect(m_wiseAiConfigClient, &WiseAiConfigClient::capabilitiesReceived,
@@ -436,6 +442,34 @@ void MainWindow::connectPages()
         if (!m_dashboardPage || !m_ivaSettingsPage) return;
         m_ivaSettingsPage->setPreviewFrame(
             channel, m_dashboardPage->currentRtspFrame(channel));
+    });
+    connect(m_ivaSettingsPage, &IvaSettingsPage::piRoiSaveRequested,
+            m_parkingController, &ParkingController::updateParkingRoi);
+    connect(m_parkingController, &ParkingController::parkingRoiReceived,
+            m_ivaSettingsPage, &IvaSettingsPage::setPiRoiResult);
+    connect(m_parkingController, &ParkingController::parkingRoiRequestFailed,
+            m_ivaSettingsPage, &IvaSettingsPage::setPiRoiError);
+    connect(m_parkingRoiSettingsPage,
+            &ParkingRoiSettingsPage::roiListRequested,
+            m_parkingController, &ParkingController::requestParkingRois);
+    connect(m_parkingRoiSettingsPage,
+            &ParkingRoiSettingsPage::roiRequested,
+            m_parkingController, &ParkingController::requestParkingRoi);
+    connect(m_parkingRoiSettingsPage,
+            &ParkingRoiSettingsPage::roiSaveRequested,
+            m_parkingController, &ParkingController::updateParkingRoi);
+    connect(m_parkingController, &ParkingController::parkingRoiListReceived,
+            m_parkingRoiSettingsPage, &ParkingRoiSettingsPage::setRoiList);
+    connect(m_parkingController, &ParkingController::parkingRoiReceived,
+            m_parkingRoiSettingsPage, &ParkingRoiSettingsPage::setRoi);
+    connect(m_parkingController, &ParkingController::parkingRoiRequestFailed,
+            m_parkingRoiSettingsPage, &ParkingRoiSettingsPage::setRequestError);
+    connect(m_parkingRoiSettingsPage,
+            &ParkingRoiSettingsPage::previewFrameRequested,
+            this, [this]() {
+        if (!m_dashboardPage || !m_parkingRoiSettingsPage) return;
+        m_parkingRoiSettingsPage->setPreviewFrame(
+            m_dashboardPage->currentRtspFrame(0));
     });
 }
 
