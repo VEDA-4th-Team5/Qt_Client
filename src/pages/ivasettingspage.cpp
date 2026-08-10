@@ -1,12 +1,16 @@
 #include "ivasettingspage.h"
 
 #include "iva/ivavideocanvas.h"
+#include "widgets/pagehelp.h"
 
 #include <QAbstractItemView>
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -20,6 +24,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QPolygonF>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QShowEvent>
 #include <QSpinBox>
@@ -38,9 +43,24 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
 
+    auto *titleRow = new QHBoxLayout;
     auto *title = new QLabel(QStringLiteral("Hanwha WiseAI IVA Configuration"), this);
     title->setStyleSheet(QStringLiteral("font-size:20px;font-weight:800;color:#202124;"));
-    layout->addWidget(title);
+    titleRow->addWidget(title, 1);
+    auto *helpButton = new QPushButton(QStringLiteral("IVA Setup 안내"), this);
+    helpButton->setObjectName(QStringLiteral("ivaHelpButton"));
+    helpButton->setAccessibleName(QStringLiteral("IVA Setup 카메라 및 Pi 저장 안내"));
+    helpButton->setToolTip(QStringLiteral("WiseAI Area 편집과 Pi Crop ROI 저장 방법 보기"));
+    helpButton->setCursor(Qt::PointingHandCursor);
+    helpButton->setIcon(pageHelpIcon());
+    helpButton->setIconSize(QSize(22, 22));
+    helpButton->setStyleSheet(QStringLiteral(
+        "QPushButton { background:#263238; color:white; border:1px solid #455a64; "
+        "border-radius:6px; padding:6px 11px; font-weight:800; }"
+        "QPushButton:hover { background:#37474f; border-color:#fb8c00; }"
+        "QPushButton:pressed { background:#1c252a; }"));
+    titleRow->addWidget(helpButton);
+    layout->addLayout(titleRow);
 
     auto *description = new QLabel(
         QStringLiteral("Rules are read and written directly over HTTPS Digest. "
@@ -451,6 +471,8 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
         updateButtons();
         emit piRoiSaveRequested(m_pendingPiSlotId, roi, m_piRoiGeneration);
     });
+    connect(helpButton, &QPushButton::clicked,
+            this, &IvaSettingsPage::showHelpDialog);
 
     setCameraIp(cameraIp);
     m_previewTimer = new QTimer(this);
@@ -461,6 +483,332 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     selectChannel(0);
     clearEditor();
     updateButtons();
+}
+
+void IvaSettingsPage::showHelpDialog()
+{
+    if (QDialog *existing = findChild<QDialog *>(QStringLiteral("ivaHelpDialog"))) {
+        existing->raise();
+        existing->activateWindow();
+        return;
+    }
+
+    auto *dialog = new QDialog(this);
+    dialog->setObjectName(QStringLiteral("ivaHelpDialog"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(QStringLiteral("IVA Setup 카메라·Pi 설정 가이드"));
+    dialog->setModal(true);
+    dialog->setMinimumSize(800, 600);
+    dialog->resize(960, 780);
+
+    auto *dialogLayout = new QVBoxLayout(dialog);
+    dialogLayout->setContentsMargins(14, 14, 14, 14);
+    dialogLayout->setSpacing(10);
+
+    auto *scrollArea = new QScrollArea(dialog);
+    scrollArea->setObjectName(QStringLiteral("ivaHelpScrollArea"));
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    auto *content = new QWidget(scrollArea);
+    auto *layout = new QVBoxLayout(content);
+    layout->setContentsMargins(8, 6, 8, 6);
+    layout->setSpacing(14);
+
+    auto *title = new QLabel(QStringLiteral("IVA Setup 카메라·Pi 설정 가이드"), content);
+    title->setObjectName(QStringLiteral("ivaHelpTitle"));
+    title->setStyleSheet(QStringLiteral(
+        "font-size:22px;font-weight:900;color:#1f2d35;"));
+    layout->addWidget(title);
+
+    auto *intro = new QLabel(
+        QStringLiteral("이 화면은 하나의 영상 영역을 편집하지만 저장 대상은 두 곳입니다. "
+                       "WiseAI Area는 카메라에, Crop ROI는 Raspberry Pi에 각각 따로 저장됩니다."),
+        content);
+    intro->setWordWrap(true);
+    intro->setStyleSheet(QStringLiteral(
+        "background:#e3f2fd;color:#0d47a1;border:1px solid #90caf9;"
+        "border-radius:7px;padding:10px;font-weight:800;"));
+    layout->addWidget(intro);
+
+    auto *destinationGroup = new QGroupBox(
+        QStringLiteral("1. 가장 중요한 구분 · 하나의 영역, 두 저장 대상"), content);
+    auto *destinationLayout = new QVBoxLayout(destinationGroup);
+    auto *destinationFlow = new QWidget(destinationGroup);
+    destinationFlow->setObjectName(QStringLiteral("ivaHelpDestinationFlow"));
+    auto *flowLayout = new QHBoxLayout(destinationFlow);
+    flowLayout->setContentsMargins(0, 2, 0, 0);
+    flowLayout->setSpacing(10);
+    auto makeDestinationCard = [destinationFlow](const QString &heading,
+                                                 const QString &button,
+                                                 const QString &payload,
+                                                 const QString &result,
+                                                 const QString &background,
+                                                 const QString &border) {
+        auto *card = new QFrame(destinationFlow);
+        card->setStyleSheet(QStringLiteral(
+            "QFrame { background:%1;border:2px solid %2;border-radius:8px; }")
+                                .arg(background, border));
+        auto *cardLayout = new QVBoxLayout(card);
+        auto *cardTitle = new QLabel(heading, card);
+        cardTitle->setStyleSheet(QStringLiteral(
+            "border:none;color:#263238;font-size:15px;font-weight:900;"));
+        auto *buttonLabel = new QLabel(button, card);
+        buttonLabel->setStyleSheet(QStringLiteral(
+            "border:none;background:#263238;color:white;border-radius:4px;"
+            "padding:6px;font-weight:800;"));
+        auto *payloadLabel = new QLabel(payload, card);
+        payloadLabel->setWordWrap(true);
+        payloadLabel->setStyleSheet(QStringLiteral(
+            "border:none;color:#455a64;font-size:11px;"));
+        auto *resultLabel = new QLabel(result, card);
+        resultLabel->setWordWrap(true);
+        resultLabel->setStyleSheet(QStringLiteral(
+            "border:none;color:#263238;font-weight:700;"));
+        cardLayout->addWidget(cardTitle);
+        cardLayout->addWidget(buttonLabel);
+        cardLayout->addWidget(payloadLabel);
+        cardLayout->addWidget(resultLabel);
+        return card;
+    };
+    flowLayout->addWidget(makeDestinationCard(
+        QStringLiteral("Hanwha Camera · WiseAI Area"),
+        QStringLiteral("Save Area to Camera"),
+        QStringLiteral("전체 polygon, rule name/index, 감지 모드, 객체 필터, 지속시간, 채널 활성 상태"),
+        QStringLiteral("HTTPS Digest로 카메라 설정을 변경하며 Web Viewer에도 반영됩니다."),
+        QStringLiteral("#fff8e1"), QStringLiteral("#ffb300")), 1);
+    auto *separation = new QLabel(QStringLiteral("≠"), destinationFlow);
+    separation->setAlignment(Qt::AlignCenter);
+    separation->setStyleSheet(QStringLiteral(
+        "color:#d84315;font-size:28px;font-weight:900;"));
+    flowLayout->addWidget(separation);
+    flowLayout->addWidget(makeDestinationCard(
+        QStringLiteral("Raspberry Pi · Parking Crop ROI"),
+        QStringLiteral("Save Crop ROI to Pi"),
+        QStringLiteral("선택 polygon의 bounding rectangle을 0~1 정규화 좌표로 변환한 ROI만 전송"),
+        QStringLiteral("Pi의 선택 EV 슬롯 ROI를 저장합니다. 이미지 파일이나 카메라 규칙은 전송하지 않습니다."),
+        QStringLiteral("#e8f5e9"), QStringLiteral("#43a047")), 1);
+    destinationLayout->addWidget(destinationFlow);
+    auto *destinationWarning = new QLabel(
+        QStringLiteral("카메라 저장 성공만으로 Pi ROI가 바뀌지 않으며, Pi 저장 성공만으로 카메라 Area가 바뀌지 않습니다."),
+        destinationGroup);
+    destinationWarning->setWordWrap(true);
+    destinationWarning->setStyleSheet(QStringLiteral(
+        "color:#b71c1c;font-weight:800;padding:5px;"));
+    destinationLayout->addWidget(destinationWarning);
+    layout->addWidget(destinationGroup);
+
+    auto *startGroup = new QGroupBox(
+        QStringLiteral("2. 영역을 만들기 전 · 준비 순서"), content);
+    auto *startLayout = new QVBoxLayout(startGroup);
+    auto *setupFlow = new QWidget(startGroup);
+    setupFlow->setObjectName(QStringLiteral("ivaHelpSetupFlow"));
+    auto *setupFlowLayout = new QHBoxLayout(setupFlow);
+    setupFlowLayout->setContentsMargins(0, 0, 0, 0);
+    setupFlowLayout->setSpacing(7);
+    const QList<QPair<QString, QString>> setupSteps{
+        {QStringLiteral("① Refresh"), QStringLiteral("Options · Capability · 현재 Configuration 조회")},
+        {QStringLiteral("② CH 선택"), QStringLiteral("CH1~CH4 중 편집할 카메라 채널 선택")},
+        {QStringLiteral("③ Parking Area"), QStringLiteral("EV-01~EV-04 중 매핑 대상 선택")},
+        {QStringLiteral("④ 영상 드래그"), QStringLiteral("호환되는 공유 RTSP 프레임에서 사각형 작성")}
+    };
+    for (int index = 0; index < setupSteps.size(); ++index) {
+        auto *card = new QFrame(setupFlow);
+        card->setStyleSheet(QStringLiteral(
+            "QFrame { background:#f5f7f9;border:1px solid #cfd8dc;border-radius:6px; }"));
+        auto *cardLayout = new QVBoxLayout(card);
+        auto *stepTitle = new QLabel(setupSteps.at(index).first, card);
+        stepTitle->setStyleSheet(QStringLiteral(
+            "border:none;color:#263238;font-weight:900;"));
+        auto *stepBody = new QLabel(setupSteps.at(index).second, card);
+        stepBody->setWordWrap(true);
+        stepBody->setStyleSheet(QStringLiteral(
+            "border:none;color:#546e7a;font-size:10px;"));
+        cardLayout->addWidget(stepTitle);
+        cardLayout->addWidget(stepBody);
+        setupFlowLayout->addWidget(card, 1);
+        if (index < setupSteps.size() - 1) {
+            setupFlowLayout->addWidget(new QLabel(QStringLiteral("→"), setupFlow));
+        }
+    }
+    startLayout->addWidget(setupFlow);
+
+    auto *compatibility = new QLabel(
+        QStringLiteral("드래그 조건: 카메라가 IVA 좌표 해상도를 제공하고, Dashboard에서 공유받은 RTSP 프레임의 화면비가 "
+                       "IVA 좌표계와 일치해야 합니다. Frame Status가 빨간색이면 먼저 해당 원인을 해결합니다."),
+        startGroup);
+    compatibility->setObjectName(QStringLiteral("ivaHelpFrameCompatibility"));
+    compatibility->setWordWrap(true);
+    compatibility->setStyleSheet(QStringLiteral(
+        "background:#fff3e0;color:#5d4037;border:1px solid #ffcc80;"
+        "border-radius:6px;padding:8px;"));
+    startLayout->addWidget(compatibility);
+    layout->addWidget(startGroup);
+
+    auto *mappingGroup = new QGroupBox(
+        QStringLiteral("3. Parking Area 매핑 · 현재 선택한 CH 안에서 적용"), content);
+    auto *mappingLayout = new QVBoxLayout(mappingGroup);
+    auto *mappingHint = new QLabel(
+        QStringLiteral("Pi ROI 저장 버튼은 아래 세 값이 정확히 일치하는 Area를 선택했을 때만 활성화됩니다."),
+        mappingGroup);
+    mappingHint->setWordWrap(true);
+    mappingLayout->addWidget(mappingHint);
+    auto *mappingTable = new QTableWidget(4, 3, mappingGroup);
+    mappingTable->setObjectName(QStringLiteral("ivaHelpMappingTable"));
+    mappingTable->setHorizontalHeaderLabels({
+        QStringLiteral("Parking Area"), QStringLiteral("Camera rule name"),
+        QStringLiteral("Camera Area index")});
+    mappingTable->verticalHeader()->setVisible(false);
+    mappingTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    mappingTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    mappingTable->setSelectionMode(QAbstractItemView::NoSelection);
+    mappingTable->setFocusPolicy(Qt::NoFocus);
+    mappingTable->setFixedHeight(154);
+    for (int row = 0; row < 4; ++row) {
+        mappingTable->setItem(row, 0, new QTableWidgetItem(
+            QStringLiteral("EV-0%1").arg(row + 1)));
+        mappingTable->setItem(row, 1, new QTableWidgetItem(
+            QStringLiteral("name%1").arg(row + 1)));
+        mappingTable->setItem(row, 2, new QTableWidgetItem(
+            QString::number(row + 1)));
+    }
+    mappingLayout->addWidget(mappingTable);
+    layout->addWidget(mappingGroup);
+
+    auto *canvasGroup = new QGroupBox(
+        QStringLiteral("4. 영상 캔버스와 편집기 · 표시를 읽는 방법"), content);
+    auto *canvasLayout = new QVBoxLayout(canvasGroup);
+    auto *canvasLegend = new QWidget(canvasGroup);
+    canvasLegend->setObjectName(QStringLiteral("ivaHelpCanvasLegend"));
+    auto *legendLayout = new QGridLayout(canvasLegend);
+    legendLayout->setContentsMargins(0, 0, 0, 0);
+    legendLayout->setSpacing(7);
+    struct CanvasMark {
+        QString name;
+        QString meaning;
+        QString color;
+        QString borderStyle;
+    };
+    const QList<CanvasMark> marks{
+        {QStringLiteral("초록 polygon"), QStringLiteral("현재 채널의 기존 Camera Area"),
+         QStringLiteral("#76ff03"), QStringLiteral("solid")},
+        {QStringLiteral("청록 polygon"), QStringLiteral("현재 선택한 Camera Area"),
+         QStringLiteral("#00e5ff"), QStringLiteral("solid")},
+        {QStringLiteral("노란 점선"), QStringLiteral("새로 그리거나 다시 그린 draft / 선택 ROI"),
+         QStringLiteral("#ffca28"), QStringLiteral("dashed")},
+        {QStringLiteral("초록 실선 ROI"), QStringLiteral("Pi에서 조회된 저장 ROI"),
+         QStringLiteral("#76ff03"), QStringLiteral("solid")}
+    };
+    for (int index = 0; index < marks.size(); ++index) {
+        const CanvasMark &mark = marks.at(index);
+        auto *card = new QFrame(canvasLegend);
+        card->setStyleSheet(QStringLiteral(
+            "QFrame { background:white;border:1px solid #cfd8dc;border-radius:6px; }"));
+        auto *cardLayout = new QHBoxLayout(card);
+        auto *swatch = new QLabel(card);
+        swatch->setFixedSize(38, 24);
+        swatch->setStyleSheet(QStringLiteral(
+            "background:#263238;border:3px %1 %2;border-radius:3px;")
+                                  .arg(mark.borderStyle, mark.color));
+        auto *textLayout = new QVBoxLayout;
+        textLayout->setSpacing(0);
+        auto *markName = new QLabel(mark.name, card);
+        markName->setStyleSheet(QStringLiteral(
+            "border:none;color:#263238;font-weight:900;font-size:11px;"));
+        auto *markMeaning = new QLabel(mark.meaning, card);
+        markMeaning->setWordWrap(true);
+        markMeaning->setStyleSheet(QStringLiteral(
+            "border:none;color:#607d8b;font-size:10px;"));
+        textLayout->addWidget(markName);
+        textLayout->addWidget(markMeaning);
+        cardLayout->addWidget(swatch);
+        cardLayout->addLayout(textLayout, 1);
+        legendLayout->addWidget(card, index / 2, index % 2);
+    }
+    canvasLayout->addWidget(canvasLegend);
+    auto *editorHint = new QLabel(
+        QStringLiteral("Area를 선택하면 오른쪽 Selected Area Details에서 Channel enabled, index/name, Detection modes, "
+                       "Object filters, Appearance/Intrusion/Loitering 시간과 camera pixel 좌표를 편집합니다. "
+                       "새 사각형은 4개 좌표점으로 만들어지며 저장 전에는 draft입니다."),
+        canvasGroup);
+    editorHint->setObjectName(QStringLiteral("ivaHelpEditorFields"));
+    editorHint->setWordWrap(true);
+    canvasLayout->addWidget(editorHint);
+    layout->addWidget(canvasGroup);
+
+    auto *actionGroup = new QGroupBox(
+        QStringLiteral("5. 버튼별 결과와 검증 흐름"), content);
+    auto *actionLayout = new QVBoxLayout(actionGroup);
+    auto *actionMatrix = new QWidget(actionGroup);
+    actionMatrix->setObjectName(QStringLiteral("ivaHelpActionMatrix"));
+    auto *actionGrid = new QGridLayout(actionMatrix);
+    actionGrid->setContentsMargins(0, 0, 0, 0);
+    actionGrid->setHorizontalSpacing(8);
+    actionGrid->setVerticalSpacing(6);
+    const QList<QPair<QString, QString>> actions{
+        {QStringLiteral("Discard draft"), QStringLiteral("저장 전 새 영역 또는 다시 그린 영역을 버리고 이전 Camera Area로 복원")},
+        {QStringLiteral("Delete selected Area"), QStringLiteral("확인 후 선택 Area를 카메라 전용 삭제 API로 제거하고 재조회 검증")},
+        {QStringLiteral("Save Area to Camera"), QStringLiteral("선택 CH의 WiseAI 설정을 변경하며 Pi ROI에는 영향 없음")},
+        {QStringLiteral("Save Crop ROI to Pi"), QStringLiteral("정규화 bounding rectangle을 선택 EV 슬롯에 저장하며 Camera Area에는 영향 없음")},
+        {QStringLiteral("Refresh from camera"), QStringLiteral("카메라의 최신 Options, Capability, Configuration을 다시 읽음")}
+    };
+    for (int row = 0; row < actions.size(); ++row) {
+        auto *actionName = new QLabel(actions.at(row).first, actionMatrix);
+        actionName->setStyleSheet(QStringLiteral(
+            "background:#eceff1;color:#263238;border-radius:4px;padding:7px;font-weight:900;"));
+        auto *actionMeaning = new QLabel(actions.at(row).second, actionMatrix);
+        actionMeaning->setWordWrap(true);
+        actionMeaning->setStyleSheet(QStringLiteral("color:#455a64;padding:4px;"));
+        actionGrid->addWidget(actionName, row, 0);
+        actionGrid->addWidget(actionMeaning, row, 1);
+    }
+    actionGrid->setColumnStretch(1, 1);
+    actionLayout->addWidget(actionMatrix);
+
+    auto *verificationFlow = new QWidget(actionGroup);
+    verificationFlow->setObjectName(QStringLiteral("ivaHelpVerificationFlow"));
+    auto *verificationLayout = new QVBoxLayout(verificationFlow);
+    verificationLayout->setContentsMargins(0, 4, 0, 0);
+    auto *cameraFlow = new QLabel(
+        QStringLiteral("Camera 저장  확인 → 최신 설정 충돌 검사 → PUT/DELETE → 카메라 재조회 검증 → 불일치 시 last-good rollback"),
+        verificationFlow);
+    cameraFlow->setWordWrap(true);
+    cameraFlow->setStyleSheet(QStringLiteral(
+        "background:#fff8e1;color:#5d4037;border:1px solid #ffe082;border-radius:6px;padding:9px;font-weight:700;"));
+    auto *piFlow = new QLabel(
+        QStringLiteral("Pi 저장  nameN/index N 매핑 → polygon bounding rectangle → 0~1 정규화·최소 크기 검사 → 저장 요청 → 응답 generation 검증"),
+        verificationFlow);
+    piFlow->setWordWrap(true);
+    piFlow->setStyleSheet(QStringLiteral(
+        "background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7;border-radius:6px;padding:9px;font-weight:700;"));
+    verificationLayout->addWidget(cameraFlow);
+    verificationLayout->addWidget(piFlow);
+    actionLayout->addWidget(verificationFlow);
+    layout->addWidget(actionGroup);
+
+    auto *safetyNotes = new QLabel(
+        QStringLiteral(
+            "문제가 생겼을 때\n"
+            "• Apply 결과를 검증할 수 없다는 메시지가 나오면 추가 편집 전에 Refresh from camera를 실행합니다.\n"
+            "• 카메라가 다른 곳에서 변경되어 preflight 충돌이 나면 새로 읽힌 값을 검토한 뒤 다시 적용합니다.\n"
+            "• TLS 인증서는 최초 연결 시 SHA-256 지문으로 고정되며 이후 지문이 다르면 연결을 중단합니다. 평문으로 자동 전환하지 않습니다.\n"
+            "• 카메라 설정 삭제는 Camera Web Viewer에도 반영되므로 채널과 Area index/name을 확인한 후 승인합니다.\n"
+            "• 이 화면의 EV-01~04는 Pi ROI 선택 이름이며 실제 서버 slot_id 매핑을 자동으로 의미하지 않습니다."),
+        content);
+    safetyNotes->setObjectName(QStringLiteral("ivaHelpSafetyNotes"));
+    safetyNotes->setWordWrap(true);
+    safetyNotes->setStyleSheet(QStringLiteral(
+        "background:#ffebee;color:#7f1d1d;border:1px solid #ef9a9a;"
+        "border-radius:7px;padding:11px;"));
+    layout->addWidget(safetyNotes);
+    layout->addStretch();
+
+    scrollArea->setWidget(content);
+    dialogLayout->addWidget(scrollArea, 1);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    buttons->setObjectName(QStringLiteral("ivaHelpButtons"));
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
+    dialogLayout->addWidget(buttons);
+    dialog->open();
 }
 
 void IvaSettingsPage::setCameraIp(const QString &cameraIp)

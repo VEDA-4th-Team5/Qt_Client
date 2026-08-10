@@ -50,8 +50,7 @@ private:
     void showFireAlarmPopup(const QString &channelId, const QString &alarmId);
     void closeFireAlarmPopup(const QString &channelId, const QString &alarmId);
     void showEventsPage();
-    bool isEvidenceSlot(const QString &sourceId) const;
-    bool showEvidencePage(const QString &sourceId);
+    bool showEventEvidencePage(const QString &eventId);
     QString cameraConfigPath() const;
     QString clientConfigPath() const;
     QString clientLocalConfigPath() const;

@@ -286,8 +286,10 @@ void MainWindow::connectPages()
             m_diagnosticsService, &DiagnosticsService::setApiState);
     connect(m_dashboardPage, &DashboardPage::rtspDiagnosticsChanged,
             m_diagnosticsService, &DiagnosticsService::setRtspChannels);
-    connect(m_dashboardPage, &DashboardPage::evidenceRequested, this,
-            [this](const QString &sourceId) { showEvidencePage(sourceId); });
+    connect(m_dashboardPage, &DashboardPage::eventEvidenceRequested, this,
+            [this](const QString &eventId) {
+                showEventEvidencePage(eventId);
+            });
     connect(m_parkingSimulationService, &ParkingSimulationService::simulationApplied,
             m_diagnosticsService, &DiagnosticsService::markSimulationApplied);
     connect(m_diagnosticsService, &DiagnosticsService::apiStateChanged,
@@ -339,6 +341,29 @@ void MainWindow::connectPages()
                     m_imageComparePage->showError(slotId, message);
                 }
             });
+    connect(m_parkingController, &ParkingController::eventEvidenceReady,
+            this,
+            [this](const QString &eventId, const QString &slotId,
+                   qint64 sessionId, SlotState state,
+                   const QString &plateNumber,
+                   const QList<ParkingImageResource> &images) {
+                m_evidencePage->setImageLoader(
+                    m_parkingController->imageLoader());
+                m_evidencePage->showEventEvidence(
+                    eventId, slotId, sessionId, state, plateNumber, images);
+            });
+    connect(m_parkingController, &ParkingController::eventEvidenceFailed,
+            this,
+            [this](const QString &eventId, const QString &slotId,
+                   const QString &message) {
+                m_evidencePage->showEventError(eventId, slotId, message);
+                m_alertBanner->setText(
+                    QStringLiteral("Event evidence unavailable: %1")
+                        .arg(message));
+                m_alertBanner->setStyleSheet(QStringLiteral(
+                    "background:#fff3e0;color:#e65100;border:1px solid #ffb74d;"
+                    "border-radius:4px;font-weight:800;"));
+            });
     connect(m_parkingController, &ParkingController::detailError, this,
             [this](const QString &message) {
                 if (m_pages->currentWidget() == m_evidencePage) {
@@ -347,11 +372,13 @@ void MainWindow::connectPages()
                     m_imageComparePage->showError(QString(), message);
                 }
             });
-    connect(m_evidencePage, &EvidencePage::evidenceRequested, this,
+    connect(m_evidencePage, &EvidencePage::slotEvidenceRequested, this,
             [this](const QString &slotId) {
                 m_evidencePage->setImageLoader(m_parkingController->imageLoader());
                 m_parkingController->requestSlotDetail(slotId);
             });
+    connect(m_evidencePage, &EvidencePage::eventEvidenceRequested,
+            m_parkingController, &ParkingController::requestEventEvidence);
     connect(m_imageComparePage, &ImageComparePage::comparisonRequested, this,
             [this](const QString &slotId) {
                 m_imageComparePage->setImageLoader(
@@ -383,8 +410,10 @@ void MainWindow::connectPages()
                     success ? QStringLiteral("EXPORT_CSV") : QStringLiteral("EXPORT_ERROR"),
                     message, success ? QStringLiteral("DONE") : QStringLiteral("FAILED"));
             });
-    connect(m_eventsPage, &EventsPage::evidenceRequested, this,
-            [this](const QString &sourceId) { showEvidencePage(sourceId); });
+    connect(m_eventsPage, &EventsPage::eventEvidenceRequested, this,
+            [this](const QString &eventId) {
+                showEventEvidencePage(eventId);
+            });
     connect(m_settingsPage, &SettingsPage::saveCameraIpRequested,
             this, &MainWindow::saveCameraIp);
     connect(m_settingsPage, &SettingsPage::saveServerBaseUrlRequested,
@@ -679,7 +708,9 @@ void MainWindow::showNotificationPopup()
                     if (index < 0 || index >= notifications.size()) return;
                     const NotificationRecord &notification = notifications.at(index);
                     detailLabel->setText(formatNotificationDetail(notification));
-                    const bool available = isEvidenceSlot(notification.sourceId);
+                    const bool available = m_parkingController
+                        && m_parkingController->hasEventEvidence(
+                            notification.eventId);
                     evidenceButton->setEnabled(available);
                     evidenceButton->setToolTip(
                         available
@@ -714,9 +745,9 @@ void MainWindow::showNotificationPopup()
                 if (!item) return;
                 const int index = item->data(Qt::UserRole).toInt();
                 if (index < 0 || index >= notifications.size()) return;
-                const QString sourceId = notifications.at(index).sourceId;
+                const QString eventId = notifications.at(index).eventId;
                 popup->close();
-                showEvidencePage(sourceId);
+                showEventEvidencePage(eventId);
             });
     connect(closeButton, &QPushButton::clicked, popup, &QFrame::close);
 
@@ -742,29 +773,29 @@ void MainWindow::showEventsPage()
     }
 }
 
-bool MainWindow::isEvidenceSlot(const QString &sourceId) const
+bool MainWindow::showEventEvidencePage(const QString &rawEventId)
 {
-    if (!m_parkingController) {
+    const QString eventId = rawEventId.trimmed();
+    if (!m_pages || !m_evidencePage || !m_parkingController
+        || eventId.isEmpty()) {
         return false;
     }
-    const QString slotId = normalizeParkingSlotId(sourceId);
-    const ParkingViewState &state = m_parkingController->state();
-    return state.evSlots.contains(slotId) || state.parkingSlots.contains(slotId);
-}
-
-bool MainWindow::showEvidencePage(const QString &sourceId)
-{
-    if (!m_pages || !m_evidencePage || !isEvidenceSlot(sourceId)) {
+    if (!m_parkingController->hasEventEvidence(eventId)) {
+        m_alertBanner->setText(
+            QStringLiteral("Event %1 is not linked to parking evidence.")
+                .arg(eventId));
+        m_alertBanner->setStyleSheet(QStringLiteral(
+            "background:#fff3e0;color:#e65100;border:1px solid #ffb74d;"
+            "border-radius:4px;font-weight:800;"));
         return false;
     }
-    const QString slotId = normalizeParkingSlotId(sourceId);
-    if (!m_evidencePage->selectSlot(slotId)) {
-        return false;
-    }
+    const QString slotId = m_parkingController->eventEvidenceSlotId(eventId);
+    m_evidencePage->openEvent(eventId, slotId);
     m_pages->setCurrentWidget(m_evidencePage);
     if (m_evidenceNavButton) {
         m_evidenceNavButton->setChecked(true);
     }
+    m_parkingController->requestEventEvidence(eventId);
     return true;
 }
 

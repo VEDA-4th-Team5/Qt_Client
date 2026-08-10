@@ -121,6 +121,7 @@ add_executable(smart_parking_qt_client
     src/services/notificationpolicy.h
     src/services/mqttserviceclient.cpp
     src/services/mqttserviceclient.h
+    src/widgets/pagehelp.h
     src/simulation/parkingmockdata.cpp
     src/simulation/parkingmockdata.h
     src/simulation/parkingsimulationservice.cpp
@@ -197,6 +198,74 @@ set_target_properties(smart_parking_qt_client PROPERTIES
 include(CTest)
 if (BUILD_TESTING)
     find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
+    add_executable(pagehelp_test
+        tests/pagehelp_test.cpp
+        src/widgets/pagehelp.h
+    )
+    target_include_directories(pagehelp_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(pagehelp_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(pagehelp_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME page_help COMMAND pagehelp_test)
+
+    add_executable(debugpage_help_test
+        tests/debugpage_help_test.cpp
+        src/pages/debugpage.cpp
+        src/pages/debugpage.h
+    )
+    target_include_directories(debugpage_help_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(debugpage_help_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(debugpage_help_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME debugpage_help COMMAND debugpage_help_test)
+
+    add_executable(dashboardpage_help_test
+        tests/dashboardpage_help_test.cpp
+        src/pages/dashboardpage.cpp
+        src/pages/dashboardpage.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        rtsp_legacy/RtspVideoItem.cpp
+        rtsp_legacy/RtspVideoItem.h
+    )
+    target_include_directories(dashboardpage_help_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/rtsp_legacy"
+    )
+    target_link_libraries(dashboardpage_help_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Quick
+        Qt${QT_VERSION_MAJOR}::QuickWidgets
+        Qt${QT_VERSION_MAJOR}::Qml
+        Qt${QT_VERSION_MAJOR}::Network
+        smart_parking_ffmpeg
+    )
+    set_target_properties(dashboardpage_help_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    if (QT_VERSION_MAJOR EQUAL 6)
+        qt_add_resources(dashboardpage_help_test dashboardpage_help_qml
+            PREFIX "/"
+            FILES
+                qml/RtspChannel.qml
+        )
+    else()
+        qt5_add_resources(DASHBOARDPAGE_HELP_QML_RESOURCES qml/rtsp_qml.qrc)
+        target_sources(dashboardpage_help_test PRIVATE
+            ${DASHBOARDPAGE_HELP_QML_RESOURCES})
+    endif()
+    add_test(NAME dashboardpage_help COMMAND dashboardpage_help_test)
+
     add_executable(parkingcontroller_retry_test
         tests/parkingcontroller_retry_test.cpp
         src/adapters/serverfireeventadapter.cpp
@@ -554,6 +623,44 @@ if (BUILD_TESTING)
     )
     add_test(NAME parking_roi_controller COMMAND parkingroicontroller_test)
 
+    add_executable(eventevidencecontroller_test
+        tests/eventevidencecontroller_test.cpp
+        src/adapters/serverfireeventadapter.cpp
+        src/adapters/serverfireeventadapter.h
+        src/adapters/serverparkingeventadapter.cpp
+        src/adapters/serverparkingeventadapter.h
+        src/controllers/parkingcontroller.cpp
+        src/controllers/parkingcontroller.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
+        src/api/apiclient.cpp
+        src/api/apiclient.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
+        src/api/parkingmodels.h
+        src/api/parkingroi.cpp
+        src/api/parkingroi.h
+        src/api/parkingresponseparser.cpp
+        src/api/parkingresponseparser.h
+        src/services/mqttserviceclient.cpp
+        src/services/mqttserviceclient.h
+    )
+    target_include_directories(eventevidencecontroller_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(eventevidencecontroller_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(eventevidencecontroller_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME event_evidence_controller COMMAND eventevidencecontroller_test)
+
     add_executable(parkingresponseparser_evidence_test
         tests/parkingresponseparser_evidence_test.cpp
         src/api/parkingmodels.h
@@ -890,6 +997,21 @@ if (BUILD_TESTING)
     set_tests_properties(parking_roi_settings_page PROPERTIES
         ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
+    set_tests_properties(page_help PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
+    set_tests_properties(debugpage_help PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
+    set_tests_properties(dashboardpage_help PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms;QSG_RHI_BACKEND=software"
         TIMEOUT 30
     )
 

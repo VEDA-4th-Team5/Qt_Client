@@ -21,8 +21,11 @@
 #include <QTimer>
 #include <QUuid>
 
+#include <algorithm>
+
 namespace {
 constexpr int kSeenServerEventLimit = 256;
+constexpr int kEventEvidenceReferenceLimit = 512;
 constexpr int kPortableMqttClientIdMaxLength = 23;
 constexpr int kGeneratedMqttClientIdSuffixLength = 12;
 constexpr int kMinimumOverstayThresholdSeconds = 60;
@@ -68,6 +71,18 @@ bool isEvSlotId(const QString &slotId)
 bool isGeneralSlotId(const QString &slotId)
 {
     return slotId.startsWith(QStringLiteral("P-"));
+}
+
+bool isEvidenceSlotId(const QString &slotId)
+{
+    static const QRegularExpression pattern(
+        QStringLiteral("^(?:EV|P)-[0-9]+$"));
+    return pattern.match(slotId).hasMatch();
+}
+
+QString eventEvidenceRequestTag(quint64 sequence)
+{
+    return QStringLiteral("event-evidence|%1").arg(sequence);
 }
 
 QString normalizeCameraChannelId(const QString &rawChannelId)
@@ -879,6 +894,9 @@ void ParkingController::recordServerEvent(const ServerParkingEvent &event,
     monitoringEvent.occurredAt = event.occurredAt.isValid()
         ? event.occurredAt : QDateTime::currentDateTime();
     monitoringEvent.sourceId = slotId;
+    monitoringEvent.evidenceSlotId = isEvidenceSlotId(slotId)
+        ? slotId : QString();
+    monitoringEvent.parkingSessionId = event.sessionId;
     monitoringEvent.eventType =
         ServerParkingEventAdapter::monitoringEventType(event);
     monitoringEvent.status =
@@ -891,6 +909,7 @@ void ParkingController::recordServerEvent(const ServerParkingEvent &event,
                ? event.evidencePath
                : QStringLiteral("Pi server event %1")
                      .arg(event.eventType));
+    rememberEventEvidence(monitoringEvent, event.plateNumber);
     emit eventLogged(monitoringEvent);
 }
 
@@ -908,6 +927,233 @@ bool ParkingController::rememberServerEventId(const QString &eventId)
         m_seenServerEventIds.remove(m_seenServerEventOrder.dequeue());
     }
     return true;
+}
+
+void ParkingController::rememberEventEvidence(
+    const MonitoringEvent &event,
+    const QString &plateNumber)
+{
+    const QString eventId = event.id.trimmed();
+    const QString slotId = resolveParkingZoneId(event.evidenceSlotId);
+    if (eventId.isEmpty() || !isEvidenceSlotId(slotId)) {
+        return;
+    }
+
+    EventEvidenceReference reference;
+    reference.eventId = eventId;
+    reference.slotId = slotId;
+    reference.sessionId = event.parkingSessionId;
+    reference.state = slotState(slotId);
+    reference.plateNumber = plateNumber.trimmed();
+    if (reference.plateNumber.isEmpty()) {
+        reference.plateNumber = this->plateNumber(slotId);
+    }
+
+    if (!m_eventEvidenceReferences.contains(eventId)) {
+        m_eventEvidenceOrder.enqueue(eventId);
+    }
+    m_eventEvidenceReferences.insert(eventId, reference);
+    while (m_eventEvidenceOrder.size() > kEventEvidenceReferenceLimit) {
+        m_eventEvidenceReferences.remove(m_eventEvidenceOrder.dequeue());
+    }
+}
+
+ParkingController::EventEvidenceReference
+ParkingController::eventEvidenceReference(const QString &eventId) const
+{
+    return m_eventEvidenceReferences.value(eventId.trimmed());
+}
+
+bool ParkingController::hasEventEvidence(const QString &eventId) const
+{
+    return m_eventEvidenceReferences.contains(eventId.trimmed());
+}
+
+QString ParkingController::eventEvidenceSlotId(const QString &eventId) const
+{
+    return eventEvidenceReference(eventId).slotId;
+}
+
+QString ParkingController::resolveParkingZoneId(const QString &sourceId) const
+{
+    const QString mapped = m_slotIdMapper.toZoneId(sourceId);
+    const QString slotId = normalizeParkingSlotId(
+        mapped.isEmpty() ? sourceId : mapped);
+    return isEvidenceSlotId(slotId) ? slotId : QString();
+}
+
+void ParkingController::requestEventEvidence(const QString &rawEventId)
+{
+    const QString eventId = rawEventId.trimmed();
+    const EventEvidenceReference reference = eventEvidenceReference(eventId);
+    if (reference.eventId.isEmpty()) {
+        emit eventEvidenceFailed(
+            eventId, QString(),
+            QStringLiteral("This event is not linked to a parking session."));
+        return;
+    }
+
+    if (!m_apiClient) {
+        QList<ParkingImageResource> cachedImages = m_state.slotImages.value(
+            reference.slotId);
+        if (reference.sessionId > 0) {
+            cachedImages.erase(
+                std::remove_if(
+                    cachedImages.begin(), cachedImages.end(),
+                    [&reference](const ParkingImageResource &image) {
+                        return image.sessionId > 0
+                            && image.sessionId != reference.sessionId;
+                    }),
+                cachedImages.end());
+        }
+        emitEventEvidenceReady(reference, cachedImages);
+        return;
+    }
+
+    if (reference.sessionId > 0) {
+        requestEventEvidenceSession(reference);
+    } else {
+        requestEventEvidenceSlotDetail(reference);
+    }
+}
+
+void ParkingController::requestEventEvidenceSlotDetail(
+    const EventEvidenceReference &reference)
+{
+    QString serverSlotId = m_slotIdMapper.toServerSlotId(reference.slotId);
+    if (serverSlotId.isEmpty()) {
+        serverSlotId = reference.slotId;
+    }
+    if (serverSlotId.startsWith(QStringLiteral("EV-"))
+        || serverSlotId.startsWith(QStringLiteral("P-"))) {
+        serverSlotId.remove(QLatin1Char('-'));
+    }
+    if (serverSlotId.isEmpty()) {
+        emit eventEvidenceFailed(
+            reference.eventId, reference.slotId,
+            QStringLiteral("No server slot mapping is configured."));
+        return;
+    }
+
+    QString path = m_slotDetailPath;
+    path.replace(QStringLiteral("{slot_id}"), serverSlotId);
+    const QString requestTag = eventEvidenceRequestTag(
+        m_nextEventEvidenceRequestSequence++);
+    m_pendingEventEvidenceRequests.insert(
+        requestTag,
+        {reference, EventEvidenceRequestKind::SlotDetail});
+    emit bannerChanged(
+        QStringLiteral("Resolving event %1 parking session...")
+            .arg(reference.eventId),
+        false);
+    m_apiClient->getJsonTagged(path, requestTag);
+}
+
+void ParkingController::requestEventEvidenceSession(
+    const EventEvidenceReference &reference)
+{
+    if (reference.sessionId <= 0 || !m_apiClient) {
+        emit eventEvidenceFailed(
+            reference.eventId, reference.slotId,
+            QStringLiteral("The event does not provide a parking session ID."));
+        return;
+    }
+
+    QString path = m_sessionImagesPath;
+    path.replace(QStringLiteral("{session_id}"),
+                 QString::number(reference.sessionId));
+    const QString requestTag = eventEvidenceRequestTag(
+        m_nextEventEvidenceRequestSequence++);
+    m_pendingEventEvidenceRequests.insert(
+        requestTag,
+        {reference, EventEvidenceRequestKind::SessionImages});
+    emit bannerChanged(
+        QStringLiteral("Loading event %1 evidence images...")
+            .arg(reference.eventId),
+        false);
+    m_apiClient->getJsonTagged(path, requestTag);
+}
+
+void ParkingController::applyEventEvidenceResponse(
+    const QString &requestTag,
+    const QJsonDocument &document)
+{
+    if (!m_pendingEventEvidenceRequests.contains(requestTag)) {
+        return;
+    }
+    PendingEventEvidenceRequest pending =
+        m_pendingEventEvidenceRequests.take(requestTag);
+
+    if (pending.kind == EventEvidenceRequestKind::SlotDetail) {
+        ParkingSlotSnapshot slot;
+        QString error;
+        if (!ParkingResponseParser::parseSlotDetail(document, slot, error)) {
+            emit eventEvidenceFailed(
+                pending.reference.eventId, pending.reference.slotId, error);
+            return;
+        }
+
+        const QString responseSlotId = resolveParkingZoneId(slot.slotId);
+        if (responseSlotId != pending.reference.slotId) {
+            emit eventEvidenceFailed(
+                pending.reference.eventId, pending.reference.slotId,
+                QStringLiteral("The server returned a different parking slot."));
+            return;
+        }
+
+        pending.reference.sessionId = slot.sessionId;
+        pending.reference.state = slotStateFromText(slot.state);
+        if (!slot.plateNumber.trimmed().isEmpty()) {
+            pending.reference.plateNumber = slot.plateNumber.trimmed();
+        }
+        m_eventEvidenceReferences.insert(
+            pending.reference.eventId, pending.reference);
+
+        if (pending.reference.sessionId > 0) {
+            requestEventEvidenceSession(pending.reference);
+            return;
+        }
+
+        emitEventEvidenceReady(pending.reference, slot.images);
+        return;
+    }
+
+    QList<ParkingImageResource> images;
+    QString error;
+    if (!ParkingResponseParser::parseSessionImages(document, images, error)) {
+        emit eventEvidenceFailed(
+            pending.reference.eventId, pending.reference.slotId, error);
+        return;
+    }
+    emitEventEvidenceReady(pending.reference, images);
+}
+
+void ParkingController::applyEventEvidenceError(
+    const QString &requestTag,
+    const QString &message)
+{
+    if (!m_pendingEventEvidenceRequests.contains(requestTag)) {
+        return;
+    }
+    const PendingEventEvidenceRequest pending =
+        m_pendingEventEvidenceRequests.take(requestTag);
+    emit eventEvidenceFailed(
+        pending.reference.eventId, pending.reference.slotId, message);
+}
+
+void ParkingController::emitEventEvidenceReady(
+    const EventEvidenceReference &reference,
+    QList<ParkingImageResource> images)
+{
+    for (ParkingImageResource &image : images) {
+        image.url = resolveApiUrl(image.url);
+    }
+    emit eventEvidenceReady(
+        reference.eventId, reference.slotId, reference.sessionId,
+        reference.state,
+        reference.plateNumber.isEmpty() ? QStringLiteral("-")
+                                        : reference.plateNumber,
+        images);
 }
 
 void ParkingController::initializeApiClient()
@@ -981,6 +1227,12 @@ void ParkingController::rebuildApiClient()
     }
     m_pendingParkingRoiTags.clear();
     m_pendingParkingRoiExpectedValues.clear();
+    const QStringList pendingEventEvidenceTags =
+        m_pendingEventEvidenceRequests.keys();
+    for (const QString &tag : pendingEventEvidenceTags) {
+        applyEventEvidenceError(
+            tag, QStringLiteral("The server connection changed."));
+    }
     if (m_apiClient) {
         disconnect(m_apiClient, nullptr, this, nullptr);
         m_apiClient->deleteLater();
@@ -1049,6 +1301,9 @@ void ParkingController::rebuildApiClient()
                    const QJsonDocument &document, int, int) {
                 if (requestTag.startsWith(QStringLiteral("parking-roi|"))) {
                     applyParkingRoiResponse(requestTag, document);
+                } else if (requestTag.startsWith(
+                               QStringLiteral("event-evidence|"))) {
+                    applyEventEvidenceResponse(requestTag, document);
                 }
             });
     connect(m_apiClient, &ApiClient::taggedRequestFailed, this,
@@ -1060,6 +1315,9 @@ void ParkingController::rebuildApiClient()
                             QStringLiteral("FAILED"));
                 if (requestTag.startsWith(QStringLiteral("parking-roi|"))) {
                     applyParkingRoiError(requestTag, message);
+                } else if (requestTag.startsWith(
+                               QStringLiteral("event-evidence|"))) {
+                    applyEventEvidenceError(requestTag, message);
                 }
             });
 
@@ -1765,11 +2023,15 @@ void ParkingController::recordEvent(const QString &zone, const QString &eventTyp
         event.status = QStringLiteral("REJECTED");
     } else {
         event.sourceId = channelId.isEmpty() ? zone : channelId;
+        if (channelId.isEmpty()) {
+            event.evidenceSlotId = resolveParkingZoneId(zone);
+        }
         event.eventType = eventType;
         event.message = message;
         event.status = status;
     }
     event.ackState = eventAckStateFromStatus(event.status);
+    rememberEventEvidence(event);
     emit eventLogged(event);
 }
 

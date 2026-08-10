@@ -1,6 +1,7 @@
 #include "parkingroisettingspage.h"
 
 #include "iva/ivavideocanvas.h"
+#include "widgets/pagehelp.h"
 
 #include <QComboBox>
 #include <QFormLayout>
@@ -22,10 +23,25 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
 
+    auto *titleRow = new QHBoxLayout;
     auto *title = new QLabel(QStringLiteral("Parking ROI Settings"), this);
     title->setStyleSheet(
         QStringLiteral("font-size:20px;font-weight:800;color:#202124;"));
-    layout->addWidget(title);
+    titleRow->addWidget(title, 1);
+    titleRow->addWidget(createPageHelpButton(
+        this, this,
+        {QStringLiteral("parkingRoi"), QStringLiteral("Parking ROI"),
+         QStringLiteral("Parking ROI 사용 안내"),
+         QStringLiteral("CH1 영상에서 EV-01~EV-04의 Pi 서버 crop 영역을 설정합니다."),
+         QStringLiteral(
+             "<b>1. 슬롯 선택</b><br>EV-01~EV-04 중 하나를 선택합니다. 페이지를 열면 서버의 전체 ROI를 불러오며 <i>Reload from Server</i>로 선택 슬롯만 다시 읽을 수 있습니다.<br><br>"
+             "<b>2. 프레임 고정</b><br><i>Freeze Current Frame</i>을 누른 뒤 영상 위에서 사각형을 드래그합니다. 새 화면이 필요하면 <i>Refresh Frame</i>을 사용합니다.<br><br>"
+             "<b>3. 좌표 검토</b><br>선택 영역의 pixel 좌표와 0~1 normalized 좌표를 확인합니다. 최소 크기는 원본 프레임 기준 8×8픽셀입니다.<br><br>"
+             "<b>4. 저장·검증</b><br><i>Save and Apply</i>는 normalized ROI를 Pi에 PUT하고 GET 결과가 요청값과 같은지 검증합니다. <i>Reset Selection</i>과 <i>Cancel</i>은 저장하지 않은 선택을 버립니다."),
+         QStringLiteral(
+             "※ 이 화면은 Pi crop ROI만 변경하며 카메라 WiseAI 규칙은 변경하지 않습니다. 이미지 자체도 Pi로 업로드하지 않습니다.\n"
+             "   프레임 해상도가 없거나 서버의 검증 결과가 다르면 저장 성공으로 처리하지 않습니다.")}));
+    layout->addLayout(titleRow);
     auto *description = new QLabel(
         QStringLiteral("Edit EV-01–EV-04 parking regions on the shared CH1 RTSP "
                        "frame. Only normalized coordinates are sent to the Pi server."),

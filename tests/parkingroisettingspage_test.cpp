@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QDialog>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPushButton>
@@ -157,6 +158,20 @@ int main(int argc, char **argv)
                      && selected->text() == QStringLiteral("No selection")
                      && status->text().contains(QStringLiteral("rejected")),
                  "failed PUT must restore the last saved ROI")) return 13;
+
+    QPushButton *helpButton = page.findChild<QPushButton *>(
+        QStringLiteral("parkingRoiHelpButton"));
+    if (helpButton) helpButton->click();
+    QApplication::processEvents();
+    QDialog *helpDialog = page.findChild<QDialog *>(
+        QStringLiteral("parkingRoiHelpDialog"));
+    QLabel *helpSteps = helpDialog
+        ? helpDialog->findChild<QLabel *>(QStringLiteral("parkingRoiHelpSteps"))
+        : nullptr;
+    if (!require(helpButton && helpDialog && helpSteps
+                     && helpSteps->text().contains(QStringLiteral("Save and Apply")),
+                 "parking ROI help must explain the save flow")) return 14;
+    helpDialog->close();
 
     std::cout << "PASS: parking ROI page handles letterbox, resize, stale responses, and rollback\n";
     return 0;

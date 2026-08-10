@@ -62,6 +62,7 @@ protected:
 private:
     static QString durationText(const IvaAreaDefinition &area);
     static QString coordinateText(double value);
+    void showHelpDialog();
     void populateAreaTable();
     void populateEditor(int row);
     void clearEditor();
