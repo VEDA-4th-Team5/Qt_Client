@@ -70,10 +70,10 @@ int main(int argc, char **argv)
                  "opening the page must request the server ROI list")) return 1;
     page.setPreviewFrame(QImage(1920, 1080, QImage::Format_RGB32));
     ParkingRoiMap rois;
-    rois.insert(QStringLiteral("EV01"), ParkingRoi{0.1, 0.1, 0.2, 0.3});
-    rois.insert(QStringLiteral("EV02"), ParkingRoi{0.5, 0.2, 0.1, 0.2});
-    rois.insert(QStringLiteral("EV03"), ParkingRoi{0.6, 0.3, 0.1, 0.2});
-    rois.insert(QStringLiteral("EV04"), ParkingRoi{0.0, 0.0, 1.0, 1.0});
+    rois.insert(QStringLiteral("EV-01"), ParkingRoi{0.1, 0.1, 0.2, 0.3});
+    rois.insert(QStringLiteral("EV-02"), ParkingRoi{0.5, 0.2, 0.1, 0.2});
+    rois.insert(QStringLiteral("EV-03"), ParkingRoi{0.6, 0.3, 0.1, 0.2});
+    rois.insert(QStringLiteral("EV-04"), ParkingRoi{0.0, 0.0, 1.0, 1.0});
     page.setRoiList(rois, listGeneration);
 
     auto *canvas = page.findChild<IvaVideoCanvas *>(
@@ -120,30 +120,30 @@ int main(int argc, char **argv)
                  "resizing must preserve normalized ROI")) return 7;
 
     save->click();
-    if (!require(saveGeneration > 0 && requestedSlot == QStringLiteral("EV01")
+    if (!require(saveGeneration > 0 && requestedSlot == QStringLiteral("EV-01")
                      && requestedRoi.nearlyEquals(
                          ParkingRoi{0.1, 0.1, 0.4, 0.5}, 0.002),
                  "Save and Apply must emit normalized coordinates once")) return 8;
-    page.setRequestError(QStringLiteral("EV01"), QStringLiteral("HTTP 400"),
+    page.setRequestError(QStringLiteral("EV-01"), QStringLiteral("HTTP 400"),
                          saveGeneration - 1, true);
     if (!require(!save->isEnabled(),
                  "stale failures must not finish the active save")) return 9;
-    page.setRoi(QStringLiteral("EV01"), requestedRoi, saveGeneration,
+    page.setRoi(QStringLiteral("EV-01"), requestedRoi, saveGeneration,
                 true, true);
     if (!require(status->text().contains(QStringLiteral("applied immediately"))
                      && current->text() == draftedText,
                  "verified save response must replace the saved ROI")) return 10;
 
-    combo->setCurrentText(QStringLiteral("EV02"));
+    combo->setCurrentText(QStringLiteral("EV-02"));
     QApplication::processEvents();
-    if (!require(requestedSlot == QStringLiteral("EV02") && slotGeneration > saveGeneration
+    if (!require(requestedSlot == QStringLiteral("EV-02") && slotGeneration > saveGeneration
                      && current->text().contains(QStringLiteral("x=0.500000")),
                  "slot switching must show and reload the matching ROI")) return 11;
-    page.setRoi(QStringLiteral("EV01"), ParkingRoi{0.0, 0.0, 1.0, 1.0},
+    page.setRoi(QStringLiteral("EV-01"), ParkingRoi{0.0, 0.0, 1.0, 1.0},
                 slotGeneration, false, false);
     if (!require(current->text().contains(QStringLiteral("x=0.500000")),
                  "response for a previous slot must be ignored")) return 12;
-    page.setRoi(QStringLiteral("EV02"), rois.value(QStringLiteral("EV02")),
+    page.setRoi(QStringLiteral("EV-02"), rois.value(QStringLiteral("EV-02")),
                 slotGeneration, false, false);
 
     refresh->click();
@@ -151,7 +151,7 @@ int main(int argc, char **argv)
     drag(canvas, QPointF(128, 72), QPointF(640, 360));
     save->click();
     const quint64 failedSaveGeneration = saveGeneration;
-    page.setRequestError(QStringLiteral("EV02"), QStringLiteral("HTTP 400"),
+    page.setRequestError(QStringLiteral("EV-02"), QStringLiteral("HTTP 400"),
                          failedSaveGeneration, true);
     if (!require(current->text().contains(QStringLiteral("x=0.500000"))
                      && selected->text() == QStringLiteral("No selection")

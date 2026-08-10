@@ -84,11 +84,11 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     parkingAreaLabel->setStyleSheet(QStringLiteral("font-weight:700;"));
     m_piSlotCombo = new QComboBox(videoPanel);
     m_piSlotCombo->setObjectName(QStringLiteral("ivaPiParkingSlotCombo"));
-    m_piSlotCombo->addItems({QStringLiteral("EV01"), QStringLiteral("EV02"),
-                             QStringLiteral("EV03"), QStringLiteral("EV04")});
+    m_piSlotCombo->addItems({QStringLiteral("EV-01"), QStringLiteral("EV-02"),
+                             QStringLiteral("EV-03"), QStringLiteral("EV-04")});
     m_piSlotCombo->setMinimumWidth(90);
     m_piSlotCombo->setToolTip(QStringLiteral(
-        "EV01-EV04 map to camera IVA rules name1-name4 and indexes 1-4."));
+        "EV-01-EV-04 map to camera IVA rules name1-name4 and indexes 1-4."));
     channelRow->addWidget(parkingAreaLabel);
     channelRow->addWidget(m_piSlotCombo);
     m_discardDraftButton = new QPushButton(QStringLiteral("Discard draft"), videoPanel);
@@ -235,8 +235,8 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     m_sendPiRoiButton->setToolTip(QStringLiteral(
         "Send the selected IVA polygon's normalized bounding rectangle to the Pi server. No image is uploaded."));
     m_piRoiStatusLabel = new QLabel(
-        QStringLiteral("Select EV01-EV04, then drag directly on the video. "
-                       "EV01-EV04 map to name1-name4."),
+        QStringLiteral("Select EV-01-EV-04, then drag directly on the video. "
+                       "EV-01-EV-04 map to name1-name4."),
         piRoiGroup);
     m_piRoiStatusLabel->setObjectName(QStringLiteral("ivaPiRoiStatusLabel"));
     m_piRoiStatusLabel->setWordWrap(true);
@@ -281,6 +281,12 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     });
     connect(m_coordinateTable, &QTableWidget::currentCellChanged,
             this, [this]() { updateButtons(); });
+    connect(m_indexSpin, &QSpinBox::valueChanged, this, [this]() {
+        if (!m_updatingEditor) updateButtons();
+    });
+    connect(m_nameEdit, &QLineEdit::textChanged, this, [this]() {
+        if (!m_updatingEditor) updateButtons();
+    });
     connect(m_discardDraftButton, &QPushButton::clicked,
             this, &IvaSettingsPage::discardRectangleDraft);
     connect(m_videoCanvas, &IvaVideoCanvas::rectangleDrafted,
@@ -382,6 +388,19 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
         QString errorMessage;
         if (!collectEditedArea(edited, errorMessage)) {
             m_piRoiStatusLabel->setText(errorMessage);
+            m_piRoiStatusLabel->setStyleSheet(
+                QStringLiteral("color:#b71c1c;font-weight:700;"));
+            return;
+        }
+        if (edited.channel != m_selectedChannel
+            || edited.areaIndex != mappedParkingAreaIndex()
+            || edited.name.compare(mappedParkingAreaName(),
+                                   Qt::CaseInsensitive) != 0) {
+            m_piRoiStatusLabel->setText(QStringLiteral(
+                "The selected IVA rule does not match %1 (%2 / Area index %3).")
+                                            .arg(m_piSlotCombo->currentText(),
+                                                 mappedParkingAreaName())
+                                            .arg(mappedParkingAreaIndex()));
             m_piRoiStatusLabel->setStyleSheet(
                 QStringLiteral("color:#b71c1c;font-weight:700;"));
             return;
@@ -1077,6 +1096,10 @@ void IvaSettingsPage::updateButtons()
         && m_selectedArea < m_configuration.areas.size();
     const bool selectedAreaIsOnChannel = hasSelection
         && m_configuration.areas.at(m_selectedArea).channel == m_selectedChannel;
+    const bool editorMatchesParkingArea = selectedAreaIsOnChannel
+        && m_indexSpin->value() == mappedParkingAreaIndex()
+        && m_nameEdit->text().trimmed().compare(
+               mappedParkingAreaName(), Qt::CaseInsensitive) == 0;
     const bool anyRequestInFlight = m_requestInFlight || m_piRoiRequestInFlight;
     m_refreshButton->setEnabled(!anyRequestInFlight);
     m_applyButton->setEnabled(!anyRequestInFlight && m_hasOptions && hasSelection);
@@ -1095,7 +1118,7 @@ void IvaSettingsPage::updateButtons()
     m_discardDraftButton->setEnabled(!m_requestInFlight && m_draftChannel >= 0);
     m_sendPiRoiButton->setEnabled(!m_requestInFlight
                                   && !m_piRoiRequestInFlight
-                                  && selectedAreaIsOnChannel
+                                  && editorMatchesParkingArea
                                   && m_currentPreviewFrameSize.isValid());
     m_piSlotCombo->setEnabled(!m_piRoiRequestInFlight
                               && !m_requestInFlight

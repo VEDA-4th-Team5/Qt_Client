@@ -132,9 +132,9 @@ int main(int argc, char *argv[])
     app.processEvents();
     if (!require(canvas && canvas->frameCompatible() && canvas->drawMode(),
                  "shared matching RTSP frames must enable direct video dragging")) return 1;
-    if (!require(piSlot && sendToPi && sendToPi->isEnabled() && piStatus,
-                 "selected IVA rules must expose Pi ROI mapping controls")) return 1;
-    piSlot->setCurrentText(QStringLiteral("EV03"));
+    if (!require(piSlot && sendToPi && !sendToPi->isEnabled() && piStatus,
+                 "unmapped IVA rules must not enable Pi ROI saving")) return 1;
+    piSlot->setCurrentText(QStringLiteral("EV-03"));
     if (!require(table->currentRow() < 0 && canvas->drawMode(),
                  "selecting an unmapped EV area must prepare direct creation")) return 1;
     const QPoint start = canvas->mapFromScene(QPointF(1200, 500));
@@ -157,14 +157,14 @@ int main(int argc, char *argv[])
                      && discard && discard->isEnabled(),
                  "EV03 direct dragging must create camera Area index 3 named name3")) return 1;
     sendToPi->click();
-    if (!require(piRequestedSlot == QStringLiteral("EV03")
+    if (!require(piRequestedSlot == QStringLiteral("EV-03")
                      && piGeneration > (quint64(1) << 63),
                  "Pi ROI send must use the EV area selected for direct dragging")) return 1;
-    page.setPiRoiResult(QStringLiteral("EV03"), piRequestedRoi,
+    page.setPiRoiResult(QStringLiteral("EV-03"), piRequestedRoi,
                         piGeneration - 1, true, true);
     if (!require(!sendToPi->isEnabled(),
                  "stale Pi ROI responses must not finish the active request")) return 1;
-    page.setPiRoiResult(QStringLiteral("EV03"), piRequestedRoi,
+    page.setPiRoiResult(QStringLiteral("EV-03"), piRequestedRoi,
                         piGeneration, true, true);
     if (!require(sendToPi->isEnabled()
                      && piStatus->text().contains(QStringLiteral("applied immediately")),
@@ -190,7 +190,7 @@ int main(int argc, char *argv[])
                  "refresh must emit once and guard duplicate requests")) return 1;
 
     page.setRequestError(QStringLiteral("refresh stopped for test"));
-    piSlot->setCurrentText(QStringLiteral("EV01"));
+    piSlot->setCurrentText(QStringLiteral("EV-01"));
 
     auto *deleteArea = page.findChild<QPushButton *>(
         QStringLiteral("deleteSelectedIvaAreaButton"));
@@ -242,7 +242,7 @@ int main(int argc, char *argv[])
     auto *channel2Button = page.findChild<QPushButton *>(
         QStringLiteral("ivaPreviewChannel2Button"));
     channel2Button->click();
-    piSlot->setCurrentText(QStringLiteral("EV02"));
+    piSlot->setCurrentText(QStringLiteral("EV-02"));
     QTimer::singleShot(50, []() {
         for (QWidget *widget : QApplication::topLevelWidgets()) {
             if (auto *box = qobject_cast<QMessageBox *>(widget)) {

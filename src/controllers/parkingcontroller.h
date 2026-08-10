@@ -126,6 +126,8 @@ private:
     void applyParkingRoiError(const QString &requestTag,
                               const QString &message);
     QString parkingRoiPath(const QString &slotId) const;
+    QString parkingRoiZoneId(const QString &slotId) const;
+    QString parkingRoiServerSlotId(const QString &zoneId) const;
     void resetSlotsForSnapshot();
     void notifyStateChanged();
     void refreshAlert();
@@ -153,6 +155,7 @@ private:
     QHash<QString, QString> m_pendingDetailRequests;
     QHash<QString, QString> m_pendingImageRequests;
     QSet<QString> m_pendingParkingRoiTags;
+    QHash<QString, ParkingRoi> m_pendingParkingRoiExpectedValues;
     int m_apiTimeoutMs = 5000;
     int m_reconnectIntervalMs = 5000;
     int m_maxReconnectIntervalMs = 60000;

@@ -27,7 +27,7 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
         QStringLiteral("font-size:20px;font-weight:800;color:#202124;"));
     layout->addWidget(title);
     auto *description = new QLabel(
-        QStringLiteral("Edit EV01–EV04 parking regions on the shared CH1 RTSP "
+        QStringLiteral("Edit EV-01–EV-04 parking regions on the shared CH1 RTSP "
                        "frame. Only normalized coordinates are sent to the Pi server."),
         this);
     description->setWordWrap(true);
@@ -64,8 +64,8 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
     auto *form = new QFormLayout;
     m_slotCombo = new QComboBox(controlGroup);
     m_slotCombo->setObjectName(QStringLiteral("parkingRoiSlotCombo"));
-    m_slotCombo->addItems({QStringLiteral("EV01"), QStringLiteral("EV02"),
-                           QStringLiteral("EV03"), QStringLiteral("EV04")});
+    m_slotCombo->addItems({QStringLiteral("EV-01"), QStringLiteral("EV-02"),
+                           QStringLiteral("EV-03"), QStringLiteral("EV-04")});
     form->addRow(QStringLiteral("Parking Slot"), m_slotCombo);
     form->addRow(QStringLiteral("Camera Channel"),
                  new QLabel(QStringLiteral("CH1"), controlGroup));
