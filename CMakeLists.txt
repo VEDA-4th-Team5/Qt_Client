@@ -109,6 +109,8 @@ add_executable(smart_parking_qt_client
     src/pages/ivasettingspage.h
     src/pages/parkingmappage.cpp
     src/pages/parkingmappage.h
+    src/pages/parkingroisettingspage.cpp
+    src/pages/parkingroisettingspage.h
     src/pages/settingspage.cpp
     src/pages/settingspage.h
     src/services/camerasettings.cpp
@@ -128,6 +130,8 @@ add_executable(smart_parking_qt_client
     src/api/imageloader.cpp
     src/api/imageloader.h
     src/api/parkingmodels.h
+    src/api/parkingroi.cpp
+    src/api/parkingroi.h
     src/api/parkingresponseparser.cpp
     src/api/parkingresponseparser.h
     src/iva/ivaareamodels.h
@@ -212,6 +216,8 @@ if (BUILD_TESTING)
         src/api/imageloader.cpp
         src/api/imageloader.h
         src/api/parkingmodels.h
+        src/api/parkingroi.cpp
+        src/api/parkingroi.h
         src/api/parkingresponseparser.cpp
         src/api/parkingresponseparser.h
         src/services/mqttserviceclient.cpp
@@ -269,6 +275,8 @@ if (BUILD_TESTING)
         src/api/imageloader.cpp
         src/api/imageloader.h
         src/api/parkingmodels.h
+        src/api/parkingroi.cpp
+        src/api/parkingroi.h
         src/api/parkingresponseparser.cpp
         src/api/parkingresponseparser.h
         src/services/mqttserviceclient.cpp
@@ -311,6 +319,8 @@ if (BUILD_TESTING)
         src/api/imageloader.cpp
         src/api/imageloader.h
         src/api/parkingmodels.h
+        src/api/parkingroi.cpp
+        src/api/parkingroi.h
         src/api/parkingresponseparser.cpp
         src/api/parkingresponseparser.h
     )
@@ -450,6 +460,8 @@ if (BUILD_TESTING)
         src/api/imageloader.cpp
         src/api/imageloader.h
         src/api/parkingmodels.h
+        src/api/parkingroi.cpp
+        src/api/parkingroi.h
         src/api/parkingresponseparser.cpp
         src/api/parkingresponseparser.h
         src/services/mqttserviceclient.cpp
@@ -466,6 +478,81 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME overstay_controller COMMAND overstaycontroller_test)
+
+    add_executable(parkingroi_codec_test
+        tests/parkingroi_codec_test.cpp
+        src/api/parkingroi.cpp
+        src/api/parkingroi.h
+    )
+    target_include_directories(parkingroi_codec_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingroi_codec_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+    )
+    set_target_properties(parkingroi_codec_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parkingroi_codec COMMAND parkingroi_codec_test)
+
+    add_executable(parkingroisettingspage_test
+        tests/parkingroisettingspage_test.cpp
+        src/api/parkingroi.cpp
+        src/api/parkingroi.h
+        src/iva/ivaareamodels.h
+        src/iva/ivavideocanvas.cpp
+        src/iva/ivavideocanvas.h
+        src/pages/parkingroisettingspage.cpp
+        src/pages/parkingroisettingspage.h
+    )
+    target_include_directories(parkingroisettingspage_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingroisettingspage_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(parkingroisettingspage_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parking_roi_settings_page COMMAND parkingroisettingspage_test)
+
+    add_executable(parkingroicontroller_test
+        tests/parkingroicontroller_test.cpp
+        src/adapters/serverfireeventadapter.cpp
+        src/adapters/serverfireeventadapter.h
+        src/adapters/serverparkingeventadapter.cpp
+        src/adapters/serverparkingeventadapter.h
+        src/controllers/parkingcontroller.cpp
+        src/controllers/parkingcontroller.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/models/parkingstate.cpp
+        src/models/parkingstate.h
+        src/models/slotidmapper.cpp
+        src/models/slotidmapper.h
+        src/api/apiclient.cpp
+        src/api/apiclient.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
+        src/api/parkingmodels.h
+        src/api/parkingroi.cpp
+        src/api/parkingroi.h
+        src/api/parkingresponseparser.cpp
+        src/api/parkingresponseparser.h
+        src/services/mqttserviceclient.cpp
+        src/services/mqttserviceclient.h
+    )
+    target_include_directories(parkingroicontroller_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(parkingroicontroller_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(parkingroicontroller_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME parking_roi_controller COMMAND parkingroicontroller_test)
 
     add_executable(parkingresponseparser_evidence_test
         tests/parkingresponseparser_evidence_test.cpp
@@ -582,6 +669,8 @@ if (BUILD_TESTING)
 
     add_executable(ivasettingspage_test
         tests/ivasettingspage_test.cpp
+        src/api/parkingroi.cpp
+        src/api/parkingroi.h
         src/iva/ivaareamodels.h
         src/iva/ivavideocanvas.cpp
         src/iva/ivavideocanvas.h
@@ -794,6 +883,11 @@ if (BUILD_TESTING)
         TIMEOUT 30
     )
     set_tests_properties(settings_page_overstay PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
+    set_tests_properties(parking_roi_settings_page PROPERTIES
         ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
         TIMEOUT 30

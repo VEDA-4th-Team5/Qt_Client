@@ -22,6 +22,7 @@ class QLabel;
 class NotificationCenter;
 class ParkingController;
 class ParkingMapPage;
+class ParkingRoiSettingsPage;
 class ParkingSimulationService;
 class QPushButton;
 class SettingsPage;
@@ -70,6 +71,7 @@ private:
     QPushButton *m_imageCompareNavButton = nullptr;
     DashboardPage *m_dashboardPage = nullptr;
     ParkingMapPage *m_parkingMapPage = nullptr;
+    ParkingRoiSettingsPage *m_parkingRoiSettingsPage = nullptr;
     EventsPage *m_eventsPage = nullptr;
     EvidencePage *m_evidencePage = nullptr;
     ImageComparePage *m_imageComparePage = nullptr;
