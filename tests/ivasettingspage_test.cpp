@@ -4,6 +4,9 @@
 #include <QApplication>
 #include <QAbstractButton>
 #include <QComboBox>
+#include <QDialog>
+#include <QFrame>
+#include <QGroupBox>
 #include <QJsonArray>
 #include <QLabel>
 #include <QImage>
@@ -260,6 +263,46 @@ int main(int argc, char *argv[])
     page.setCameraIp(QStringLiteral("192.0.2.11"));
     if (!require(table->rowCount() == 0 && !apply->isEnabled(),
                  "changing camera IP must clear values from the previous device")) return 1;
+
+    QPushButton *helpButton = page.findChild<QPushButton *>(
+        QStringLiteral("ivaHelpButton"));
+    if (helpButton) helpButton->click();
+    QApplication::processEvents();
+    QDialog *helpDialog = page.findChild<QDialog *>(QStringLiteral("ivaHelpDialog"));
+    QWidget *destinationFlow = helpDialog
+        ? helpDialog->findChild<QWidget *>(QStringLiteral("ivaHelpDestinationFlow"))
+        : nullptr;
+    QWidget *setupFlow = helpDialog
+        ? helpDialog->findChild<QWidget *>(QStringLiteral("ivaHelpSetupFlow"))
+        : nullptr;
+    QTableWidget *helpMapping = helpDialog
+        ? helpDialog->findChild<QTableWidget *>(QStringLiteral("ivaHelpMappingTable"))
+        : nullptr;
+    QWidget *canvasLegend = helpDialog
+        ? helpDialog->findChild<QWidget *>(QStringLiteral("ivaHelpCanvasLegend"))
+        : nullptr;
+    QWidget *actionMatrix = helpDialog
+        ? helpDialog->findChild<QWidget *>(QStringLiteral("ivaHelpActionMatrix"))
+        : nullptr;
+    QWidget *verificationFlow = helpDialog
+        ? helpDialog->findChild<QWidget *>(QStringLiteral("ivaHelpVerificationFlow"))
+        : nullptr;
+    QLabel *safetyNotes = helpDialog
+        ? helpDialog->findChild<QLabel *>(QStringLiteral("ivaHelpSafetyNotes"))
+        : nullptr;
+    if (!require(helpButton && !helpButton->icon().isNull()
+                     && helpButton->text() == QStringLiteral("IVA Setup 안내")
+                     && helpDialog && destinationFlow && setupFlow && helpMapping
+                     && canvasLegend && actionMatrix && verificationFlow && safetyNotes
+                     && destinationFlow->findChildren<QFrame *>().size() >= 2
+                     && setupFlow->findChildren<QFrame *>().size() >= 4
+                     && helpMapping->rowCount() == 4
+                     && helpMapping->item(2, 0)->text() == QStringLiteral("EV-03")
+                     && helpMapping->item(2, 1)->text() == QStringLiteral("name3")
+                     && canvasLegend->findChildren<QFrame *>().size() >= 4
+                     && safetyNotes->text().contains(QStringLiteral("SHA-256")),
+                 "IVA help must explain camera/Pi boundaries, mapping, canvas, and verification")) return 1;
+    helpDialog->close();
 
     std::cout << "PASS: IVA settings page edits option-bounded rules and isolates camera state\n";
     return 0;

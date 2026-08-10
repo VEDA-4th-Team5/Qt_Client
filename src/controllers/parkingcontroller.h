@@ -38,6 +38,9 @@ public:
     SlotState slotState(const QString &slotId) const;
     QString plateNumber(const QString &slotId) const;
     QList<ParkingImageResource> images(const QString &slotId) const;
+    bool hasEventEvidence(const QString &eventId) const;
+    QString eventEvidenceSlotId(const QString &eventId) const;
+    QString resolveParkingZoneId(const QString &sourceId) const;
     void replaceViewState(const ParkingViewState &state);
     void applyEvSlotUpdate(const QString &slotId, SlotState state,
                            const QString &plateNumber, bool isEv,
@@ -46,6 +49,7 @@ public:
 
 public slots:
     void requestSlotDetail(const QString &slotId);
+    void requestEventEvidence(const QString &eventId);
     void updateServerBaseUrl(const QString &baseUrl);
     void reconnectNow();
     void requestOverstayThreshold();
@@ -67,6 +71,12 @@ signals:
     void eventLogged(const MonitoringEvent &event);
     void slotDetailReady(const QString &slotId);
     void slotDetailFailed(const QString &slotId, const QString &message);
+    void eventEvidenceReady(const QString &eventId, const QString &slotId,
+                            qint64 sessionId, SlotState state,
+                            const QString &plateNumber,
+                            const QList<ParkingImageResource> &images);
+    void eventEvidenceFailed(const QString &eventId, const QString &slotId,
+                             const QString &message);
     void detailError(const QString &message);
     void serverBaseUrlChanged(const QString &baseUrl);
     void serverConnectionChanged(const QString &status, bool connected);
@@ -103,6 +113,21 @@ private slots:
     void applyParkingSnapshot(const QJsonDocument &document);
 
 private:
+    struct EventEvidenceReference {
+        QString eventId;
+        QString slotId;
+        qint64 sessionId = -1;
+        SlotState state = SlotState::Vacant;
+        QString plateNumber;
+    };
+
+    enum class EventEvidenceRequestKind { SlotDetail, SessionImages };
+
+    struct PendingEventEvidenceRequest {
+        EventEvidenceReference reference;
+        EventEvidenceRequestKind kind = EventEvidenceRequestKind::SlotDetail;
+    };
+
     void initializeApiClient();
     void initializeMqttClient();
     void applyChannelFireEvent(const ServerFireEvent &event,
@@ -113,6 +138,20 @@ private:
                                  const QString &topic);
     void recordServerEvent(const ServerParkingEvent &event,
                            const QString &slotId);
+    void rememberEventEvidence(const MonitoringEvent &event,
+                               const QString &plateNumber = QString());
+    EventEvidenceReference eventEvidenceReference(
+        const QString &eventId) const;
+    void requestEventEvidenceSlotDetail(
+        const EventEvidenceReference &reference);
+    void requestEventEvidenceSession(
+        const EventEvidenceReference &reference);
+    void applyEventEvidenceResponse(const QString &requestTag,
+                                    const QJsonDocument &document);
+    void applyEventEvidenceError(const QString &requestTag,
+                                 const QString &message);
+    void emitEventEvidenceReady(const EventEvidenceReference &reference,
+                                QList<ParkingImageResource> images);
     bool rememberServerEventId(const QString &eventId);
     void rebuildApiClient();
     void scheduleReconnect(const QString &reason);
@@ -144,6 +183,8 @@ private:
     QTimer *m_reconnectTimer = nullptr;
     QSet<QString> m_seenServerEventIds;
     QQueue<QString> m_seenServerEventOrder;
+    QHash<QString, EventEvidenceReference> m_eventEvidenceReferences;
+    QQueue<QString> m_eventEvidenceOrder;
     QSet<QString> m_fireAckCommandKeys;
     QUrl m_apiBaseUrl;
     QString m_slotsPath;
@@ -154,6 +195,7 @@ private:
     QString m_parkingRoiPathTemplate;
     QHash<QString, QString> m_pendingDetailRequests;
     QHash<QString, QString> m_pendingImageRequests;
+    QHash<QString, PendingEventEvidenceRequest> m_pendingEventEvidenceRequests;
     QSet<QString> m_pendingParkingRoiTags;
     QHash<QString, ParkingRoi> m_pendingParkingRoiExpectedValues;
     int m_apiTimeoutMs = 5000;
@@ -165,6 +207,7 @@ private:
     enum class OverstayRequest { None, Fetch, Update, Verify };
     OverstayRequest m_overstayRequest = OverstayRequest::None;
     quint64 m_nextEventSequence = 1;
+    quint64 m_nextEventEvidenceRequestSequence = 1;
     ApiDiagnosticState m_apiDiagnostic;
     SlotIdMapper m_slotIdMapper;
 };

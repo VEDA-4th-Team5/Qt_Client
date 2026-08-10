@@ -74,6 +74,7 @@ private:
     };
 
     void loadLayout();
+    void showHelpDialog();
     LayoutSnapshot captureLayoutSnapshot() const;
     void pushUndoSnapshot(const LayoutSnapshot &snapshot);
     void pushCurrentLayoutToUndoHistory();

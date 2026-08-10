@@ -2,6 +2,7 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -97,5 +98,21 @@ int main(int argc, char **argv)
     hours->setValue(23);
     hours->setValue(24);
     if (minutes->value() != 0 || seconds->value() != 0) return 19;
+
+    QPushButton *helpButton = page.findChild<QPushButton *>(
+        QStringLiteral("settingsHelpButton"));
+    if (!helpButton || helpButton->icon().isNull()) return 24;
+    helpButton->click();
+    QApplication::processEvents();
+    QDialog *helpDialog = page.findChild<QDialog *>(
+        QStringLiteral("settingsHelpDialog"));
+    QLabel *helpSteps = helpDialog
+        ? helpDialog->findChild<QLabel *>(QStringLiteral("settingsHelpSteps"))
+        : nullptr;
+    if (!helpDialog || !helpSteps
+        || !helpSteps->text().contains(QStringLiteral("Save and reconnect"))) {
+        return 25;
+    }
+    helpDialog->close();
     return 0;
 }

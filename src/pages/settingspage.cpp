@@ -1,5 +1,7 @@
 #include "settingspage.h"
 
+#include "widgets/pagehelp.h"
+
 #include <QComboBox>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -18,6 +20,22 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
 {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
+    auto *helpLayout = new QHBoxLayout;
+    helpLayout->addStretch();
+    helpLayout->addWidget(createPageHelpButton(
+        this, this,
+        {QStringLiteral("settings"), QStringLiteral("Settings"),
+         QStringLiteral("Settings 사용 안내"),
+         QStringLiteral("카메라·Pi 연결 주소와 서버의 초과주차 정책을 관리합니다."),
+         QStringLiteral(
+             "<b>1. 카메라 IP 변경</b><br>IPv4 주소를 입력하고 <i>Save camera IP</i>를 누르면 Dashboard RTSP 주소와 IVA Setup의 대상 카메라가 함께 갱신됩니다.<br><br>"
+             "<b>2. Pi 서버 주소 변경</b><br>Protocol, Server IP/Host, API Port를 입력하고 <i>Save and reconnect</i>를 누릅니다. 주소는 이 PC의 <i>client_config.local.ini</i>에 저장됩니다.<br><br>"
+             "<b>3. 연결 재시도</b><br><i>Reconnect now</i>는 저장된 주소로 API 연결을 즉시 다시 시도합니다.<br><br>"
+             "<b>4. 초과주차 정책</b><br>페이지를 열거나 <i>Refresh</i>를 누르면 서버 설정을 읽습니다. 1분~24시간 범위로 입력하고 <i>Apply</i>하면 저장 후 서버 값을 다시 검증합니다."),
+         QStringLiteral(
+             "※ Pi 주소 변경 시 MQTT host도 같은 서버 host를 따릅니다. HTTP 허용 여부는 로컬 보안 설정에 따르며 TLS 실패 시 평문으로 자동 전환하지 않습니다.\n"
+             "   카메라와 서버 credential은 이 화면에서 편집하지 않으며 Git에 저장하면 안 됩니다.")}));
+    layout->addLayout(helpLayout);
     auto *group = new QGroupBox(QStringLiteral("Runtime Configuration"), this);
     auto *grid = new QGridLayout(group);
     m_cameraIpLabel = new QLabel(group);
