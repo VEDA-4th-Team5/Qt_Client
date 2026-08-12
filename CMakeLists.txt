@@ -1030,5 +1030,14 @@ if (BUILD_TESTING)
     set_target_properties(slotidmapper_test PROPERTIES
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
+    # QTEST_GUILESS_MAIN links this target against QtTest at runtime, unlike
+    # the other small helper tests that only use header-level QTest macros.
+    # Keep the matching Qt runtime next to the executable so CTest and a
+    # direct test launch use the same deterministic DLL search path.
+    add_custom_command(TARGET slotidmapper_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:Qt${QT_VERSION_MAJOR}::Test>"
+            "$<TARGET_FILE_DIR:slotidmapper_test>"
+    )
     add_test(NAME slotidmapper COMMAND slotidmapper_test)
 endif()

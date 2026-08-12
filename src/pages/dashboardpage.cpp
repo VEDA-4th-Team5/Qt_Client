@@ -391,6 +391,10 @@ void DashboardPage::setRtspUrls(const QStringList &lowRtspUrls, const QStringLis
     for (int i = 0; i < m_videoQuickWidgets.size(); ++i) {
         QQuickWidget *view = m_videoQuickWidgets.at(i);
         if (QQuickItem *root = view->rootObject()) {
+            // Force a full source transition even when the generated URL text
+            // is unchanged. This makes a credential-only save reconnect the
+            // decoder instead of leaving a failed worker untouched.
+            root->setProperty("streamEnabled", false);
             root->setProperty("lowRtspUrl", lowRtspUrls.value(i));
             root->setProperty("highRtspUrl", highRtspUrls.value(i));
             root->setProperty("sourceLabel", lowRtspUrls.value(i).isEmpty() ? QStringLiteral("RTSP URL not set") : QStringLiteral("RTSP"));

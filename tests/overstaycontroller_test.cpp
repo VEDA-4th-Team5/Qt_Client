@@ -20,6 +20,7 @@ int main(int argc, char **argv)
 
     bool updateReceived = false;
     int overstayGetCount = 0;
+    int overstayPutCount = 0;
     QObject::connect(&server, &QTcpServer::newConnection, &app, [&]() {
         QTcpSocket *socket = server.nextPendingConnection();
         auto *buffer = new QByteArray;
@@ -47,10 +48,34 @@ int main(int argc, char **argv)
                 responseBody = updateReceived
                     ? QByteArrayLiteral(
                           "{\"thresholdSeconds\":1800,\"thresholdMinutes\":30,"
+                          "\"effectiveSeconds\":1800,\"appliedRevision\":3,"
+                          "\"runtimeApplied\":true,\"runtimeHealthy\":true,"
                           "\"applyPolicy\":\"ACTIVE_AND_NEW_SESSIONS\"}")
-                    : QByteArrayLiteral(
-                          "{\"thresholdSeconds\":3600,\"thresholdMinutes\":60,"
-                          "\"applyPolicy\":\"ACTIVE_AND_NEW_SESSIONS\"}");
+                    : (overstayGetCount == 1
+                           ? QByteArrayLiteral(
+                                 "{\"thresholdSeconds\":3600,"
+                                 "\"thresholdMinutes\":60,"
+                                 "\"applyPolicy\":"
+                                 "\"ACTIVE_AND_NEW_SESSIONS\"}")
+                           : (overstayGetCount == 2
+                                  ? QByteArrayLiteral(
+                                        "{\"thresholdSeconds\":3600,"
+                                        "\"thresholdMinutes\":60,"
+                                        "\"effectiveSeconds\":3600,"
+                                        "\"appliedRevision\":1,"
+                                        "\"runtimeApplied\":false,"
+                                        "\"runtimeHealthy\":false,"
+                                        "\"applyPolicy\":"
+                                        "\"ACTIVE_AND_NEW_SESSIONS\"}")
+                                  : QByteArrayLiteral(
+                                        "{\"thresholdSeconds\":3600,"
+                                        "\"thresholdMinutes\":60,"
+                                        "\"effectiveSeconds\":3600,"
+                                        "\"appliedRevision\":1,"
+                                        "\"runtimeApplied\":true,"
+                                        "\"runtimeHealthy\":true,"
+                                        "\"applyPolicy\":"
+                                        "\"ACTIVE_AND_NEW_SESSIONS\"}")));
             } else if (requestLine.startsWith(
                            "PUT /api/v1/settings/overstay-threshold ")) {
                 const QByteArray body = buffer->mid(headerEnd + 4, contentLength);
@@ -58,10 +83,22 @@ int main(int argc, char **argv)
                 updateReceived = requestDocument.isObject()
                     && requestDocument.object()
                            .value(QStringLiteral("thresholdSeconds")).toInt() == 1800;
-                responseBody = QByteArrayLiteral(
-                    "{\"success\":true,\"thresholdSeconds\":1800,"
-                    "\"thresholdMinutes\":30,"
-                    "\"applyPolicy\":\"ACTIVE_AND_NEW_SESSIONS\"}");
+                ++overstayPutCount;
+                responseBody = overstayPutCount == 1
+                    ? QByteArrayLiteral(
+                          "{\"success\":true,\"requestedSeconds\":1800,"
+                          "\"effectiveSeconds\":1800,"
+                          "\"thresholdSeconds\":1800,"
+                          "\"appliedRevision\":2,\"runtimeApplied\":false,"
+                          "\"runtimeHealthy\":false,"
+                          "\"applyPolicy\":\"ACTIVE_AND_NEW_SESSIONS\"}")
+                    : QByteArrayLiteral(
+                          "{\"success\":true,\"requestedSeconds\":1800,"
+                          "\"effectiveSeconds\":1800,"
+                          "\"thresholdSeconds\":1800,"
+                          "\"appliedRevision\":3,\"runtimeApplied\":true,"
+                          "\"runtimeHealthy\":true,"
+                          "\"applyPolicy\":\"ACTIVE_AND_NEW_SESSIONS\"}");
             } else {
                 responseBody = QByteArrayLiteral("{\"error\":\"unexpected path\"}");
             }
@@ -103,6 +140,8 @@ int main(int argc, char **argv)
     ParkingController controller(
         sharedPath, directory.filePath(QStringLiteral("client_config.local.ini")));
     bool requestedInitialSetting = false;
+    int rejectedFetchContracts = 0;
+    bool rejectedUnappliedRuntime = false;
     bool completed = false;
     QObject::connect(&controller, &ParkingController::serverConnectionChanged,
                      &app, [&](const QString &, bool connected) {
@@ -122,7 +161,8 @@ int main(int argc, char **argv)
             return;
         }
         if (afterUpdate && seconds == 1800 && updateReceived
-            && overstayGetCount == 2) {
+            && overstayGetCount == 3 && overstayPutCount == 2
+            && rejectedFetchContracts == 2 && rejectedUnappliedRuntime) {
             completed = true;
             app.exit(0);
             return;
@@ -131,7 +171,25 @@ int main(int argc, char **argv)
     });
     QObject::connect(&controller,
                      &ParkingController::overstayThresholdRequestFailed,
-                     &app, [&](const QString &, bool) { app.exit(6); });
+                     &app, [&](const QString &message, bool updateRequest) {
+        if (!updateRequest && overstayGetCount <= 2
+            && message.contains(QStringLiteral("unhealthy"))) {
+            ++rejectedFetchContracts;
+            QTimer::singleShot(0, &controller, [&controller]() {
+                controller.requestOverstayThreshold();
+            });
+            return;
+        }
+        if (updateRequest && overstayPutCount == 1
+            && !rejectedUnappliedRuntime) {
+            rejectedUnappliedRuntime = true;
+            QTimer::singleShot(0, &controller, [&controller]() {
+                controller.updateOverstayThreshold(1800);
+            });
+            return;
+        }
+        app.exit(6);
+    });
     QTimer::singleShot(5000, &app, [&]() { app.exit(completed ? 0 : 7); });
     controller.start();
     return app.exec();

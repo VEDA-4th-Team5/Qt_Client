@@ -35,6 +35,31 @@ int main(int argc, char **argv)
     auto *host = page.findChild<QLineEdit *>(QStringLiteral("serverApiHostInput"));
     auto *port = page.findChild<QSpinBox *>(QStringLiteral("serverApiPortInput"));
     if (!scheme || !host || !port) return 20;
+    auto *cameraUsername = page.findChild<QLineEdit *>(
+        QStringLiteral("cameraUsernameInput"));
+    auto *cameraPassword = page.findChild<QLineEdit *>(
+        QStringLiteral("cameraPasswordInput"));
+    auto *saveCamera = page.findChild<QPushButton *>(
+        QStringLiteral("saveCameraSettingsButton"));
+    if (!cameraUsername || !cameraPassword || !saveCamera
+        || cameraPassword->echoMode() != QLineEdit::Password) return 26;
+    QString requestedCameraIp;
+    QString requestedCameraUsername;
+    QString requestedCameraPassword;
+    QObject::connect(&page, &SettingsPage::saveCameraCredentialsRequested,
+                     &app, [&](const QString &ip, const QString &username,
+                               const QString &password) {
+        requestedCameraIp = ip;
+        requestedCameraUsername = username;
+        requestedCameraPassword = password;
+    });
+    page.setCameraIp(QStringLiteral("172.20.32.1"));
+    page.setCameraCredentials(QStringLiteral("admin"),
+                               QStringLiteral("camera-secret"));
+    saveCamera->click();
+    if (requestedCameraIp != QStringLiteral("172.20.32.1")
+        || requestedCameraUsername != QStringLiteral("admin")
+        || requestedCameraPassword != QStringLiteral("camera-secret")) return 27;
     page.setServerBaseUrl(QStringLiteral("http://172.20.32.97:8080"));
     if (scheme->currentText() != QStringLiteral("http")
         || host->text() != QStringLiteral("172.20.32.97")
