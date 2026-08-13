@@ -113,6 +113,23 @@ private slots:
     void applyParkingSnapshot(const QJsonDocument &document);
 
 private:
+    struct FirePreflightResult {
+        bool accepted = false;
+        bool applyState = false;
+        bool recordHistory = false;
+        bool revisioned = false;
+        QString errorMessage;
+    };
+
+    struct FireRevisionLedger {
+        bool versionedSeen = false;
+        quint64 lastAppliedRevision = 0;
+        QByteArray stateFingerprint;
+        QHash<QString, QByteArray> eventFingerprintById;
+        QHash<QString, QString> deliveryIdBySink;
+        bool lifecycleHistoryRecorded = false;
+    };
+
     struct EventEvidenceReference {
         QString eventId;
         QString slotId;
@@ -130,6 +147,9 @@ private:
 
     void initializeApiClient();
     void initializeMqttClient();
+    FirePreflightResult preflightFireEvent(const ServerFireEvent &event,
+                                           const QString &topic,
+                                           bool retained);
     void applyChannelFireEvent(const ServerFireEvent &event,
                                const QString &topic,
                                bool retained);
@@ -186,6 +206,8 @@ private:
     QHash<QString, EventEvidenceReference> m_eventEvidenceReferences;
     QQueue<QString> m_eventEvidenceOrder;
     QSet<QString> m_fireAckCommandKeys;
+    QHash<QString, FireRevisionLedger> m_fireRevisionLedgers;
+    QHash<QString, QByteArray> m_fireDeliveryFingerprints;
     QUrl m_apiBaseUrl;
     QString m_slotsPath;
     QString m_slotDetailPath;
@@ -204,8 +226,9 @@ private:
     int m_currentReconnectDelayMs = 5000;
     bool m_allowInsecureHttp = false;
     bool m_snapshotRequestInFlight = false;
-    enum class OverstayRequest { None, Fetch, Update, Verify };
+    enum class OverstayRequest { None, Fetch, Update };
     OverstayRequest m_overstayRequest = OverstayRequest::None;
+    int m_pendingOverstaySeconds = -1;
     quint64 m_nextEventSequence = 1;
     quint64 m_nextEventEvidenceRequestSequence = 1;
     ApiDiagnosticState m_apiDiagnostic;

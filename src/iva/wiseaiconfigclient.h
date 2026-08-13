@@ -74,6 +74,7 @@ private:
         QJsonObject rollbackPayload;
         int deletedAreaIndex = -1;
         int verificationAttempt = 0;
+        QString lastVerificationError;
     };
 
     bool validateConnection(QString &errorMessage) const;

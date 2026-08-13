@@ -16,8 +16,11 @@ class SettingsPage : public QWidget
 
 public:
     explicit SettingsPage(const QString &configPath, const QString &cameraIp,
-                          QWidget *parent = nullptr);
+                          QWidget *parent = nullptr,
+                          const QString &cameraUsername = QString(),
+                          const QString &cameraPassword = QString());
     void setCameraIp(const QString &cameraIp);
+    void setCameraCredentials(const QString &username, const QString &password);
     void setServerBaseUrl(const QString &baseUrl);
     void setServerConnectionStatus(const QString &status, bool connected);
     void setOverstayThresholdRequestStarted(const QString &status);
@@ -27,7 +30,9 @@ public:
     static int overstaySeconds(int hours, int minutes, int seconds);
 
 signals:
-    void saveCameraIpRequested(const QString &cameraIp);
+    void saveCameraCredentialsRequested(const QString &cameraIp,
+                                        const QString &username,
+                                        const QString &password);
     void saveServerBaseUrlRequested(const QString &baseUrl);
     void reconnectServerRequested();
     void overstayThresholdRefreshRequested();
@@ -42,6 +47,8 @@ private:
 
     QLabel *m_cameraIpLabel = nullptr;
     QLineEdit *m_cameraIpInput = nullptr;
+    QLineEdit *m_cameraUsernameInput = nullptr;
+    QLineEdit *m_cameraPasswordInput = nullptr;
     QComboBox *m_serverSchemeInput = nullptr;
     QLineEdit *m_serverHostInput = nullptr;
     QSpinBox *m_serverPortInput = nullptr;

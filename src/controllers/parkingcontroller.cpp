@@ -103,6 +103,40 @@ QString fireAckCommandKey(const QString &channelId, const QString &alarmId)
     return channelId + QLatin1Char('|') + alarmId;
 }
 
+QString fireDeliverySinkKey(const QString &topic, const bool retained)
+{
+    if (topic.startsWith(QStringLiteral("parking/fire/"))) {
+        return QStringLiteral("RETAINED_STATE");
+    }
+    if (topic.startsWith(QStringLiteral("parking/v1/events/"))) {
+        return QStringLiteral("LIFECYCLE_EVENT");
+    }
+    return retained ? QStringLiteral("RETAINED_STATE")
+                    : QStringLiteral("MANUAL_OR_EVENT");
+}
+
+bool isFireStateOnlyDelivery(const QString &topic, const bool retained)
+{
+    return retained || topic.startsWith(QStringLiteral("parking/fire/"));
+}
+
+QByteArray fireStateFingerprint(const ServerFireEvent &event)
+{
+    QJsonObject identity;
+    identity.insert(QStringLiteral("event_id"), event.eventId);
+    identity.insert(QStringLiteral("alarm_id"), event.alarmId);
+    identity.insert(QStringLiteral("action"), static_cast<int>(event.action));
+    identity.insert(QStringLiteral("event_type"), event.eventType);
+    identity.insert(QStringLiteral("channel_id"), event.channelId);
+    identity.insert(QStringLiteral("source_id"), event.sourceId);
+    identity.insert(QStringLiteral("alarm_kind"), event.alarmKind);
+    identity.insert(QStringLiteral("alarm_state"), event.alarmState);
+    identity.insert(QStringLiteral("ack_state"), event.ackState);
+    identity.insert(QStringLiteral("active_present"), event.activePresent);
+    identity.insert(QStringLiteral("active"), event.active);
+    return QJsonDocument(identity).toJson(QJsonDocument::Compact);
+}
+
 bool isFireLifecycleEventType(const QString &rawEventType)
 {
     const QString eventType = rawEventType.trimmed().toUpper();
@@ -485,10 +519,138 @@ void ParkingController::handleMqttMessageWithMetadata(
                 QStringLiteral("REJECTED"));
 }
 
+ParkingController::FirePreflightResult ParkingController::preflightFireEvent(
+    const ServerFireEvent &event, const QString &topic, const bool retained)
+{
+    FirePreflightResult result;
+    const bool stateOnly = isFireStateOnlyDelivery(topic, retained);
+    auto existingLedger = m_fireRevisionLedgers.constFind(event.channelId);
+
+    if (!event.fireRevisionPresent) {
+        if (existingLedger != m_fireRevisionLedgers.cend()
+            && existingLedger->versionedSeen) {
+            result.errorMessage = QStringLiteral(
+                "revisionless fire payload rejected after v2 activation");
+            return result;
+        }
+
+        result.accepted = true;
+        result.applyState = true;
+        result.recordHistory = !stateOnly;
+        return result;
+    }
+
+    result.revisioned = true;
+    const QByteArray stateIdentity = fireStateFingerprint(event);
+    const QByteArray eventIdentity = QByteArray::number(event.fireRevision)
+        + QByteArray(1, '\x1f') + stateIdentity;
+    const QString sinkKey = fireDeliverySinkKey(topic, retained);
+    const QString deliveryKey = sinkKey + QChar(0x1f) + event.deliveryId
+        + QChar(0x1f) + QString::number(event.fireRevision);
+    const QByteArray deliveryIdentity = event.channelId.toUtf8()
+        + QByteArray(1, '\x1f') + QByteArray::number(event.fireRevision)
+        + QByteArray(1, '\x1f') + event.canonicalPayload;
+    const QByteArray registeredGlobalDelivery =
+        m_fireDeliveryFingerprints.value(deliveryKey);
+    if (!registeredGlobalDelivery.isEmpty()
+        && registeredGlobalDelivery != deliveryIdentity) {
+        result.errorMessage = QStringLiteral(
+            "same fire sink/delivery_id/revision carries a different payload");
+        return result;
+    }
+
+    if (existingLedger != m_fireRevisionLedgers.cend()
+        && existingLedger->versionedSeen) {
+        const QByteArray registeredEvent =
+            existingLedger->eventFingerprintById.value(event.eventId);
+        if (!registeredEvent.isEmpty() && registeredEvent != eventIdentity) {
+            result.errorMessage = QStringLiteral(
+                "same fire event_id carries a different revision or payload");
+            return result;
+        }
+
+        if (event.fireRevision < existingLedger->lastAppliedRevision) {
+            result.accepted = true;
+            return result;
+        }
+
+        if (event.fireRevision == existingLedger->lastAppliedRevision) {
+            if (existingLedger->stateFingerprint != stateIdentity) {
+                result.errorMessage = QStringLiteral(
+                    "same fire_revision carries a different lifecycle identity");
+                return result;
+            }
+
+            const QString registeredDeliveryId =
+                existingLedger->deliveryIdBySink.value(sinkKey);
+            if (!registeredDeliveryId.isEmpty()
+                && registeredDeliveryId != event.deliveryId) {
+                result.errorMessage = QStringLiteral(
+                    "same fire sink/revision carries a different delivery_id");
+                return result;
+            }
+
+            FireRevisionLedger &ledger = m_fireRevisionLedgers[event.channelId];
+            if (registeredDeliveryId.isEmpty()) {
+                ledger.deliveryIdBySink.insert(sinkKey, event.deliveryId);
+            }
+            if (registeredGlobalDelivery.isEmpty()) {
+                m_fireDeliveryFingerprints.insert(
+                    deliveryKey, deliveryIdentity);
+            }
+            result.accepted = true;
+            result.recordHistory = !stateOnly
+                && !ledger.lifecycleHistoryRecorded;
+            if (result.recordHistory) {
+                ledger.lifecycleHistoryRecorded = true;
+            }
+            return result;
+        }
+    }
+
+    FireRevisionLedger nextLedger;
+    if (existingLedger != m_fireRevisionLedgers.cend()) {
+        nextLedger.eventFingerprintById = existingLedger->eventFingerprintById;
+    }
+    nextLedger.versionedSeen = true;
+    nextLedger.lastAppliedRevision = event.fireRevision;
+    nextLedger.stateFingerprint = stateIdentity;
+    nextLedger.eventFingerprintById.insert(event.eventId, eventIdentity);
+    nextLedger.deliveryIdBySink.insert(sinkKey, event.deliveryId);
+    nextLedger.lifecycleHistoryRecorded = !stateOnly;
+    m_fireRevisionLedgers.insert(event.channelId, nextLedger);
+    if (registeredGlobalDelivery.isEmpty()) {
+        m_fireDeliveryFingerprints.insert(deliveryKey, deliveryIdentity);
+    }
+
+    result.accepted = true;
+    result.applyState = true;
+    result.recordHistory = !stateOnly;
+    return result;
+}
+
 void ParkingController::applyChannelFireEvent(const ServerFireEvent &event,
                                               const QString &topic,
                                               const bool retained)
 {
+    const FirePreflightResult preflight =
+        preflightFireEvent(event, topic, retained);
+    if (!preflight.accepted) {
+        recordEvent(
+            event.channelId.isEmpty() ? QStringLiteral("SYSTEM")
+                                      : event.channelId,
+            QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
+            topic + QStringLiteral(": ") + preflight.errorMessage,
+            QStringLiteral("REJECTED"));
+        return;
+    }
+    if (!preflight.applyState) {
+        if (preflight.recordHistory) {
+            recordChannelFireEvent(event);
+        }
+        return;
+    }
+
     bool stateChanged = false;
     bool requestConfirmation = false;
     if (event.action == ServerFireEventAction::Activate) {
@@ -503,7 +665,8 @@ void ParkingController::applyChannelFireEvent(const ServerFireEvent &event,
                 fireAckCommandKey(event.channelId, previous.alarmId));
         }
         requestConfirmation = !previous.active
-            || previous.alarmId != event.alarmId;
+            || previous.alarmId != event.alarmId
+            || (preflight.revisioned && previous.acknowledged);
         ChannelFireAlarmState updated;
         updated.alarmId = event.alarmId;
         updated.alarmState = event.alarmState.isEmpty()
@@ -513,7 +676,8 @@ void ParkingController::applyChannelFireEvent(const ServerFireEvent &event,
         updated.active = true;
 
         // A repeated DETECTED for the same active alarm must never undo ACK.
-        if (previous.active && previous.acknowledged
+        if (!preflight.revisioned
+            && previous.active && previous.acknowledged
             && (event.alarmId.isEmpty()
                 || previous.alarmId == event.alarmId)) {
             updated = previous;
@@ -529,8 +693,10 @@ void ParkingController::applyChannelFireEvent(const ServerFireEvent &event,
     } else if (event.action == ServerFireEventAction::Acknowledge) {
         const ChannelFireAlarmState previous =
             m_state.fireAlarms.value(event.channelId);
-        if ((!retained && !previous.active)
-            || (previous.active && previous.alarmId != event.alarmId)) {
+        if (!preflight.revisioned
+            && ((!retained && !previous.active)
+                || (previous.active
+                    && previous.alarmId != event.alarmId))) {
             recordEvent(
                 event.channelId,
                 QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
@@ -563,13 +729,18 @@ void ParkingController::applyChannelFireEvent(const ServerFireEvent &event,
     } else if (event.action == ServerFireEventAction::Clear) {
         const ChannelFireAlarmState previous =
             m_state.fireAlarms.value(event.channelId);
-        if (previous.active && previous.alarmId != event.alarmId) {
+        if (!preflight.revisioned
+            && previous.active && previous.alarmId != event.alarmId) {
             recordEvent(
                 event.channelId,
                 QStringLiteral("MQTT_FIRE_CONTRACT_ERROR"),
                 QStringLiteral("Rejected clear for mismatched alarm_id"),
                 QStringLiteral("REJECTED"));
             return;
+        }
+        if (!previous.alarmId.isEmpty()) {
+            m_fireAckCommandKeys.remove(
+                fireAckCommandKey(event.channelId, previous.alarmId));
         }
         m_fireAckCommandKeys.remove(
             fireAckCommandKey(event.channelId, event.alarmId));
@@ -589,9 +760,7 @@ void ParkingController::applyChannelFireEvent(const ServerFireEvent &event,
         emit fireConfirmationRequested(event.channelId, event.alarmId);
     }
 
-    const bool stateOnly = retained
-        || topic.startsWith(QStringLiteral("parking/fire/"));
-    if (!stateOnly || event.action != ServerFireEventAction::Activate) {
+    if (preflight.recordHistory) {
         recordChannelFireEvent(event);
     }
 }
@@ -1214,9 +1383,9 @@ void ParkingController::rebuildApiClient()
     if (m_reconnectTimer) m_reconnectTimer->stop();
     m_snapshotRequestInFlight = false;
     if (m_overstayRequest != OverstayRequest::None) {
-        const bool updateRequest = m_overstayRequest == OverstayRequest::Update
-            || m_overstayRequest == OverstayRequest::Verify;
+        const bool updateRequest = m_overstayRequest == OverstayRequest::Update;
         m_overstayRequest = OverstayRequest::None;
+        m_pendingOverstaySeconds = -1;
         emit overstayThresholdRequestFailed(
             QStringLiteral("The server connection changed."), updateRequest);
     }
@@ -1273,9 +1442,9 @@ void ParkingController::rebuildApiClient()
                 if (path == m_overstayThresholdPath
                     && m_overstayRequest != OverstayRequest::None) {
                     const bool updateRequest =
-                        m_overstayRequest == OverstayRequest::Update
-                        || m_overstayRequest == OverstayRequest::Verify;
+                        m_overstayRequest == OverstayRequest::Update;
                     m_overstayRequest = OverstayRequest::None;
+                    m_pendingOverstaySeconds = -1;
                     emit overstayThresholdRequestFailed(message, updateRequest);
                 } else if (path == m_slotsPath) {
                     m_snapshotRequestInFlight = false;
@@ -1382,6 +1551,7 @@ void ParkingController::updateOverstayThreshold(int seconds)
     }
 
     m_overstayRequest = OverstayRequest::Update;
+    m_pendingOverstaySeconds = seconds;
     emit overstayThresholdRequestStarted(
         QStringLiteral("Applying the new threshold..."));
     QJsonObject request;
@@ -1614,30 +1784,69 @@ void ParkingController::applyOverstayThresholdResponse(
 {
     const OverstayRequest completedRequest = m_overstayRequest;
     const bool updateResponse = completedRequest == OverstayRequest::Update;
-    const bool verificationResponse = completedRequest == OverstayRequest::Verify;
     int seconds = -1;
     QString applyPolicy;
     QString errorMessage;
     if (!parseOverstayThreshold(document, updateResponse, seconds,
                                 applyPolicy, errorMessage)) {
         m_overstayRequest = OverstayRequest::None;
+        m_pendingOverstaySeconds = -1;
         emit overstayThresholdRequestFailed(
-            errorMessage, updateResponse || verificationResponse);
+            errorMessage, updateResponse);
+        return;
+    }
+
+    const QJsonObject object = document.object();
+    const QJsonValue effectiveValue = object.value(
+        QStringLiteral("effectiveSeconds"));
+    const QJsonValue revisionValue = object.value(
+        QStringLiteral("appliedRevision"));
+    const QJsonValue runtimeAppliedValue = object.value(
+        QStringLiteral("runtimeApplied"));
+    const QJsonValue runtimeHealthyValue = object.value(
+        QStringLiteral("runtimeHealthy"));
+    const auto exactSeconds = [](const QJsonValue &value, int expected) {
+        return value.isDouble()
+            && value.toDouble() == static_cast<double>(expected);
+    };
+    const qint64 revision = revisionValue.toInteger(-1);
+    const bool runtimeContractValid =
+        exactSeconds(effectiveValue, seconds)
+        && revisionValue.isDouble() && revision > 0
+        && revisionValue.toDouble() == static_cast<double>(revision)
+        && runtimeAppliedValue.isBool() && runtimeAppliedValue.toBool()
+        && runtimeHealthyValue.isBool() && runtimeHealthyValue.toBool();
+    if (!runtimeContractValid) {
+        m_overstayRequest = OverstayRequest::None;
+        m_pendingOverstaySeconds = -1;
+        emit overstayThresholdRequestFailed(
+            QStringLiteral(
+                "The server runtime policy is unhealthy or incomplete."),
+            updateResponse);
         return;
     }
 
     if (updateResponse) {
-        m_overstayRequest = OverstayRequest::Verify;
-        emit overstayThresholdRequestStarted(
-            QStringLiteral("Verifying the saved server setting..."));
-        m_apiClient->getJson(m_overstayThresholdPath);
-        return;
+        const QJsonValue requestedValue = object.value(
+            QStringLiteral("requestedSeconds"));
+        if (m_pendingOverstaySeconds < 0
+            || seconds != m_pendingOverstaySeconds
+            || !exactSeconds(requestedValue, m_pendingOverstaySeconds)) {
+            m_overstayRequest = OverstayRequest::None;
+            m_pendingOverstaySeconds = -1;
+            emit overstayThresholdRequestFailed(
+                QStringLiteral(
+                    "The server did not confirm the effective runtime policy."),
+                true);
+            return;
+        }
     }
 
     m_overstayRequest = OverstayRequest::None;
+    m_pendingOverstaySeconds = -1;
     emit overstayThresholdReceived(seconds, applyPolicy,
-                                   verificationResponse);
-    if (verificationResponse) {
+                                   updateResponse);
+    if (updateResponse) {
         recordEvent(
             QStringLiteral("SYSTEM"),
             QStringLiteral("OVERSTAY_THRESHOLD_UPDATED"),

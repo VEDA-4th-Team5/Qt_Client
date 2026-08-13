@@ -15,7 +15,9 @@
 #include <QVBoxLayout>
 
 SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
-                           QWidget *parent)
+                           QWidget *parent,
+                           const QString &cameraUsername,
+                           const QString &cameraPassword)
     : QWidget(parent)
 {
     auto *layout = new QVBoxLayout(this);
@@ -28,7 +30,7 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
          QStringLiteral("Settings 사용 안내"),
          QStringLiteral("카메라·Pi 연결 주소와 서버의 초과주차 정책을 관리합니다."),
          QStringLiteral(
-             "<b>1. 카메라 IP 변경</b><br>IPv4 주소를 입력하고 <i>Save camera IP</i>를 누르면 Dashboard RTSP 주소와 IVA Setup의 대상 카메라가 함께 갱신됩니다.<br><br>"
+             "<b>1. 카메라 접속 설정</b><br>카메라 IPv4 주소·아이디·비밀번호를 입력하고 <i>Save camera settings</i>를 누르면 로컬 카메라 설정에 저장됩니다.<br><br>"
              "<b>2. Pi 서버 주소 변경</b><br>Protocol, Server IP/Host, API Port를 입력하고 <i>Save and reconnect</i>를 누릅니다. 주소는 이 PC의 <i>client_config.local.ini</i>에 저장됩니다.<br><br>"
              "<b>3. 연결 재시도</b><br><i>Reconnect now</i>는 저장된 주소로 API 연결을 즉시 다시 시도합니다.<br><br>"
              "<b>4. 초과주차 정책</b><br>페이지를 열거나 <i>Refresh</i>를 누르면 서버 설정을 읽습니다. 1분~24시간 범위로 입력하고 <i>Apply</i>하면 저장 후 서버 값을 다시 검증합니다."),
@@ -41,7 +43,15 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     m_cameraIpLabel = new QLabel(group);
     m_cameraIpInput = new QLineEdit(group);
     m_cameraIpInput->setPlaceholderText(QStringLiteral("e.g. 192.168.10.20"));
-    auto *saveCameraButton = new QPushButton(QStringLiteral("Save camera IP"), group);
+    m_cameraUsernameInput = new QLineEdit(group);
+    m_cameraUsernameInput->setObjectName(QStringLiteral("cameraUsernameInput"));
+    m_cameraUsernameInput->setPlaceholderText(QStringLiteral("e.g. admin"));
+    m_cameraPasswordInput = new QLineEdit(group);
+    m_cameraPasswordInput->setObjectName(QStringLiteral("cameraPasswordInput"));
+    m_cameraPasswordInput->setEchoMode(QLineEdit::Password);
+    m_cameraPasswordInput->setPlaceholderText(QStringLiteral("Camera password"));
+    auto *saveCameraButton = new QPushButton(QStringLiteral("Save camera settings"), group);
+    saveCameraButton->setObjectName(QStringLiteral("saveCameraSettingsButton"));
     auto *cameraLayout = new QHBoxLayout;
     cameraLayout->addWidget(m_cameraIpInput, 1);
     cameraLayout->addWidget(saveCameraButton);
@@ -76,18 +86,22 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     grid->addWidget(m_cameraIpLabel, 1, 1);
     grid->addWidget(new QLabel(QStringLiteral("Camera IPv4 address"), group), 2, 0);
     grid->addLayout(cameraLayout, 2, 1);
-    grid->addWidget(new QLabel(QStringLiteral("Server API Address"), group), 3, 0);
-    grid->addLayout(serverLayout, 3, 1);
-    grid->addWidget(new QLabel(QStringLiteral("Server connection"), group), 4, 0);
-    grid->addWidget(m_serverConnectionLabel, 4, 1);
-    grid->addWidget(new QLabel(QStringLiteral("Network addressing"), group), 5, 0);
-    grid->addWidget(new QLabel(QStringLiteral("Enter the server host and API port separately. MQTT follows the Server API host."), group), 5, 1);
-    grid->addWidget(new QLabel(QStringLiteral("Server address save target"), group), 6, 0);
-    grid->addWidget(new QLabel(QStringLiteral("client_config.local.ini (this PC override)"), group), 6, 1);
-    grid->addWidget(new QLabel(QStringLiteral("Channel source"), group), 7, 0);
-    grid->addWidget(new QLabel(QStringLiteral("Final URL pattern: /{channel}/{profile}/media.smp"), group), 7, 1);
-    grid->addWidget(new QLabel(QStringLiteral("Credentials"), group), 8, 0);
-    grid->addWidget(new QLabel(QStringLiteral("Stored outside the UI. Do not commit real passwords."), group), 8, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Camera username"), group), 3, 0);
+    grid->addWidget(m_cameraUsernameInput, 3, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Camera password"), group), 4, 0);
+    grid->addWidget(m_cameraPasswordInput, 4, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Credentials storage"), group), 5, 0);
+    grid->addWidget(new QLabel(QStringLiteral("Saved only to the local camera config. Never commit real passwords."), group), 5, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Server API Address"), group), 6, 0);
+    grid->addLayout(serverLayout, 6, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Server connection"), group), 7, 0);
+    grid->addWidget(m_serverConnectionLabel, 7, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Network addressing"), group), 8, 0);
+    grid->addWidget(new QLabel(QStringLiteral("Enter the server host and API port separately. MQTT follows the Server API host."), group), 8, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Server address save target"), group), 9, 0);
+    grid->addWidget(new QLabel(QStringLiteral("client_config.local.ini (this PC override)"), group), 9, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Channel source"), group), 10, 0);
+    grid->addWidget(new QLabel(QStringLiteral("Final URL pattern: /{channel}/{profile}/media.smp"), group), 10, 1);
     layout->addWidget(group);
 
     auto *overstayGroup = new QGroupBox(QStringLiteral("Overstay Policy"), this);
@@ -140,9 +154,13 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     layout->addWidget(overstayGroup);
     layout->addStretch();
     setCameraIp(cameraIp);
+    setCameraCredentials(cameraUsername, cameraPassword);
 
     auto requestCameraSave = [this]() {
-        emit saveCameraIpRequested(m_cameraIpInput->text().trimmed());
+        emit saveCameraCredentialsRequested(
+            m_cameraIpInput->text().trimmed(),
+            m_cameraUsernameInput->text().trimmed(),
+            m_cameraPasswordInput->text());
     };
     auto requestServerSave = [this]() {
         QUrl url;
@@ -153,6 +171,8 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     };
     connect(saveCameraButton, &QPushButton::clicked, this, requestCameraSave);
     connect(m_cameraIpInput, &QLineEdit::returnPressed, this, requestCameraSave);
+    connect(m_cameraUsernameInput, &QLineEdit::returnPressed, this, requestCameraSave);
+    connect(m_cameraPasswordInput, &QLineEdit::returnPressed, this, requestCameraSave);
     connect(saveServerButton, &QPushButton::clicked, this, requestServerSave);
     connect(m_serverHostInput, &QLineEdit::returnPressed, this, requestServerSave);
     connect(reconnectButton, &QPushButton::clicked, this, &SettingsPage::reconnectServerRequested);
@@ -190,6 +210,13 @@ void SettingsPage::setCameraIp(const QString &cameraIp)
 {
     m_cameraIpLabel->setText(cameraIp.isEmpty() ? QStringLiteral("Not configured") : cameraIp);
     m_cameraIpInput->setText(cameraIp);
+}
+
+void SettingsPage::setCameraCredentials(const QString &username,
+                                         const QString &password)
+{
+    m_cameraUsernameInput->setText(username);
+    m_cameraPasswordInput->setText(password);
 }
 
 void SettingsPage::setServerBaseUrl(const QString &baseUrl)

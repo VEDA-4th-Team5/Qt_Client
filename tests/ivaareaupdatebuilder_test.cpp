@@ -55,6 +55,17 @@ IvaAreaDefinition validArea()
         {QStringLiteral("vendorExtension"), QStringLiteral("do-not-send")}};
     return area;
 }
+
+IvaAreaConfiguration configurationFor(int channel,
+                                      bool enabled,
+                                      const QList<IvaAreaDefinition> &areas)
+{
+    IvaAreaConfiguration configuration;
+    configuration.channels.append(IvaChannelDefinition{
+        -1, channel, enabled, {}});
+    configuration.areas = areas;
+    return configuration;
+}
 }
 
 int main(int argc, char *argv[])
@@ -132,6 +143,47 @@ int main(int argc, char *argv[])
                      && error.contains(QStringLiteral("duplicated")),
                  "duplicate rule indexes must be rejected before PUT")) return 1;
 
-    std::cout << "PASS: camera options drive the exact validated WiseAI PUT payload\n";
+    IvaAreaDefinition second = validArea();
+    second.areaIndex = 2;
+    second.name = QStringLiteral("EV-02");
+    second.areaCoordinates = {QPointF(100, 540), QPointF(700, 540),
+                              QPointF(700, 1200), QPointF(100, 1200)};
+    second.detectionModes = {QStringLiteral("Intrusion")};
+    second.objectTypeFilter = {QStringLiteral("Vehicle.Car")};
+    second.rawDefinition = {};
+
+    if (!require(IvaAreaUpdateBuilder::buildChannelPayload(
+                     2, true, {area, second}, *channelOptions, payload, error),
+                 "two valid areas must produce a verification payload")) return 1;
+
+    IvaAreaDefinition cameraArea = area;
+    cameraArea.detectionModes = {QStringLiteral("Loitering"),
+                                 QStringLiteral("Intrusion")};
+    cameraArea.areaCoordinates = {QPointF(783, 1345), QPointF(91, 1345),
+                                  QPointF(91, 534), QPointF(783, 534)};
+    IvaAreaDefinition cameraSecond = second;
+    cameraSecond.detectionModes = {QStringLiteral("Intrusion")};
+    cameraSecond.areaCoordinates = {QPointF(701, 1201), QPointF(101, 1201),
+                                    QPointF(101, 541), QPointF(701, 541)};
+    const IvaAreaConfiguration normalizedCameraConfiguration =
+        configurationFor(2, true, {cameraSecond, cameraArea});
+    if (!require(IvaAreaUpdateBuilder::payloadMatchesChannel(
+                     payload, normalizedCameraConfiguration, *channelOptions,
+                     error),
+                 "verification must accept reordered areas, polygon winding, "
+                 "mode order, and one-pixel camera normalization")) return 1;
+
+    IvaAreaDefinition changedArea = cameraArea;
+    changedArea.name = QStringLiteral("unexpected-camera-rule");
+    const IvaAreaConfiguration changedCameraConfiguration =
+        configurationFor(2, true, {cameraSecond, changedArea});
+    if (!require(!IvaAreaUpdateBuilder::payloadMatchesChannel(
+                     payload, changedCameraConfiguration, *channelOptions,
+                     error)
+                     && error.contains(QStringLiteral("rule name"),
+                                       Qt::CaseInsensitive),
+                 "verification must reject a real rule-name change")) return 1;
+
+    std::cout << "PASS: WiseAI PUT payload validation and semantic verification\n";
     return 0;
 }

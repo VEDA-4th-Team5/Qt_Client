@@ -610,6 +610,7 @@ void WiseAiConfigClient::processSuccess(RequestKind kind,
             emit applySucceeded(channel, configuration);
             return;
         }
+        m_pendingUpdate.lastVerificationError = errorMessage;
         if (m_pendingUpdate.verificationAttempt < 3) {
             scheduleVerification(RequestKind::VerifyUpdate);
             return;
@@ -626,7 +627,10 @@ void WiseAiConfigClient::processSuccess(RequestKind kind,
             m_hasConfiguration = true;
             emit configurationReceived(configuration);
             finishApplyFailure(
-                QStringLiteral("Camera verification differed from the requested values; last-good IVA was restored."),
+                QStringLiteral(
+                    "Camera verification differed from the requested values; "
+                    "last-good IVA was restored. %1")
+                    .arg(m_pendingUpdate.lastVerificationError),
                 true);
             return;
         }

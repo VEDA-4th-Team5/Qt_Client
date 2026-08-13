@@ -213,7 +213,11 @@ void MainWindow::buildUi()
     m_eventsPage = new EventsPage(m_pages);
     m_evidencePage = new EvidencePage(m_pages);
     m_imageComparePage = new ImageComparePage(m_pages);
-    m_settingsPage = new SettingsPage(m_cameraSettings.configPath(), m_cameraSettings.cameraIp(), m_pages);
+    m_settingsPage = new SettingsPage(m_cameraSettings.configPath(),
+                                      m_cameraSettings.cameraIp(),
+                                      m_pages,
+                                      m_cameraSettings.cameraUsername(),
+                                      m_cameraSettings.cameraPassword());
     m_ivaSettingsPage = new IvaSettingsPage(m_cameraSettings.cameraIp(), m_pages);
     m_parkingRoiSettingsPage = new ParkingRoiSettingsPage(m_pages);
     m_debugPage = new DebugPage(m_pages);
@@ -414,8 +418,8 @@ void MainWindow::connectPages()
             [this](const QString &eventId) {
                 showEventEvidencePage(eventId);
             });
-    connect(m_settingsPage, &SettingsPage::saveCameraIpRequested,
-            this, &MainWindow::saveCameraIp);
+    connect(m_settingsPage, &SettingsPage::saveCameraCredentialsRequested,
+            this, &MainWindow::saveCameraCredentials);
     connect(m_settingsPage, &SettingsPage::saveServerBaseUrlRequested,
             m_parkingController, &ParkingController::updateServerBaseUrl);
     connect(m_settingsPage, &SettingsPage::reconnectServerRequested,
@@ -843,15 +847,19 @@ QString MainWindow::parkingMapLayoutPath() const
 #endif
 }
 
-void MainWindow::saveCameraIp(const QString &cameraIpText)
+void MainWindow::saveCameraCredentials(const QString &cameraIpText,
+                                       const QString &username,
+                                       const QString &password)
 {
     QString newIp;
     QString errorMessage;
-    if (!m_cameraSettings.saveCameraIp(cameraIpText, newIp, errorMessage)) {
-        QMessageBox::warning(this, QStringLiteral("Camera IP"), errorMessage);
+    if (!m_cameraSettings.saveCameraCredentials(cameraIpText, username, password,
+                                                newIp, errorMessage)) {
+        QMessageBox::warning(this, QStringLiteral("Camera settings"), errorMessage);
         return;
     }
     m_settingsPage->setCameraIp(newIp);
+    m_settingsPage->setCameraCredentials(username.trimmed(), password);
     m_ivaSettingsPage->setCameraIp(newIp);
     WiseAiConnectionOptions wiseAiOptions;
     wiseAiOptions.baseUrl = QUrl(QStringLiteral("https://%1").arg(newIp));
@@ -863,7 +871,9 @@ void MainWindow::saveCameraIp(const QString &cameraIpText)
     m_dashboardPage->setRtspUrls(
         m_cameraSettings.rtspUrls(QStringLiteral("profile3")),
         m_cameraSettings.rtspUrls(QStringLiteral("profile2")));
+    m_wiseAiConfigClient->fetchConfiguration();
     m_parkingController->recordEvent(
-        QStringLiteral("SYSTEM"), QStringLiteral("CAMERA_IP_UPDATED"),
-        QStringLiteral("Camera IP changed to ") + newIp, QStringLiteral("DONE"));
+        QStringLiteral("SYSTEM"), QStringLiteral("CAMERA_SETTINGS_UPDATED"),
+        QStringLiteral("Camera connection settings updated for ") + newIp,
+        QStringLiteral("DONE"));
 }
