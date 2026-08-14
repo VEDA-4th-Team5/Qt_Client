@@ -14,7 +14,10 @@
 #include <QMouseEvent>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QTableWidget>
 #include <QTimer>
 
@@ -130,9 +133,33 @@ int main(int argc, char *argv[])
         piRequestedRoi = roi;
         piGeneration = generation;
     });
-    page.resize(1400, 900);
+    page.resize(1180, 720);
     page.show();
     app.processEvents();
+    auto *detailsSplitter = page.findChild<QSplitter *>(
+        QStringLiteral("ivaRuleDetailsSplitter"));
+    auto *workspaceSplitter = page.findChild<QSplitter *>(
+        QStringLiteral("ivaWorkspaceSplitter"));
+    auto *editorScrollArea = page.findChild<QScrollArea *>(
+        QStringLiteral("ivaRuleEditorScrollArea"));
+    if (!require(workspaceSplitter && workspaceSplitter->sizes().size() == 2
+                     && workspaceSplitter->sizes().at(1) >= 480
+                     && detailsSplitter && editorScrollArea
+                     && editorScrollArea->widgetResizable()
+                     && !detailsSplitter->childrenCollapsible()
+                     && detailsSplitter->handleWidth() == 8
+                     && table->height() >= table->minimumHeight(),
+                 "IVA rule table must remain readable while details use a resizable scroll viewport")) return 1;
+    const int compactTableHeight = table->height();
+    detailsSplitter->setSizes({compactTableHeight + 100,
+                               qMax(1, detailsSplitter->height()
+                                           - compactTableHeight - 100)});
+    app.processEvents();
+    if (!require(table->height() >= compactTableHeight + 80
+                     && editorScrollArea->viewport()->height() > 0
+                     && editorScrollArea->verticalScrollBar()->maximum() > 0
+                     && editorScrollArea->horizontalScrollBar()->maximum() == 0,
+                 "vertical splitter must let users enlarge the IVA rule table")) return 1;
     if (!require(canvas && canvas->frameCompatible() && canvas->drawMode(),
                  "shared matching RTSP frames must enable direct video dragging")) return 1;
     if (!require(piSlot && sendToPi && !sendToPi->isEnabled() && piStatus,
