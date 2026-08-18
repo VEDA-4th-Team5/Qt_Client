@@ -38,13 +38,14 @@ public:
 signals:
     void rtspDiagnosticsChanged(const QList<RtspChannelDiagnostic> &channels);
     void eventEvidenceRequested(const QString &eventId);
+    void recentEventsDetailRequested();
 
 private slots:
     void handleVideoChannelClicked();
 
 private:
     void showHelpDialog();
-    QWidget *createVideoChannel(int channelIndex, const QString &channel, const QString &title,
+    QWidget *createVideoChannel(int channelIndex, const QString &channel,
                                 const QString &lowRtspUrl, const QString &highRtspUrl);
     void startDelayedVideoStreams();
     void toggleVideoChannel(int channelIndex);
