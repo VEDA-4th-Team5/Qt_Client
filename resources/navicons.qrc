@@ -1,0 +1,16 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="resources/icons/dashboard.svg">icons/dashboard.svg</file>
+        <file alias="resources/icons/parking-map.svg">icons/parking-map.svg</file>
+        <file alias="resources/icons/events.svg">icons/events.svg</file>
+        <file alias="resources/icons/evidence.svg">icons/evidence.svg</file>
+        <file alias="resources/icons/image-compare.svg">icons/image-compare.svg</file>
+        <file alias="resources/icons/settings.svg">icons/settings.svg</file>
+        <file alias="resources/icons/iva-setup.svg">icons/iva-setup.svg</file>
+        <file alias="resources/icons/parking-roi.svg">icons/parking-roi.svg</file>
+        <file alias="resources/icons/debug.svg">icons/debug.svg</file>
+        <file alias="resources/icons/monitor-connected.svg">icons/monitor-connected.svg</file>
+        <file alias="resources/icons/monitor-connecting.svg">icons/monitor-connecting.svg</file>
+        <file alias="resources/icons/monitor-disconnected.svg">icons/monitor-disconnected.svg</file>
+    </qresource>
+</RCC>

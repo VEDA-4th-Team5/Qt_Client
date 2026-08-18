@@ -24,13 +24,16 @@
 #include <QDir>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
+#include <QList>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStringList>
 #include <QStackedWidget>
+#include <QStyle>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -124,19 +127,54 @@ void MainWindow::buildUi()
     auto *sideLayout = new QVBoxLayout(sidebar);
     sideLayout->setContentsMargins(14, 18, 14, 18);
     sideLayout->setSpacing(8);
+
+    auto *sideHeader = new QHBoxLayout;
+    sideHeader->setContentsMargins(0, 0, 0, 0);
+    sideHeader->setSpacing(6);
     auto *brand = new QLabel(QStringLiteral("Smart Parking"), sidebar);
     brand->setObjectName(QStringLiteral("brandLabel"));
-    sideLayout->addWidget(brand);
+    sideHeader->addWidget(brand, 1);
+    auto *sidebarToggle = new QToolButton(sidebar);
+    sidebarToggle->setObjectName(QStringLiteral("sidebarToggle"));
+    sidebarToggle->setText(QStringLiteral("◀"));
+    sidebarToggle->setToolTip(QStringLiteral("페이지 메뉴 접기"));
+    sidebarToggle->setFixedSize(30, 30);
+    sideHeader->addWidget(sidebarToggle);
+    sideLayout->addLayout(sideHeader);
     sideLayout->addSpacing(16);
 
     m_pages = new QStackedWidget(central);
     auto *navGroup = new QButtonGroup(this);
     navGroup->setExclusive(true);
+    QList<QPushButton *> navButtons;
     auto addNavButton = [&](const QString &text, int index) {
         auto *button = new QPushButton(text, sidebar);
         button->setCheckable(true);
         button->setProperty("nav", true);
+        const QString iconPath = index == 0
+            ? QStringLiteral(":/resources/icons/dashboard.svg")
+            : index == 1
+                ? QStringLiteral(":/resources/icons/parking-map.svg")
+                : index == 2
+                    ? QStringLiteral(":/resources/icons/events.svg")
+                    : index == 3
+                        ? QStringLiteral(":/resources/icons/evidence.svg")
+                        : index == 4
+                            ? QStringLiteral(":/resources/icons/image-compare.svg")
+                            : index == 5
+                                ? QStringLiteral(":/resources/icons/settings.svg")
+                                : index == 6
+                                    ? QStringLiteral(":/resources/icons/iva-setup.svg")
+                                    : index == 7
+                                        ? QStringLiteral(":/resources/icons/parking-roi.svg")
+                                        : QStringLiteral(":/resources/icons/debug.svg");
+        button->setIcon(QIcon(iconPath));
+        button->setIconSize(QSize(20, 20));
+        button->setProperty("navFullText", text);
+        button->setProperty("navCollapsed", false);
+        button->setToolTip(text);
         navGroup->addButton(button, index);
+        navButtons.append(button);
         sideLayout->addWidget(button);
         connect(button, &QPushButton::clicked, m_pages,
                 [this, index]() { m_pages->setCurrentIndex(index); });
@@ -164,6 +202,26 @@ void MainWindow::buildUi()
     });
     sideLayout->addStretch();
 
+    connect(sidebarToggle, &QToolButton::clicked, this,
+            [sidebar, brand, sidebarToggle, navButtons]() {
+                const bool collapse = sidebar->width() > 100;
+                sidebar->setFixedWidth(collapse ? 64 : 190);
+                brand->setVisible(!collapse);
+                sidebarToggle->setText(collapse ? QStringLiteral("▶")
+                                                 : QStringLiteral("◀"));
+                sidebarToggle->setToolTip(
+                    collapse ? QStringLiteral("페이지 메뉴 펼치기")
+                             : QStringLiteral("페이지 메뉴 접기"));
+                for (QPushButton *button : navButtons) {
+                    button->setText(collapse
+                                        ? QString()
+                                        : button->property("navFullText").toString());
+                    button->setProperty("navCollapsed", collapse);
+                    button->style()->unpolish(button);
+                    button->style()->polish(button);
+                }
+            });
+
     auto *contentWidget = new QWidget(central);
     auto *contentLayout = new QVBoxLayout(contentWidget);
     contentLayout->setContentsMargins(16, 14, 16, 14);
@@ -174,9 +232,36 @@ void MainWindow::buildUi()
     auto *title = new QLabel(QStringLiteral("Smart Parking Integrated Monitoring System"), contentWidget);
     title->setObjectName(QStringLiteral("titleLabel"));
     headerLayout->addWidget(title);
+
+    m_monitorStatusButton = new QToolButton(contentWidget);
+    m_monitorStatusButton->setObjectName(QStringLiteral("monitorStatusIndicator"));
+    m_monitorStatusButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_monitorStatusButton->setIconSize(QSize(22, 22));
+    m_monitorStatusButton->setFixedSize(42, 34);
+    m_monitorStatusButton->setAccessibleName(QStringLiteral("Monitoring connection status"));
+    headerLayout->addWidget(m_monitorStatusButton);
+    updateMonitorStatus(QStringLiteral("Waiting for server connection"), false);
+
+    m_alertBanner = new QLabel(QString(), contentWidget);
+    m_alertBanner->setObjectName(QStringLiteral("headerStatusLabel"));
+    m_alertBanner->setAlignment(Qt::AlignCenter);
+    m_alertBanner->setFixedSize(360, 34);
+    m_alertBanner->setMargin(6);
+    m_alertBanner->setToolTip(QStringLiteral("No active alerts"));
+    m_alertBanner->setStyleSheet(QStringLiteral(
+        "background: transparent; color: transparent; "
+        "border: 1px solid transparent; border-radius: 4px;"));
+    headerLayout->addWidget(m_alertBanner);
     headerLayout->addStretch();
 
+    m_pageHelpStack = new QStackedWidget(contentWidget);
+    m_pageHelpStack->setObjectName(QStringLiteral("pageHelpStack"));
+    m_pageHelpStack->setFixedSize(112, 34);
+    headerLayout->addWidget(m_pageHelpStack);
+
     auto *alarmWidget = new QWidget(contentWidget);
+    alarmWidget->setObjectName(QStringLiteral("notificationIndicator"));
+    alarmWidget->setFixedSize(62, 34);
     auto *alarmLayout = new QHBoxLayout(alarmWidget);
     alarmLayout->setContentsMargins(0, 0, 0, 0);
     alarmLayout->setSpacing(4);
@@ -202,11 +287,6 @@ void MainWindow::buildUi()
             this, &MainWindow::updateNotificationIndicator);
     updateNotificationIndicator();
 
-    m_alertBanner = new QLabel(QStringLiteral("System ready | Waiting for parking state"), contentWidget);
-    m_alertBanner->setAlignment(Qt::AlignCenter);
-    m_alertBanner->setMinimumHeight(34);
-    contentLayout->addWidget(m_alertBanner);
-
     m_dashboardPage = new DashboardPage(m_cameraSettings.rtspUrls(QStringLiteral("profile3")),
                                         m_cameraSettings.rtspUrls(QStringLiteral("profile2")), m_pages);
     m_parkingMapPage = new ParkingMapPage(parkingMapLayoutPath(), m_pages);
@@ -230,6 +310,7 @@ void MainWindow::buildUi()
     m_pages->addWidget(m_ivaSettingsPage);
     m_pages->addWidget(m_parkingRoiSettingsPage);
     m_pages->addWidget(m_debugPage);
+    installPageHelpButtons();
     contentLayout->addWidget(m_pages, 1);
     rootLayout->addWidget(sidebar);
     rootLayout->addWidget(contentWidget, 1);
@@ -241,6 +322,8 @@ void MainWindow::buildUi()
         "QMainWindow { background: #f5f7f9; }"
         "QFrame#sidebar { background: #1f2a33; }"
         "QLabel#brandLabel { color: white; font-size: 18px; font-weight: 800; }"
+        "QToolButton#sidebarToggle { background: #263640; color: #dce5ea; border: 1px solid #455a64; border-radius: 5px; font-weight: 800; }"
+        "QToolButton#sidebarToggle:hover { background: #37474f; color: white; }"
         "QLabel#titleLabel { font-size: 22px; font-weight: 700; color: #202124; }"
         "QGroupBox { font-weight: 700; border: 1px solid #c7cdd4; border-radius: 6px; margin-top: 8px; padding-top: 10px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
@@ -249,8 +332,58 @@ void MainWindow::buildUi()
         "QPushButton { background: #263238; color: white; border: none; border-radius: 4px; padding: 9px 14px; font-weight: 600; }"
         "QPushButton:hover { background: #37474f; }"
         "QPushButton[nav=\"true\"] { text-align: left; background: transparent; color: #dce5ea; padding: 11px 12px; }"
+        "QPushButton[nav=\"true\"][navCollapsed=\"true\"] { text-align: center; padding: 11px 4px; }"
         "QPushButton[nav=\"true\"]:hover { background: #2e3c46; }"
         "QPushButton[nav=\"true\"]:checked { background: #406274; color: white; }"));
+}
+
+void MainWindow::installPageHelpButtons()
+{
+    if (!m_pages || !m_pageHelpStack) return;
+
+    const QList<QWidget *> pages = {
+        m_dashboardPage,
+        m_parkingMapPage,
+        m_eventsPage,
+        m_evidencePage,
+        m_imageComparePage,
+        m_settingsPage,
+        m_ivaSettingsPage,
+        m_parkingRoiSettingsPage,
+        m_debugPage,
+    };
+    const QStringList buttonNames = {
+        QStringLiteral("dashboardHelpButton"),
+        QStringLiteral("parkingMapHelpButton"),
+        QStringLiteral("eventsHelpButton"),
+        QStringLiteral("evidenceHelpButton"),
+        QStringLiteral("imageCompareHelpButton"),
+        QStringLiteral("settingsHelpButton"),
+        QStringLiteral("ivaHelpButton"),
+        QStringLiteral("parkingRoiHelpButton"),
+        QStringLiteral("debugHelpButton"),
+    };
+
+    for (int index = 0; index < pages.size(); ++index) {
+        QPushButton *button = pages.at(index)->findChild<QPushButton *>(
+            buttonNames.at(index));
+        if (!button) {
+            button = new QPushButton(QStringLiteral("도움말"), m_pageHelpStack);
+            button->setEnabled(false);
+        }
+        button->setText(QStringLiteral("도움말"));
+        button->setFixedSize(112, 34);
+        button->setStyleSheet(QStringLiteral(
+            "QPushButton { background:#263238; color:white; border:1px solid #455a64; "
+            "border-radius:6px; padding:6px 10px; font-weight:800; }"
+            "QPushButton:hover { background:#37474f; border-color:#fb8c00; }"
+            "QPushButton:pressed { background:#1c252a; }"));
+        m_pageHelpStack->addWidget(button);
+    }
+
+    connect(m_pages, &QStackedWidget::currentChanged,
+            m_pageHelpStack, &QStackedWidget::setCurrentIndex);
+    m_pageHelpStack->setCurrentIndex(m_pages->currentIndex());
 }
 
 void MainWindow::connectPages()
@@ -261,10 +394,20 @@ void MainWindow::connectPages()
             this, &MainWindow::renderParkingState);
     connect(m_parkingController, &ParkingController::bannerChanged, this,
             [this](const QString &message, bool hasAlert) {
+                if (!hasAlert) {
+                    m_alertBanner->clear();
+                    m_alertBanner->setToolTip(QStringLiteral("No active alerts"));
+                    m_alertBanner->setStyleSheet(QStringLiteral(
+                        "background: transparent; color: transparent; "
+                        "border: 1px solid transparent; border-radius: 4px;"));
+                    return;
+                }
+
                 m_alertBanner->setText(message);
-                m_alertBanner->setStyleSheet(hasAlert
-                    ? QStringLiteral("background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; border-radius: 4px; font-weight: 800;")
-                    : QStringLiteral("background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; border-radius: 4px; font-weight: 700;"));
+                m_alertBanner->setToolTip(message);
+                m_alertBanner->setStyleSheet(QStringLiteral(
+                    "background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; "
+                    "border-radius: 4px; font-weight: 800;"));
             });
     connect(m_parkingController, &ParkingController::eventLogged, this,
             [this](const MonitoringEvent &event) {
@@ -294,6 +437,8 @@ void MainWindow::connectPages()
             [this](const QString &eventId) {
                 showEventEvidencePage(eventId);
             });
+    connect(m_dashboardPage, &DashboardPage::recentEventsDetailRequested,
+            this, &MainWindow::showEventsPage);
     connect(m_parkingSimulationService, &ParkingSimulationService::simulationApplied,
             m_diagnosticsService, &DiagnosticsService::markSimulationApplied);
     connect(m_diagnosticsService, &DiagnosticsService::apiStateChanged,
@@ -306,10 +451,6 @@ void MainWindow::connectPages()
             m_debugPage, &DebugPage::appendDiagnosticLog);
     connect(m_parkingMapPage, &ParkingMapPage::layoutSaveResult, this,
             [this](bool success, const QString &message) {
-                m_alertBanner->setText(message);
-                m_alertBanner->setStyleSheet(success
-                    ? QStringLiteral("background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; border-radius: 4px; font-weight: 700;")
-                    : QStringLiteral("background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; border-radius: 4px; font-weight: 800;"));
                 m_parkingController->recordEvent(
                     QStringLiteral("PARKING_MAP"),
                     success ? QStringLiteral("LAYOUT_SAVED")
@@ -361,12 +502,6 @@ void MainWindow::connectPages()
             [this](const QString &eventId, const QString &slotId,
                    const QString &message) {
                 m_evidencePage->showEventError(eventId, slotId, message);
-                m_alertBanner->setText(
-                    QStringLiteral("Event evidence unavailable: %1")
-                        .arg(message));
-                m_alertBanner->setStyleSheet(QStringLiteral(
-                    "background:#fff3e0;color:#e65100;border:1px solid #ffb74d;"
-                    "border-radius:4px;font-weight:800;"));
             });
     connect(m_parkingController, &ParkingController::detailError, this,
             [this](const QString &message) {
@@ -432,6 +567,8 @@ void MainWindow::connectPages()
             m_settingsPage, &SettingsPage::setServerBaseUrl);
     connect(m_parkingController, &ParkingController::serverConnectionChanged,
             m_settingsPage, &SettingsPage::setServerConnectionStatus);
+    connect(m_parkingController, &ParkingController::serverConnectionChanged,
+            this, &MainWindow::updateMonitorStatus);
     connect(m_parkingController,
             &ParkingController::overstayThresholdRequestStarted,
             m_settingsPage, &SettingsPage::setOverstayThresholdRequestStarted);
@@ -604,8 +741,14 @@ void MainWindow::updateNotificationIndicator()
     const int unreadCount = m_notificationCenter ? m_notificationCenter->unreadCount() : 0;
     const bool hasNotifications = m_notificationCenter && m_notificationCenter->hasNotifications();
     if (m_notificationBadge) {
-        m_notificationBadge->setVisible(unreadCount > 0);
         m_notificationBadge->setText(unreadCount > 9 ? QStringLiteral("9+") : QString::number(unreadCount));
+        m_notificationBadge->setStyleSheet(unreadCount > 0
+            ? QStringLiteral(
+                "QLabel { background: #d32f2f; color: white; border-radius: 9px; "
+                "font-size: 12px; font-weight: 900; }")
+            : QStringLiteral(
+                "QLabel { background: #cfd8dc; color: #546e7a; border-radius: 9px; "
+                "font-size: 12px; font-weight: 800; }"));
     }
     if (m_notificationButton) {
         m_notificationButton->setToolTip(
@@ -785,12 +928,14 @@ bool MainWindow::showEventEvidencePage(const QString &rawEventId)
         return false;
     }
     if (!m_parkingController->hasEventEvidence(eventId)) {
-        m_alertBanner->setText(
-            QStringLiteral("Event %1 is not linked to parking evidence.")
-                .arg(eventId));
-        m_alertBanner->setStyleSheet(QStringLiteral(
-            "background:#fff3e0;color:#e65100;border:1px solid #ffb74d;"
-            "border-radius:4px;font-weight:800;"));
+        m_evidencePage->openEvent(eventId, QString());
+        m_evidencePage->showEventError(
+            eventId, QString(),
+            QStringLiteral("This event is not linked to parking evidence."));
+        m_pages->setCurrentWidget(m_evidencePage);
+        if (m_evidenceNavButton) {
+            m_evidenceNavButton->setChecked(true);
+        }
         return false;
     }
     const QString slotId = m_parkingController->eventEvidenceSlotId(eventId);
@@ -801,6 +946,41 @@ bool MainWindow::showEventEvidencePage(const QString &rawEventId)
     }
     m_parkingController->requestEventEvidence(eventId);
     return true;
+}
+
+void MainWindow::updateMonitorStatus(const QString &status, bool connected)
+{
+    if (!m_monitorStatusButton) return;
+
+    const QString normalized = status.trimmed().toUpper();
+    const bool connecting = normalized.contains(QStringLiteral("CONNECT"))
+        || normalized.contains(QStringLiteral("RETRY"));
+    const QString iconPath = connected
+        ? QStringLiteral(":/resources/icons/monitor-connected.svg")
+        : connecting
+            ? QStringLiteral(":/resources/icons/monitor-connecting.svg")
+            : QStringLiteral(":/resources/icons/monitor-disconnected.svg");
+    const QString accent = connected
+        ? QStringLiteral("#2e7d32")
+        : connecting
+            ? QStringLiteral("#f9a825")
+            : QStringLiteral("#c62828");
+    const QString background = connected
+        ? QStringLiteral("#e8f5e9")
+        : connecting
+            ? QStringLiteral("#fff8e1")
+            : QStringLiteral("#ffebee");
+
+    m_monitorStatusButton->setIcon(QIcon(iconPath));
+    m_monitorStatusButton->setToolTip(
+        QStringLiteral("Monitoring connection: %1").arg(status));
+    m_monitorStatusButton->setStyleSheet(QStringLiteral(
+        "QToolButton { background:%1; border:1px solid %2; border-radius:6px; }"
+        "QToolButton:hover { background:%3; }")
+            .arg(background, accent,
+                 connected ? QStringLiteral("#c8e6c9")
+                           : connecting ? QStringLiteral("#ffecb3")
+                                        : QStringLiteral("#ffcdd2")));
 }
 
 QString MainWindow::cameraConfigPath() const

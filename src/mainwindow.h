@@ -42,8 +42,10 @@ protected:
 
 private:
     void buildUi();
+    void installPageHelpButtons();
     void connectPages();
     void renderParkingState();
+    void updateMonitorStatus(const QString &status, bool connected);
     void saveCameraCredentials(const QString &cameraIpText,
                                const QString &username,
                                const QString &password);
@@ -60,6 +62,7 @@ private:
 
     CameraSettings m_cameraSettings;
     NotificationCenter *m_notificationCenter = nullptr;
+    QToolButton *m_monitorStatusButton = nullptr;
     QLabel *m_alertBanner = nullptr;
     QToolButton *m_notificationButton = nullptr;
     QLabel *m_notificationBadge = nullptr;
@@ -67,6 +70,7 @@ private:
     QHash<QString, QPointer<FireAlarmPopup>> m_fireAlarmPopups;
     QHash<QString, QString> m_shownFireAlarmIds;
     QStackedWidget *m_pages = nullptr;
+    QStackedWidget *m_pageHelpStack = nullptr;
     QPushButton *m_eventsNavButton = nullptr;
     QPushButton *m_evidenceNavButton = nullptr;
     QPushButton *m_imageCompareNavButton = nullptr;

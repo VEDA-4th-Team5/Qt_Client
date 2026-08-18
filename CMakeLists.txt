@@ -183,6 +183,28 @@ else()
     target_sources(smart_parking_qt_client PRIVATE ${RTSP_QML_RESOURCES})
 endif()
 
+if (QT_VERSION_MAJOR EQUAL 6)
+    qt_add_resources(smart_parking_qt_client nav_icons
+        PREFIX "/"
+        FILES
+            resources/icons/dashboard.svg
+            resources/icons/parking-map.svg
+            resources/icons/events.svg
+            resources/icons/evidence.svg
+            resources/icons/image-compare.svg
+            resources/icons/settings.svg
+            resources/icons/iva-setup.svg
+            resources/icons/parking-roi.svg
+            resources/icons/debug.svg
+            resources/icons/monitor-connected.svg
+            resources/icons/monitor-connecting.svg
+            resources/icons/monitor-disconnected.svg
+    )
+else()
+    qt5_add_resources(NAV_ICON_RESOURCES resources/navicons.qrc)
+    target_sources(smart_parking_qt_client PRIVATE ${NAV_ICON_RESOURCES})
+endif()
+
 if (EXISTS "${FFMPEG_BINARY_DIR}")
     add_custom_command(TARGET smart_parking_qt_client POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
