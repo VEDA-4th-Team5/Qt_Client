@@ -27,6 +27,7 @@
 #include <QScrollArea>
 #include <QSignalBlocker>
 #include <QShowEvent>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QTableWidget>
@@ -78,6 +79,7 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     layout->addWidget(m_channelSummaryLabel);
 
     auto *workspaceSplitter = new QSplitter(Qt::Horizontal, this);
+    workspaceSplitter->setObjectName(QStringLiteral("ivaWorkspaceSplitter"));
     auto *videoPanel = new QWidget(workspaceSplitter);
     auto *videoLayout = new QVBoxLayout(videoPanel);
     videoLayout->setContentsMargins(0, 0, 0, 0);
@@ -134,8 +136,16 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     workspaceSplitter->addWidget(videoPanel);
 
     auto *splitter = new QSplitter(Qt::Vertical, workspaceSplitter);
+    splitter->setObjectName(QStringLiteral("ivaRuleDetailsSplitter"));
+    splitter->setChildrenCollapsible(false);
+    splitter->setHandleWidth(8);
+    splitter->setStyleSheet(QStringLiteral(
+        "QSplitter::handle:vertical { background:#cfd8dc; margin:2px 0; "
+        "border-radius:2px; }"
+        "QSplitter::handle:vertical:hover { background:#90a4ae; }"));
     m_areaTable = new QTableWidget(0, 8, splitter);
     m_areaTable->setObjectName(QStringLiteral("ivaAreaTable"));
+    m_areaTable->setMinimumHeight(150);
     m_areaTable->setHorizontalHeaderLabels(
         {QStringLiteral("Channel"), QStringLiteral("Enabled"),
          QStringLiteral("Index"), QStringLiteral("Rule name"),
@@ -152,8 +162,16 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
         m_areaTable->setColumnHidden(column, true);
     }
 
-    auto *editorGroup = new QGroupBox(QStringLiteral("Selected Area Details"), splitter);
+    auto *editorScrollArea = new QScrollArea(splitter);
+    editorScrollArea->setObjectName(QStringLiteral("ivaRuleEditorScrollArea"));
+    editorScrollArea->setWidgetResizable(true);
+    editorScrollArea->setFrameShape(QFrame::NoFrame);
+    editorScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    editorScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+
+    auto *editorGroup = new QGroupBox(QStringLiteral("Selected Area Details"));
     editorGroup->setObjectName(QStringLiteral("ivaRuleEditor"));
+    editorGroup->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     auto *editorLayout = new QGridLayout(editorGroup);
 
     m_channelEnabledCheck = new QCheckBox(QStringLiteral("Channel enabled"), editorGroup);
@@ -238,14 +256,16 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     applyButtons->addWidget(m_deleteAreaButton);
     applyButtons->addWidget(m_applyButton);
     editorLayout->addLayout(applyButtons, 4, 0, 1, 5);
+    editorScrollArea->setWidget(editorGroup);
     splitter->addWidget(m_areaTable);
-    splitter->addWidget(editorGroup);
+    splitter->addWidget(editorScrollArea);
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 2);
-    splitter->setSizes({170, 500});
+    splitter->setSizes({180, 420});
     workspaceSplitter->addWidget(splitter);
-    workspaceSplitter->setStretchFactor(0, 3);
-    workspaceSplitter->setStretchFactor(1, 2);
+    workspaceSplitter->setStretchFactor(0, 6);
+    workspaceSplitter->setStretchFactor(1, 5);
+    workspaceSplitter->setSizes({620, 540});
     layout->addWidget(workspaceSplitter, 1);
 
     auto *piRoiGroup = new QGroupBox(QStringLiteral("Parking Area Actions"), this);
