@@ -960,6 +960,9 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
         if (occupied) {
             visual.occupancy = SlotOccupancy::Occupied;
             slot.occupiedTime = durationText(event.occupiedSeconds);
+            if (!slot.occupiedSince.isValid() && event.occurredAt.isValid()) {
+                slot.occupiedSince = event.occurredAt;
+            }
         } else if (vacant) {
             visual.occupancy = SlotOccupancy::Vacant;
             visual.vehicleClass = VehicleClass::Unknown;
@@ -968,6 +971,7 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
             visual.ocrStatus = OcrStatus::None;
             slot.plateNumber = QStringLiteral("-");
             slot.occupiedTime = QStringLiteral("-");
+            slot.occupiedSince = QDateTime();
             slot.correlationId.clear();
         }
 
@@ -1004,6 +1008,9 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
         slot.alarmText = alarmTextFromKind(visual.alarm);
         visual.correlationId = slot.correlationId;
         slot.visual = visual;
+        slot.lastUpdatedAt = event.occurredAt.isValid()
+            ? event.occurredAt : QDateTime::currentDateTime();
+        slot.eventId = event.eventId;
         m_state.evSlots.insert(slotId, slot);
         m_state.slotPlateNumbers.insert(slotId, slot.plateNumber);
     } else {
@@ -1014,6 +1021,10 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
         if (occupied) {
             visual.occupancy = SlotOccupancy::Occupied;
             visual.vehicleClass = VehicleClass::General;
+            if (!slot.occupiedSince.isValid() && event.occurredAt.isValid()) {
+                slot.occupiedSince = event.occurredAt;
+            }
+            slot.occupiedTime = durationText(event.occupiedSeconds);
         } else if (vacant) {
             visual.occupancy = SlotOccupancy::Vacant;
             visual.vehicleClass = VehicleClass::Unknown;
@@ -1021,6 +1032,8 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
             visual.alarmAcknowledged = false;
             visual.ocrStatus = OcrStatus::None;
             slot.correlationId.clear();
+            slot.occupiedTime = QStringLiteral("-");
+            slot.occupiedSince = QDateTime();
         }
         
         if (ocrRequested) {
@@ -1044,6 +1057,9 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
         slot.state = stateFromVisual(visual);
         visual.correlationId = slot.correlationId;
         slot.visual = visual;
+        slot.lastUpdatedAt = event.occurredAt.isValid()
+            ? event.occurredAt : QDateTime::currentDateTime();
+        slot.eventId = event.eventId;
         m_state.parkingSlots.insert(slotId, slot);
     }
 
@@ -2049,10 +2065,16 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
                                        ? QStringLiteral("NORMAL") : slot.alarm)
                                 : alarmTextFromKind(visual.alarm)};
             info.visual = visual;
+            info.occupiedSince = slot.occupiedSince;
+            info.lastUpdatedAt = snapshot.generatedAt;
             m_state.evSlots[slotId] = info;
         } else {
             ParkingSlotInfo info{slotId, state};
             info.visual = visual;
+            info.occupiedTime = occupiedDurationText(
+                slot.occupiedSince, slot.elapsedSeconds);
+            info.occupiedSince = slot.occupiedSince;
+            info.lastUpdatedAt = snapshot.generatedAt;
             m_state.parkingSlots[slotId] = info;
         }
         m_state.slotPlateNumbers.insert(slotId, slot.plateNumber);
@@ -2061,6 +2083,7 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
         if (!images.isEmpty()) m_state.slotImages.insert(slotId, images);
         ++appliedCount;
     }
+    m_state.generatedAt = snapshot.generatedAt;
     notifyStateChanged();
     const QString generatedAt = snapshot.generatedAt.isValid()
         ? snapshot.generatedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))

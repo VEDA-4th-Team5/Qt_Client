@@ -62,6 +62,9 @@ struct EvSlotInfo {
     QString correlationId;
     OcrStatus ocrStatus = OcrStatus::None;
     SlotVisualState visual;
+    QDateTime occupiedSince;
+    QDateTime lastUpdatedAt;
+    QString eventId;
 };
 
 struct ParkingSlotInfo {
@@ -70,6 +73,10 @@ struct ParkingSlotInfo {
     QString correlationId;
     OcrStatus ocrStatus = OcrStatus::None;
     SlotVisualState visual;
+    QString occupiedTime;
+    QDateTime occupiedSince;
+    QDateTime lastUpdatedAt;
+    QString eventId;
 };
 
 struct ChannelFireAlarmState {
@@ -88,6 +95,7 @@ struct ParkingViewState {
     // Fire belongs to a camera channel, never to an individual parking slot.
     QSet<QString> fireChannels;
     QHash<QString, ChannelFireAlarmState> fireAlarms;
+    QDateTime generatedAt;
     bool apiEnabled = false;
 };
 
