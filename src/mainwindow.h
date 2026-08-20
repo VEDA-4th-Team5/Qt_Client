@@ -9,6 +9,7 @@
 #include <QString>
 
 class DashboardPage;
+struct AuthSession;
 class DebugPage;
 class DiagnosticsService;
 class EvidencePage;
@@ -35,7 +36,12 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent = nullptr);
+    explicit MainWindow(const AuthSession &authSession,
+                        QWidget *parent = nullptr);
+    bool prepareForReauthentication();
+
+signals:
+    void reauthenticationRequested();
 
 protected:
     void closeEvent(QCloseEvent *event) override;

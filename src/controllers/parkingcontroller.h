@@ -7,6 +7,7 @@
 #include "models/parkingstate.h"
 #include "models/slotidmapper.h"
 
+#include <QByteArray>
 #include <QObject>
 #include <QHash>
 #include <QQueue>
@@ -50,6 +51,8 @@ public:
 public slots:
     void requestSlotDetail(const QString &slotId);
     void requestEventEvidence(const QString &eventId);
+    void setBearerAuthentication(const QUrl &fixedLoginOrigin,
+                                 const QByteArray &token);
     void updateServerBaseUrl(const QString &baseUrl);
     void reconnectNow();
     void requestOverstayThreshold();
@@ -65,6 +68,7 @@ public slots:
                      const QString &message, const QString &status);
 
 signals:
+    void authenticationExpired();
     void stateChanged();
     void bannerChanged(const QString &message, bool hasAlert);
     void statusMessageChanged(const QString &message);
@@ -209,6 +213,10 @@ private:
     QHash<QString, FireRevisionLedger> m_fireRevisionLedgers;
     QHash<QString, QByteArray> m_fireDeliveryFingerprints;
     QUrl m_apiBaseUrl;
+    QUrl m_authenticatedServerOrigin;
+    QByteArray m_bearerToken;
+    bool m_hasAuthenticatedServerOverride = false;
+    bool m_authenticationExpired = false;
     QString m_slotsPath;
     QString m_slotDetailPath;
     QString m_sessionImagesPath;
