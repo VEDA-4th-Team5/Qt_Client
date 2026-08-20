@@ -967,12 +967,17 @@ if (BUILD_TESTING)
         src/models/slotidmapper.h
         src/models/parkingzonelayout.cpp
         src/models/parkingzonelayout.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
     )
     target_include_directories(parkingmappage_add_slot_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
     target_link_libraries(parkingmappage_add_slot_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
     )
     set_target_properties(parkingmappage_add_slot_test PROPERTIES
         AUTOMOC_COMPILER_PREDEFINES OFF
@@ -989,12 +994,17 @@ if (BUILD_TESTING)
         src/models/slotidmapper.h
         src/models/parkingzonelayout.cpp
         src/models/parkingzonelayout.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
     )
     target_include_directories(parkingmappage_channel_names_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
     target_link_libraries(parkingmappage_channel_names_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
     )
     set_target_properties(parkingmappage_channel_names_test PROPERTIES
         AUTOMOC_COMPILER_PREDEFINES OFF
@@ -1011,12 +1021,17 @@ if (BUILD_TESTING)
         src/models/slotidmapper.h
         src/models/parkingzonelayout.cpp
         src/models/parkingzonelayout.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
     )
     target_include_directories(parkingmappage_undo_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
     target_link_libraries(parkingmappage_undo_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
     )
     set_target_properties(parkingmappage_undo_test PROPERTIES
         AUTOMOC_COMPILER_PREDEFINES OFF
@@ -1033,12 +1048,17 @@ if (BUILD_TESTING)
         src/models/slotidmapper.h
         src/models/parkingzonelayout.cpp
         src/models/parkingzonelayout.h
+        src/models/monitoringevent.cpp
+        src/models/monitoringevent.h
+        src/api/imageloader.cpp
+        src/api/imageloader.h
     )
     target_include_directories(parkingmappage_ev_status_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
     )
     target_link_libraries(parkingmappage_ev_status_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
     )
     set_target_properties(parkingmappage_ev_status_test PROPERTIES
         AUTOMOC_COMPILER_PREDEFINES OFF

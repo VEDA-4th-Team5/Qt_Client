@@ -1,5 +1,6 @@
 #include "parkingmappage.h"
 
+#include "api/imageloader.h"
 #include "widgets/pagehelp.h"
 
 #include <QAbstractItemView>
@@ -37,6 +38,7 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPair>
 #include <QPen>
 #include <QPixmap>
 #include <QPoint>
@@ -58,7 +60,9 @@
 #include <QVariant>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <functional>
+#include <utility>
 
 namespace {
 QString normalizedZoneId(const QString &raw)
@@ -82,6 +86,23 @@ bool isCameraChannelId(const QString &value)
         || value == QStringLiteral("CH2")
         || value == QStringLiteral("CH3")
         || value == QStringLiteral("CH4");
+}
+
+constexpr qreal kParkingMapCanvasWidth = 920.0;
+constexpr qreal kParkingMapBaseHeight = 460.0;
+
+QRectF parkingSlotRectForChannel(const QRectF &panel, const QString &channel,
+                                 int row, int column)
+{
+    Q_UNUSED(channel);
+    constexpr qreal slotWidth = 124.0;
+    constexpr qreal slotGap = 22.0;
+    constexpr qreal slotBlockWidth = (slotWidth * 4.0) + (slotGap * 3.0);
+    const qreal firstRowOffset = 58.0;
+    const qreal slotOriginX = panel.x() + ((panel.width() - slotBlockWidth) / 2.0);
+    return QRectF(slotOriginX + (column * (slotWidth + slotGap)),
+                  panel.y() + firstRowOffset + (row * 94.0),
+                  slotWidth, 72.0);
 }
 
 QString displayIvaText(const QString &ivaAreaId)
@@ -125,6 +146,14 @@ public:
     {
     }
 
+    void setEditingEnabled(bool enabled)
+    {
+        m_editingEnabled = enabled;
+        setFlag(QGraphicsItem::ItemIsMovable, enabled);
+        setAcceptHoverEvents(enabled);
+        setCursor(enabled ? Qt::SizeAllCursor : Qt::ArrowCursor);
+    }
+
     std::function<void(const QString &)> onDragStarted;
     std::function<void(const QString &)> onGeometryPreviewChanged;
     std::function<void(const QString &)> onDragFinished;
@@ -152,6 +181,11 @@ protected:
 
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override
     {
+        if (!m_editingEnabled) {
+            m_interactionMode = InteractionMode::None;
+            QGraphicsRectItem::mousePressEvent(event);
+            return;
+        }
         if (event->button() != Qt::LeftButton) {
             QGraphicsRectItem::mousePressEvent(event);
             return;
@@ -216,6 +250,11 @@ protected:
 
     void hoverMoveEvent(QGraphicsSceneHoverEvent *event) override
     {
+        if (!m_editingEnabled) {
+            setCursor(Qt::ArrowCursor);
+            QGraphicsRectItem::hoverMoveEvent(event);
+            return;
+        }
         setCursor(cursorForMode(interactionModeFor(event->pos())));
         QGraphicsRectItem::hoverMoveEvent(event);
     }
@@ -334,6 +373,7 @@ private:
     QRectF m_startRect;
     double m_startRotation = 0.0;
     double m_startAngle = 0.0;
+    bool m_editingEnabled = false;
 };
 
 QColor stateColor(SlotState state)
@@ -375,11 +415,24 @@ QString compactVehicleText(bool known, const SlotVisualState &visual)
     return vehicleClassText(visual.vehicleClass);
 }
 
+QString plateNumberForZone(const ParkingViewState &state, const QString &zoneId)
+{
+    if (state.evSlots.contains(zoneId)) {
+        const QString plateNumber = state.evSlots.value(zoneId).plateNumber.trimmed();
+        if (!plateNumber.isEmpty()) return plateNumber;
+    }
+    return state.slotPlateNumbers.value(zoneId).trimmed();
+}
+
 QColor alarmColor(SlotAlarmKind alarm)
 {
-    return alarm == SlotAlarmKind::SensorError
-        ? QColor(QStringLiteral("#b388ff"))
-        : QColor(QStringLiteral("#ff1744"));
+    switch (alarm) {
+    case SlotAlarmKind::NonEvViolation: return QColor(QStringLiteral("#ff1744"));
+    case SlotAlarmKind::Overstay: return QColor(QStringLiteral("#fb8c00"));
+    case SlotAlarmKind::SensorError: return QColor(QStringLiteral("#b388ff"));
+    case SlotAlarmKind::None: return QColor(QStringLiteral("#607d8b"));
+    }
+    return QColor(QStringLiteral("#607d8b"));
 }
 
 QString compactAlarmText(SlotAlarmKind alarm, bool acknowledged)
@@ -408,10 +461,8 @@ QColor slotTextColor(bool enabled)
 
 QString slotMetaText(const ParkingZoneLayout &zone)
 {
-    if (zone.zoneType == QStringLiteral("EV")) {
-        return displayIvaText(zone.ivaAreaId);
-    }
-    return zone.cameraChannel.isEmpty() ? QStringLiteral("CH-") : zone.cameraChannel;
+    Q_UNUSED(zone);
+    return QString();
 }
 
 QString statePillStyle(bool known, SlotState state)
@@ -427,21 +478,13 @@ QString displayStateText(bool known, SlotState state)
     return known ? slotStateText(state) : QStringLiteral("WAITING DATA");
 }
 
-QString maskedPlateText(const QString &rawPlate)
+QString durationTextFromSeconds(qint64 seconds)
 {
-    const QString plate = rawPlate.trimmed();
-    const QString normalized = plate.toUpper();
-    if (plate.isEmpty() || plate == QStringLiteral("-")
-        || normalized == QStringLiteral("UNKNOWN")
-        || normalized == QStringLiteral("N/A")) {
-        return QStringLiteral("-");
-    }
-    if (plate.size() <= 4) {
-        return QString(plate.size(), QLatin1Char('*'));
-    }
-    return plate.left(2)
-        + QString(plate.size() - 4, QLatin1Char('*'))
-        + plate.right(2);
+    if (seconds < 0) return QStringLiteral("-");
+    return QStringLiteral("%1:%2:%3")
+        .arg(seconds / 3600, 2, 10, QLatin1Char('0'))
+        .arg((seconds % 3600) / 60, 2, 10, QLatin1Char('0'))
+        .arg(seconds % 60, 2, 10, QLatin1Char('0'));
 }
 
 QString runtimeDataStatusStyle(bool available)
@@ -455,17 +498,17 @@ QString runtimeAlarmStateStyle(bool known, SlotAlarmKind alarm, bool acknowledge
 {
     QString color = QStringLiteral("#607d8b");
     if (known && alarm != SlotAlarmKind::None) {
-        color = acknowledged ? QStringLiteral("#546e7a") : QStringLiteral("#c62828");
+        color = acknowledged ? QStringLiteral("#546e7a") : alarmColor(alarm).name();
     }
     return QStringLiteral("QLabel { color: %1; font-weight: 900; }").arg(color);
 }
 
 QRectF channelPanelRect(const QString &channel)
 {
-    if (channel == QStringLiteral("CH2")) return QRectF(470, 36, 420, 220);
-    if (channel == QStringLiteral("CH3")) return QRectF(30, 304, 420, 220);
-    if (channel == QStringLiteral("CH4")) return QRectF(470, 304, 420, 220);
-    return QRectF(30, 36, 420, 220);
+    if (channel == QStringLiteral("CH2")) return QRectF(30, 204, 160, 64);
+    if (channel == QStringLiteral("CH3")) return QRectF(30, 282, 860, 150);
+    if (channel == QStringLiteral("CH4")) return QRectF(730, 204, 160, 64);
+    return QRectF(30, 32, 860, 150);
 }
 
 bool sameZoneLayout(const ParkingZoneLayout &left, const ParkingZoneLayout &right)
@@ -473,12 +516,46 @@ bool sameZoneLayout(const ParkingZoneLayout &left, const ParkingZoneLayout &righ
     return left.zoneId == right.zoneId
         && left.zoneType == right.zoneType
         && left.displayName == right.displayName
+        && left.slotOrder == right.slotOrder
         && left.rect == right.rect
         && left.rotation == right.rotation
         && left.cameraChannel == right.cameraChannel
         && left.ivaAreaId == right.ivaAreaId
         && left.hallSensorId == right.hallSensorId
         && left.enabled == right.enabled;
+}
+
+bool hasFixedOperatorTopology(const QList<ParkingZoneLayout> &zones)
+{
+    if (zones.size() != 8) return false;
+
+    const QList<QPair<QString, QString>> expectedSlots = {
+        {QStringLiteral("EV-01"), QStringLiteral("CH1")},
+        {QStringLiteral("EV-02"), QStringLiteral("CH1")},
+        {QStringLiteral("EV-03"), QStringLiteral("CH1")},
+        {QStringLiteral("EV-04"), QStringLiteral("CH1")},
+        {QStringLiteral("P-01"), QStringLiteral("CH3")},
+        {QStringLiteral("P-02"), QStringLiteral("CH3")},
+        {QStringLiteral("P-03"), QStringLiteral("CH3")},
+        {QStringLiteral("P-04"), QStringLiteral("CH3")}
+    };
+    for (int index = 0; index < expectedSlots.size(); ++index) {
+        const auto foundZone = std::find_if(
+            zones.cbegin(), zones.cend(), [&expectedSlots, index](const ParkingZoneLayout &zone) {
+                return zone.zoneId == expectedSlots.at(index).first;
+            });
+        if (foundZone == zones.cend()) return false;
+        const ParkingZoneLayout &zone = *foundZone;
+        const bool expectedEv = index < 4;
+        if (zone.zoneId != expectedSlots.at(index).first
+            || zone.cameraChannel != expectedSlots.at(index).second
+            || zone.slotOrder != (index % 4) + 1
+            || (expectedEv && zone.zoneType != QStringLiteral("EV"))
+            || (!expectedEv && zone.zoneType != QStringLiteral("GENERAL"))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 constexpr int kUndoHistoryLimit = 30;
@@ -492,12 +569,19 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     pageLayout->setContentsMargins(0, 0, 0, 0);
     pageLayout->setSpacing(10);
 
-    auto *mapGroup = new QGroupBox(QStringLiteral("4-Channel Parking Zone Map"), this);
+    auto *mapGroup = new QGroupBox(
+        QStringLiteral("Parking Operations Map · CH1 / CH2 / CH3 / CH4"), this);
     auto *mapLayout = new QVBoxLayout(mapGroup);
     mapLayout->setSpacing(8);
 
-    auto *toolbarLayout = new QHBoxLayout;
-    m_editToggleButton = new QPushButton(QStringLiteral("Edit layout"), mapGroup);
+    // Layout data is retained for configuration compatibility, but this page is
+    // deliberately an operator view.  Position/mapping controls belong to the
+    // dedicated settings tabs, not beside the live parking map.
+    auto *adminToolbar = new QWidget(mapGroup);
+    adminToolbar->setObjectName(QStringLiteral("parkingMapAdminToolbar"));
+    auto *toolbarLayout = new QHBoxLayout(adminToolbar);
+    toolbarLayout->setContentsMargins(0, 0, 0, 0);
+    m_editToggleButton = new QPushButton(QStringLiteral("Admin layout edit"), mapGroup);
     m_editToggleButton->setCheckable(true);
     m_undoButton = new QPushButton(QStringLiteral("Undo"), mapGroup);
     m_undoButton->setObjectName(QStringLiteral("undoLayoutButton"));
@@ -509,6 +593,8 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_editChannelNamesButton->setEnabled(false);
     auto *addGeneralButton = new QPushButton(QStringLiteral("Add General Slot"), mapGroup);
     auto *addEvButton = new QPushButton(QStringLiteral("Add EV Slot"), mapGroup);
+    addGeneralButton->setEnabled(false);
+    addEvButton->setEnabled(false);
     auto *saveButton = new QPushButton(QStringLiteral("Save layout"), mapGroup);
     auto *reloadButton = new QPushButton(QStringLiteral("Reload"), mapGroup);
     auto *resetButton = new QPushButton(QStringLiteral("Reset default"), mapGroup);
@@ -523,10 +609,10 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     toolbarLayout->addWidget(reloadButton);
     toolbarLayout->addWidget(resetButton);
     toolbarLayout->addStretch();
-    mapLayout->addLayout(toolbarLayout);
+    mapLayout->addWidget(adminToolbar);
+    adminToolbar->setVisible(false);
 
     auto *statusLayout = new QHBoxLayout;
-    statusLayout->addWidget(m_layoutStatusLabel);
     statusLayout->addStretch();
     auto *helpButton = new QPushButton(QStringLiteral("Parking Map 안내"), mapGroup);
     helpButton->setObjectName(QStringLiteral("parkingMapHelpButton"));
@@ -543,7 +629,43 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     statusLayout->addWidget(helpButton);
     mapLayout->addLayout(statusLayout);
 
-    m_scene = new QGraphicsScene(0, 0, 920, 560, this);
+    auto *summaryLayout = new QHBoxLayout;
+    summaryLayout->setSpacing(7);
+    auto addSummaryCard = [mapGroup, summaryLayout](const QString &title,
+                                                     const QString &objectName,
+                                                     QLabel **valueLabel,
+                                                     const QString &accent) {
+        auto *card = new QFrame(mapGroup);
+        card->setStyleSheet(QStringLiteral(
+            "QFrame { background:#f8fafb; border:1px solid #c7d0d8; border-left:4px solid %1; border-radius:5px; }")
+                                .arg(accent));
+        auto *layout = new QVBoxLayout(card);
+        layout->setContentsMargins(8, 5, 8, 5);
+        layout->setSpacing(1);
+        auto *titleLabel = new QLabel(title, card);
+        titleLabel->setStyleSheet(QStringLiteral("border:none;color:#607d8b;font-size:10px;font-weight:700;"));
+        auto *value = new QLabel(QStringLiteral("0"), card);
+        value->setObjectName(objectName);
+        value->setStyleSheet(QStringLiteral("border:none;color:#263238;font-size:17px;font-weight:900;"));
+        layout->addWidget(titleLabel);
+        layout->addWidget(value);
+        summaryLayout->addWidget(card, 1);
+        *valueLabel = value;
+    };
+    addSummaryCard(QStringLiteral("TOTAL"), QStringLiteral("parkingSummaryTotal"),
+                   &m_totalSummaryLabel, QStringLiteral("#607d8b"));
+    addSummaryCard(QStringLiteral("VACANT"), QStringLiteral("parkingSummaryVacant"),
+                   &m_vacantSummaryLabel, QStringLiteral("#2ecc71"));
+    addSummaryCard(QStringLiteral("OCCUPIED"), QStringLiteral("parkingSummaryOccupied"),
+                   &m_occupiedSummaryLabel, QStringLiteral("#2d9cff"));
+    addSummaryCard(QStringLiteral("WAITING"), QStringLiteral("parkingSummaryWaiting"),
+                   &m_waitingSummaryLabel, QStringLiteral("#90a4ae"));
+    addSummaryCard(QStringLiteral("ALERT"), QStringLiteral("parkingSummaryAlert"),
+                   &m_alertSummaryLabel, QStringLiteral("#ff1744"));
+    mapLayout->addLayout(summaryLayout);
+
+    m_scene = new QGraphicsScene(0, 0, kParkingMapCanvasWidth,
+                                 kParkingMapBaseHeight, this);
     m_scene->setBackgroundBrush(QColor(QStringLiteral("#1b1f23")));
     m_mapView = new QGraphicsView(m_scene, mapGroup);
     m_mapView->setMinimumSize(680, 520);
@@ -551,7 +673,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_mapView->setResizeAnchor(QGraphicsView::NoAnchor);
     m_mapView->setTransformationAnchor(QGraphicsView::NoAnchor);
     m_mapView->setRenderHint(QPainter::Antialiasing, true);
-    m_mapView->setDragMode(QGraphicsView::RubberBandDrag);
+    m_mapView->setDragMode(QGraphicsView::NoDrag);
     m_mapView->setStyleSheet(QStringLiteral(
         "QGraphicsView { background: #1b1f23; border: 1px solid #3f4a53; border-radius: 6px; }"
         "QGraphicsView QScrollBar:horizontal {"
@@ -575,6 +697,11 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         if (m_alarmPulsePhase >= fullCycle) m_alarmPulsePhase -= fullCycle;
         updateAlarmPulse();
     });
+    m_runtimeClockTimer = new QTimer(this);
+    m_runtimeClockTimer->setInterval(1000);
+    connect(m_runtimeClockTimer, &QTimer::timeout,
+            this, &ParkingMapPage::updateRuntimeStatusFromSelection);
+    m_runtimeClockTimer->start();
 
     auto *legendLayout = new QHBoxLayout;
     legendLayout->setSpacing(6);
@@ -593,9 +720,15 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     legendLayout->addWidget(createLegendItem(QStringLiteral("GENERAL ZONE"),
                                               QColor(QStringLiteral("#242a2f")),
                                               QColor(QStringLiteral("#ffd447"))));
-    legendLayout->addWidget(createLegendItem(QStringLiteral("ACTIVE WARNING"),
+    legendLayout->addWidget(createLegendItem(QStringLiteral("NON-EV"),
                                               QColor(QStringLiteral("#ff1744")),
                                               QColor(QStringLiteral("#ff8aa1")), true));
+    legendLayout->addWidget(createLegendItem(QStringLiteral("OVERSTAY"),
+                                              QColor(QStringLiteral("#fb8c00")),
+                                              QColor(QStringLiteral("#ffcc80")), true));
+    legendLayout->addWidget(createLegendItem(QStringLiteral("SENSOR"),
+                                              QColor(QStringLiteral("#b388ff")),
+                                              QColor(QStringLiteral("#d1c4e9")), true));
     legendLayout->addStretch();
     mapLayout->addLayout(legendLayout);
     pageLayout->addWidget(mapGroup, 3);
@@ -605,8 +738,27 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(10);
 
-    auto *mappingGroup = new QGroupBox(QStringLiteral("Channel / IVA / Zone Mapping"), rightPanel);
+    auto *mappingGroup = new QGroupBox(QStringLiteral("Parking Zone Search"), rightPanel);
+    mappingGroup->setObjectName(QStringLiteral("parkingZoneSearchGroup"));
     auto *mappingLayout = new QVBoxLayout(mappingGroup);
+    auto *filterLayout = new QHBoxLayout;
+    m_zoneSearchEdit = new QLineEdit(mappingGroup);
+    m_zoneSearchEdit->setObjectName(QStringLiteral("parkingZoneSearchEdit"));
+    m_zoneSearchEdit->setPlaceholderText(QStringLiteral("Search zone, name, channel, type"));
+    m_stateFilterCombo = new QComboBox(mappingGroup);
+    m_stateFilterCombo->setObjectName(QStringLiteral("parkingStateFilterCombo"));
+    m_stateFilterCombo->addItem(QStringLiteral("All states"), QStringLiteral("ALL"));
+    m_stateFilterCombo->addItem(QStringLiteral("Vacant"), QStringLiteral("VACANT"));
+    m_stateFilterCombo->addItem(QStringLiteral("Occupied"), QStringLiteral("OCCUPIED"));
+    m_stateFilterCombo->addItem(QStringLiteral("Waiting data"), QStringLiteral("WAITING"));
+    m_stateFilterCombo->addItem(QStringLiteral("Active alerts"), QStringLiteral("ALERT"));
+    m_filterResultLabel = new QLabel(QStringLiteral("0 zones"), mappingGroup);
+    m_filterResultLabel->setObjectName(QStringLiteral("parkingFilterResultLabel"));
+    m_filterResultLabel->setStyleSheet(QStringLiteral("color:#607d8b;font-size:10px;font-weight:700;"));
+    filterLayout->addWidget(m_zoneSearchEdit, 1);
+    filterLayout->addWidget(m_stateFilterCombo);
+    mappingLayout->addLayout(filterLayout);
+    mappingLayout->addWidget(m_filterResultLabel);
     m_zoneTable = new QTableWidget(0, 7, mappingGroup);
     m_zoneTable->setHorizontalHeaderLabels({
         QStringLiteral("Zone"),
@@ -630,13 +782,27 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         "QTableWidget::item { padding: 3px 5px; }"
         "QTableWidget::item:selected { background: #dceaf5; color: #10212c; }"));
     mappingLayout->addWidget(m_zoneTable);
+    auto *mappingActions = new QHBoxLayout;
+    auto *ivaSettingsButton = new QPushButton(QStringLiteral("Open IVA Setup"), mappingGroup);
+    auto *parkingRoiButton = new QPushButton(QStringLiteral("Open Parking ROI"), mappingGroup);
+    ivaSettingsButton->setObjectName(QStringLiteral("parkingOpenIvaButton"));
+    parkingRoiButton->setObjectName(QStringLiteral("parkingOpenRoiButton"));
+    mappingActions->addWidget(ivaSettingsButton);
+    mappingActions->addWidget(parkingRoiButton);
+    mappingLayout->addLayout(mappingActions);
     rightLayout->addWidget(mappingGroup, 2);
+    mappingGroup->setVisible(false);
 
-    auto *runtimeGroup = new QGroupBox(QStringLiteral("Runtime Status"), rightPanel);
+    auto *runtimeGroup = new QGroupBox(QStringLiteral("Selected Slot"), rightPanel);
     runtimeGroup->setObjectName(QStringLiteral("runtimeStatusGroup"));
     auto *runtimeLayout = new QVBoxLayout(runtimeGroup);
+    // QGroupBox titles share the top edge with their child area in some Qt
+    // styles. Reserve that title band explicitly so the selected-state pill
+    // cannot overlap the group title on narrow right panels.
+    runtimeLayout->setContentsMargins(12, 30, 12, 12);
     runtimeLayout->setSpacing(8);
     auto *selectedHeader = new QWidget(runtimeGroup);
+    selectedHeader->setObjectName(QStringLiteral("selectedSlotHeader"));
     auto *selectedHeaderLayout = new QVBoxLayout(selectedHeader);
     selectedHeaderLayout->setContentsMargins(0, 0, 0, 8);
     selectedHeaderLayout->setSpacing(4);
@@ -647,6 +813,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_selectedStateLabel = new QLabel(QStringLiteral("WAITING"), selectedHeader);
     m_selectedStateLabel->setObjectName(QStringLiteral("selectedSlotStateLabel"));
     m_selectedStateLabel->setAlignment(Qt::AlignCenter);
+    m_selectedStateLabel->setMinimumHeight(24);
     m_selectedStateLabel->setStyleSheet(statePillStyle(false, SlotState::Vacant));
     selectedTitleRow->addWidget(m_selectedTitleLabel, 1);
     selectedTitleRow->addWidget(m_selectedStateLabel);
@@ -669,10 +836,18 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     };
     m_runtimeDataStatusLabel = makeRuntimeValue(QStringLiteral("runtimeDataStatusLabel"));
     m_runtimeVehicleLabel = makeRuntimeValue(QStringLiteral("runtimeVehicleLabel"));
-    m_runtimePlateLabel = makeRuntimeValue(QStringLiteral("runtimePlateLabel"));
+    m_runtimeOccupiedSinceLabel = makeRuntimeValue(QStringLiteral("runtimeOccupiedSinceLabel"));
     m_runtimeOccupiedTimeLabel = makeRuntimeValue(QStringLiteral("runtimeOccupiedTimeLabel"));
+    m_runtimeLastUpdatedLabel = makeRuntimeValue(QStringLiteral("runtimeLastUpdatedLabel"));
     m_runtimeAlarmLabel = makeRuntimeValue(QStringLiteral("runtimeAlarmLabel"));
     m_runtimeAlarmStateLabel = makeRuntimeValue(QStringLiteral("runtimeAlarmStateLabel"));
+    m_runtimeVehicleImageLabel = new QLabel(QStringLiteral("Select a slot to view vehicle image"), runtimeGroup);
+    m_runtimeVehicleImageLabel->setObjectName(QStringLiteral("runtimeVehicleImageLabel"));
+    m_runtimeVehicleImageLabel->setAlignment(Qt::AlignCenter);
+    m_runtimeVehicleImageLabel->setMinimumHeight(118);
+    m_runtimeVehicleImageLabel->setStyleSheet(QStringLiteral(
+        "QLabel { background:#111820;color:#b0bec5;border:1px solid #455a64;border-radius:5px;padding:6px; }"));
+    runtimeLayout->addWidget(m_runtimeVehicleImageLabel);
     auto addRuntimeField = [runtimeGrid, runtimeGroup](int row, int column,
                                                        const QString &title, QLabel *value) {
         auto *titleLabel = new QLabel(title, runtimeGroup);
@@ -680,26 +855,53 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         runtimeGrid->addWidget(titleLabel, row, column * 2);
         runtimeGrid->addWidget(value, row, (column * 2) + 1);
     };
-    addRuntimeField(0, 0, QStringLiteral("Runtime data"), m_runtimeDataStatusLabel);
-    addRuntimeField(0, 1, QStringLiteral("Vehicle"), m_runtimeVehicleLabel);
-    addRuntimeField(1, 0, QStringLiteral("Plate"), m_runtimePlateLabel);
-    addRuntimeField(1, 1, QStringLiteral("Occupied"), m_runtimeOccupiedTimeLabel);
-    addRuntimeField(2, 0, QStringLiteral("Alarm"), m_runtimeAlarmLabel);
-    addRuntimeField(2, 1, QStringLiteral("Alarm state"), m_runtimeAlarmStateLabel);
+    addRuntimeField(0, 0, QStringLiteral("Vehicle"), m_runtimeVehicleLabel);
+    addRuntimeField(1, 0, QStringLiteral("Occupied since"), m_runtimeOccupiedSinceLabel);
+    addRuntimeField(2, 0, QStringLiteral("Occupied duration"), m_runtimeOccupiedTimeLabel);
+    addRuntimeField(3, 0, QStringLiteral("Warning"), m_runtimeAlarmLabel);
     runtimeGrid->setColumnStretch(1, 1);
     runtimeGrid->setColumnStretch(3, 1);
     runtimeLayout->addLayout(runtimeGrid);
+    auto *runtimeActions = new QHBoxLayout;
+    m_eventsButton = new QPushButton(QStringLiteral("Open Events"), runtimeGroup);
+    m_cameraButton = new QPushButton(QStringLiteral("View Camera"), runtimeGroup);
+    m_eventsButton->setObjectName(QStringLiteral("parkingOpenEventsButton"));
+    m_cameraButton->setObjectName(QStringLiteral("parkingOpenCameraButton"));
+    runtimeActions->addWidget(m_eventsButton);
+    runtimeActions->addWidget(m_cameraButton);
+    runtimeLayout->addLayout(runtimeActions);
     rightLayout->insertWidget(0, runtimeGroup);
 
+    auto *recentGroup = new QGroupBox(QStringLiteral("Recent Events"), rightPanel);
+    auto *recentLayout = new QVBoxLayout(recentGroup);
+    m_recentEventsTable = new QTableWidget(0, 3, recentGroup);
+    m_recentEventsTable->setObjectName(QStringLiteral("parkingRecentEventsTable"));
+    m_recentEventsTable->setHorizontalHeaderLabels({
+        QStringLiteral("Time"), QStringLiteral("Event"), QStringLiteral("Status")
+    });
+    m_recentEventsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_recentEventsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_recentEventsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_recentEventsTable->verticalHeader()->setVisible(false);
+    m_recentEventsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_recentEventsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_recentEventsTable->setMaximumHeight(142);
+    recentLayout->addWidget(m_recentEventsTable);
+    rightLayout->insertWidget(1, recentGroup);
+
     auto *editorGroup = new QGroupBox(QStringLiteral("Layout Editor"), rightPanel);
+    editorGroup->setObjectName(QStringLiteral("parkingMapLayoutEditor"));
     auto *editorLayout = new QFormLayout(editorGroup);
     m_zoneIdEdit = new QLineEdit(editorGroup);
     m_displayNameEdit = new QLineEdit(editorGroup);
     m_zoneTypeCombo = new QComboBox(editorGroup);
     m_zoneTypeCombo->addItems({QStringLiteral("GENERAL"), QStringLiteral("EV")});
     m_cameraChannelCombo = new QComboBox(editorGroup);
-    m_cameraChannelCombo->addItems({QStringLiteral("CH1"), QStringLiteral("CH2"), QStringLiteral("CH3"), QStringLiteral("CH4")});
+    m_cameraChannelCombo->setObjectName(QStringLiteral("parkingCameraChannelCombo"));
+    m_cameraChannelCombo->addItems({QStringLiteral("CH1"), QStringLiteral("CH3")});
+    m_cameraChannelCombo->setToolTip(QStringLiteral("Parking slots are controlled only by CH1 and CH3."));
     m_ivaAreaCombo = new QComboBox(editorGroup);
+    m_ivaAreaCombo->setObjectName(QStringLiteral("parkingIvaAreaCombo"));
     m_ivaAreaCombo->addItems({
         QStringLiteral("N/A"),
         QStringLiteral("IVA1"),
@@ -708,6 +910,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         QStringLiteral("IVA4")
     });
     m_hallSensorEdit = new QLineEdit(editorGroup);
+    m_hallSensorEdit->setObjectName(QStringLiteral("parkingHallSensorEdit"));
     m_enabledCheck = new QCheckBox(QStringLiteral("Enabled"), editorGroup);
     auto makeSpin = [editorGroup](double max, double step) {
         auto *spin = new QDoubleSpinBox(editorGroup);
@@ -774,14 +977,28 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     editorLayout->addRow(QString(), m_enabledCheck);
     editorLayout->addRow(QString(), m_deleteButton);
     rightLayout->insertWidget(1, editorGroup, 1);
+    editorGroup->setVisible(false);
     pageLayout->addWidget(rightPanel, 2);
 
     connect(m_scene, &QGraphicsScene::selectionChanged,
             this, &ParkingMapPage::handleSceneSelectionChanged);
     connect(m_zoneTable, &QTableWidget::cellClicked,
             this, &ParkingMapPage::handleZoneTableClicked);
+    connect(m_zoneSearchEdit, &QLineEdit::textChanged,
+            this, &ParkingMapPage::applyZoneFilters);
+    connect(m_stateFilterCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &ParkingMapPage::applyZoneFilters);
+    connect(ivaSettingsButton, &QPushButton::clicked,
+            this, &ParkingMapPage::ivaSettingsRequested);
+    connect(parkingRoiButton, &QPushButton::clicked,
+            this, &ParkingMapPage::parkingRoiRequested);
     connect(m_editToggleButton, &QPushButton::toggled,
             this, &ParkingMapPage::setEditMode);
+    connect(m_editToggleButton, &QPushButton::toggled, this,
+            [addGeneralButton, addEvButton](bool enabled) {
+                addGeneralButton->setEnabled(enabled);
+                addEvButton->setEnabled(enabled);
+            });
     connect(m_undoButton, &QPushButton::clicked,
             this, &ParkingMapPage::undoLastLayoutChange);
     connect(m_editChannelNamesButton, &QPushButton::clicked,
@@ -800,6 +1017,18 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
             this, &ParkingMapPage::deleteSelectedZone);
     connect(helpButton, &QPushButton::clicked,
             this, &ParkingMapPage::showHelpDialog);
+    connect(m_eventsButton, &QPushButton::clicked, this, [this]() {
+        const ParkingZoneLayout *zone = selectedZone();
+        if (!zone) return;
+        QString eventId;
+        if (m_lastState.evSlots.contains(zone->zoneId)) eventId = m_lastState.evSlots.value(zone->zoneId).eventId;
+        else if (m_lastState.parkingSlots.contains(zone->zoneId)) eventId = m_lastState.parkingSlots.value(zone->zoneId).eventId;
+        emit eventsRequested(zone->zoneId, eventId);
+    });
+    connect(m_cameraButton, &QPushButton::clicked, this, [this]() {
+        const ParkingZoneLayout *zone = selectedZone();
+        if (zone) emit cameraRequested(zone->cameraChannel);
+    });
 
     const QList<QLineEdit *> lineEdits = {m_zoneIdEdit, m_displayNameEdit, m_hallSensorEdit};
     for (QLineEdit *edit : lineEdits) {
@@ -858,7 +1087,7 @@ void ParkingMapPage::showHelpDialog()
     auto *dialog = new QDialog(this);
     dialog->setObjectName(QStringLiteral("parkingMapHelpDialog"));
     dialog->setAttribute(Qt::WA_DeleteOnClose);
-    dialog->setWindowTitle(QStringLiteral("Parking Map 운영·편집 가이드"));
+    dialog->setWindowTitle(QStringLiteral("Parking Map 운영 가이드"));
     dialog->setModal(true);
     dialog->setMinimumSize(780, 580);
     dialog->resize(940, 760);
@@ -876,15 +1105,18 @@ void ParkingMapPage::showHelpDialog()
     layout->setContentsMargins(8, 6, 8, 6);
     layout->setSpacing(14);
 
-    auto *title = new QLabel(QStringLiteral("Parking Map 운영·편집 가이드"), content);
+    auto *title = new QLabel(QStringLiteral("Parking Map 운영 가이드"), content);
     title->setObjectName(QStringLiteral("parkingMapHelpTitle"));
     title->setStyleSheet(QStringLiteral(
         "font-size:22px;font-weight:900;color:#1f2d35;"));
     layout->addWidget(title);
 
     auto *intro = new QLabel(
-        QStringLiteral("평상시에는 CH1~CH4의 점유·차량·경고 상태를 관제하고, "
-                       "필요할 때만 Edit layout을 켜 이 PC에 표시할 슬롯 배치와 매핑을 수정합니다."),
+        QStringLiteral("동일 주차장 위치의 카메라 4대를 CH1·CH2·CH3·CH4로 표시합니다. "
+                       "CH1에는 EV-01~EV-04, CH3에는 P-01~P-04를 배치하고 "
+                       "CH1이 위, CH3이 아래, CH2와 CH4가 좌우에 배치되며, "
+                       "이 화면은 고정 도면에서 실시간 상태·차량 이미지·경고를 확인하는 관제 화면입니다. "
+                       "주차면 배치와 IVA 매핑 변경은 전용 설정 탭에서 관리합니다."),
         content);
     intro->setWordWrap(true);
     intro->setStyleSheet(QStringLiteral(
@@ -893,11 +1125,11 @@ void ParkingMapPage::showHelpDialog()
     layout->addWidget(intro);
 
     auto *monitorGroup = new QGroupBox(
-        QStringLiteral("1. 관제 모드 · 지도와 Runtime Status 읽기"), content);
+        QStringLiteral("1. 관제 · 지도와 선택 슬롯 읽기"), content);
     auto *monitorLayout = new QVBoxLayout(monitorGroup);
     auto *monitorHint = new QLabel(
-        QStringLiteral("지도 또는 오른쪽 매핑 표에서 슬롯을 선택하면 Runtime Status에 차량 종류, "
-                       "번호판, 점유 시간, 경고 종류와 ACK 상태가 표시됩니다. 단순 선택은 배치 변경으로 기록되지 않습니다."),
+        QStringLiteral("지도에서 슬롯을 선택하면 차량 전체 이미지, 차량 종류, "
+                       "점유 시작 시각·지속시간, 경고 종류와 ACK 상태가 표시됩니다. 번호판은 표시하지 않습니다."),
         monitorGroup);
     monitorHint->setWordWrap(true);
     monitorLayout->addWidget(monitorHint);
@@ -908,6 +1140,8 @@ void ParkingMapPage::showHelpDialog()
     miniMapLayout->setContentsMargins(0, 4, 0, 0);
     miniMapLayout->setSpacing(8);
     for (int channel = 0; channel < 4; ++channel) {
+        const int channelNumber = channel + 1;
+        const bool parkingControl = channelNumber == 1 || channelNumber == 3;
         auto *channelFrame = new QFrame(miniMap);
         channelFrame->setStyleSheet(QStringLiteral(
             "QFrame { background:#1b1f23;border:1px solid #455a64;border-radius:6px; }"));
@@ -915,7 +1149,7 @@ void ParkingMapPage::showHelpDialog()
         channelLayout->setContentsMargins(10, 8, 10, 8);
         channelLayout->setSpacing(5);
         auto *channelTitle = new QLabel(
-            QStringLiteral("CH%1 · IVA1–IVA4").arg(channel + 1), channelFrame);
+            QStringLiteral("CH%1").arg(channelNumber), channelFrame);
         channelTitle->setStyleSheet(QStringLiteral(
             "border:none;color:white;font-weight:800;"));
         channelLayout->addWidget(channelTitle);
@@ -928,13 +1162,17 @@ void ParkingMapPage::showHelpDialog()
                 "border-radius:4px;padding:5px;font-size:11px;").arg(border));
             return slot;
         };
-        channelLayout->addWidget(makeSlotSample(
-            QStringLiteral("EV slot"), QStringLiteral("IVA mapped"),
-            QStringLiteral("#2d9cff")));
-        channelLayout->addWidget(makeSlotSample(
-            QStringLiteral("General slot"), QStringLiteral("IVA N/A"),
-            QStringLiteral("#ffd447")));
-        miniMapLayout->addWidget(channelFrame, channel / 2, channel % 2);
+        if (parkingControl) {
+            const bool evChannel = channelNumber == 1;
+            channelLayout->addWidget(makeSlotSample(
+                evChannel ? QStringLiteral("EV-01 ~ EV-04")
+                          : QStringLiteral("P-01 ~ P-04"),
+                evChannel ? QStringLiteral("IVA mapped") : QStringLiteral("IVA N/A"),
+                evChannel ? QStringLiteral("#2d9cff") : QStringLiteral("#ffd447")));
+        }
+        const int gridRow = channelNumber == 1 ? 0 : (channelNumber == 3 ? 2 : 1);
+        const int gridColumn = channelNumber == 2 ? 0 : (channelNumber == 4 ? 2 : 1);
+        miniMapLayout->addWidget(channelFrame, gridRow, gridColumn);
     }
     monitorLayout->addWidget(miniMap);
     layout->addWidget(monitorGroup);
@@ -944,7 +1182,7 @@ void ParkingMapPage::showHelpDialog()
     auto *legendLayout = new QVBoxLayout(legendGroup);
     auto *legendHint = new QLabel(
         QStringLiteral("슬롯 안쪽 색은 현재 차량 상태, 테두리는 구역 종류를 뜻합니다. "
-                       "경고는 차량 색을 덮지 않고 빨간 사이렌·halo·점멸로 별도 표시됩니다."),
+                       "경고는 차량 색을 덮지 않고 위반 빨강, 장기주차 주황, 센서 오류 보라로 표시됩니다."),
         legendGroup);
     legendHint->setWordWrap(true);
     legendLayout->addWidget(legendHint);
@@ -970,8 +1208,12 @@ void ParkingMapPage::showHelpDialog()
          QStringLiteral("#242a2f"), QStringLiteral("#2d9cff")},
         {QStringLiteral("GENERAL ZONE"), QStringLiteral("노란 테두리"),
          QStringLiteral("#242a2f"), QStringLiteral("#ffd447")},
-        {QStringLiteral("ACTIVE WARNING"), QStringLiteral("빨간 사이렌·점멸"),
+        {QStringLiteral("NON-EV"), QStringLiteral("위반 · 빨간 점멸"),
          QStringLiteral("#5b1824"), QStringLiteral("#ff1744")},
+        {QStringLiteral("OVERSTAY"), QStringLiteral("장기주차 · 주황 점멸"),
+         QStringLiteral("#5d3510"), QStringLiteral("#fb8c00")},
+        {QStringLiteral("SENSOR"), QStringLiteral("센서 오류 · 보라 점멸"),
+         QStringLiteral("#38245b"), QStringLiteral("#b388ff")},
         {QStringLiteral("WAITING DATA"), QStringLiteral("runtime 상태 미수신"),
          QStringLiteral("#eceff1"), QStringLiteral("#90a4ae")}
     };
@@ -1004,108 +1246,12 @@ void ParkingMapPage::showHelpDialog()
     legendLayout->addWidget(stateLegend);
     layout->addWidget(legendGroup);
 
-    auto *editGroup = new QGroupBox(
-        QStringLiteral("3. 배치 편집 · 권장 작업 순서"), content);
-    auto *editLayout = new QVBoxLayout(editGroup);
-    auto *editFlow = new QWidget(editGroup);
-    editFlow->setObjectName(QStringLiteral("parkingMapHelpEditFlow"));
-    auto *flowLayout = new QHBoxLayout(editFlow);
-    flowLayout->setContentsMargins(0, 0, 0, 0);
-    flowLayout->setSpacing(7);
-    const QList<QPair<QString, QString>> flowSteps{
-        {QStringLiteral("① Edit layout"), QStringLiteral("편집 모드 시작")},
-        {QStringLiteral("② 선택·수정"), QStringLiteral("이동·크기·회전·매핑")},
-        {QStringLiteral("③ Undo"), QStringLiteral("Ctrl+Z로 마지막 변경 복원")},
-        {QStringLiteral("④ Save layout"), QStringLiteral("로컬 배치 파일에 확정")}
-    };
-    for (int index = 0; index < flowSteps.size(); ++index) {
-        auto *card = new QFrame(editFlow);
-        card->setStyleSheet(QStringLiteral(
-            "QFrame { background:%1;border:1px solid #cfd8dc;border-radius:6px; }")
-                                .arg(index == flowSteps.size() - 1
-                                         ? QStringLiteral("#e8f5e9")
-                                         : QStringLiteral("#f5f7f9")));
-        auto *cardLayout = new QVBoxLayout(card);
-        auto *stepTitle = new QLabel(flowSteps.at(index).first, card);
-        stepTitle->setStyleSheet(QStringLiteral(
-            "border:none;color:#263238;font-weight:800;"));
-        auto *stepBody = new QLabel(flowSteps.at(index).second, card);
-        stepBody->setWordWrap(true);
-        stepBody->setStyleSheet(QStringLiteral(
-            "border:none;color:#546e7a;font-size:10px;"));
-        cardLayout->addWidget(stepTitle);
-        cardLayout->addWidget(stepBody);
-        flowLayout->addWidget(card, 1);
-        if (index < flowSteps.size() - 1) {
-            flowLayout->addWidget(new QLabel(QStringLiteral("→"), editFlow));
-        }
-    }
-    editLayout->addWidget(editFlow);
-
-    auto *slotTools = new QWidget(editGroup);
-    slotTools->setObjectName(QStringLiteral("parkingMapHelpSlotTools"));
-    auto *toolsLayout = new QHBoxLayout(slotTools);
-    toolsLayout->setContentsMargins(0, 4, 0, 0);
-    toolsLayout->setSpacing(8);
-    auto makeToolCard = [slotTools](const QString &heading, const QString &body) {
-        auto *card = new QFrame(slotTools);
-        card->setStyleSheet(QStringLiteral(
-            "QFrame { background:white;border:1px solid #cfd8dc;border-radius:6px; }"));
-        auto *cardLayout = new QVBoxLayout(card);
-        auto *cardTitle = new QLabel(heading, card);
-        cardTitle->setStyleSheet(QStringLiteral(
-            "border:none;color:#263238;font-weight:800;"));
-        auto *cardBody = new QLabel(body, card);
-        cardBody->setWordWrap(true);
-        cardBody->setStyleSheet(QStringLiteral(
-            "border:none;color:#455a64;font-size:11px;"));
-        cardLayout->addWidget(cardTitle);
-        cardLayout->addWidget(cardBody);
-        return card;
-    };
-    toolsLayout->addWidget(makeToolCard(
-        QStringLiteral("모양과 위치"),
-        QStringLiteral("드래그로 이동하고 Width·Height·Rotation으로 조정합니다.\n"
-                       "우클릭: Reset to default shape / Delete zone")), 1);
-    toolsLayout->addWidget(makeToolCard(
-        QStringLiteral("슬롯과 매핑"),
-        QStringLiteral("Add General/EV Slot으로 추가합니다. 빈자리가 없으면 NEW SLOT STAGING에 배치됩니다.\n"
-                       "General은 IVA N/A, EV는 채널 안의 사용 가능한 IVA가 배정됩니다.")), 1);
-    toolsLayout->addWidget(makeToolCard(
-        QStringLiteral("채널 이동"),
-        QStringLiteral("다른 채널 패널로 옮기면 Channel이 자동 변경됩니다. EV 슬롯의 IVA도 새 채널에서 "
-                       "유효하도록 유지하거나 다시 배정됩니다.")), 1);
-    editLayout->addWidget(slotTools);
-    layout->addWidget(editGroup);
-
-    auto *saveGroup = new QGroupBox(
-        QStringLiteral("4. 저장 버튼 · 서로 다른 결과"), content);
-    saveGroup->setObjectName(QStringLiteral("parkingMapHelpSaveActions"));
-    auto *saveLayout = new QGridLayout(saveGroup);
-    const QList<QPair<QString, QString>> saveActions{
-        {QStringLiteral("Save layout"), QStringLiteral("현재 배치를 로컬 파일에 저장하고 Unsaved changes를 해제합니다.")},
-        {QStringLiteral("Reload"), QStringLiteral("저장하지 않은 변경을 버리고 마지막 로컬 저장본을 다시 읽습니다.")},
-        {QStringLiteral("Reset default"), QStringLiteral("기본 배치를 편집 상태로 불러옵니다. 다음 실행에도 쓰려면 Save layout이 필요합니다.")}
-    };
-    for (int row = 0; row < saveActions.size(); ++row) {
-        auto *action = new QLabel(saveActions.at(row).first, saveGroup);
-        action->setStyleSheet(QStringLiteral(
-            "color:#263238;font-weight:900;background:#eceff1;border-radius:4px;padding:7px;"));
-        auto *meaning = new QLabel(saveActions.at(row).second, saveGroup);
-        meaning->setWordWrap(true);
-        meaning->setStyleSheet(QStringLiteral("color:#455a64;padding:4px;"));
-        saveLayout->addWidget(action, row, 0);
-        saveLayout->addWidget(meaning, row, 1);
-    }
-    saveLayout->setColumnStretch(1, 1);
-    layout->addWidget(saveGroup);
-
     auto *safetyNotes = new QLabel(
         QStringLiteral(
-            "안전하게 편집하기\n"
-            "• 상단에 Unsaved changes가 보이면 아직 파일에 확정되지 않은 변경이 있습니다.\n"
-            "• 종료할 때 저장하지 않은 배치가 있으면 Save / Discard / Cancel로 선택할 수 있습니다.\n"
-            "• Channel names와 Zone ID·Display·Hall Sensor도 배치 파일에 함께 저장됩니다.\n"
+            "관제 동작\n"
+            "• 빨간색·주황색·보라색 경고가 있는 슬롯을 선택하고 Open Events로 전체 이력과 처리 화면으로 이동합니다.\n"
+            "• View Camera는 선택 슬롯과 연결된 기존 채널 스트림을 엽니다.\n"
+            "• CH2·CH4는 통로 관찰용 채널이며 주차면 점유 수에는 포함하지 않습니다.\n"
             "• 이 화면의 EV/P Zone ID와 서버의 slot_id는 자동으로 같은 ID라고 가정하지 않습니다."),
         content);
     safetyNotes->setObjectName(QStringLiteral("parkingMapHelpSafetyNotes"));
@@ -1153,7 +1299,50 @@ void ParkingMapPage::render(const ParkingViewState &state)
     updateAllZoneVisuals();
     updateAlarmAnimationState();
     updateZoneTable();
+    updateOperationalSummary();
+    applyZoneFilters();
     updateEditorFromSelection();
+}
+
+void ParkingMapPage::appendEvent(const MonitoringEvent &event)
+{
+    if (event.sourceId.trimmed().isEmpty()) return;
+    for (int index = 0; index < m_recentEvents.size(); ++index) {
+        if (!event.id.isEmpty() && m_recentEvents.at(index).id == event.id) {
+            m_recentEvents.removeAt(index);
+            break;
+        }
+    }
+    m_recentEvents.prepend(event);
+    while (m_recentEvents.size() > 100) m_recentEvents.removeLast();
+    updateOperationalSummary();
+    updateRecentEvents();
+}
+
+void ParkingMapPage::setImageLoader(ImageLoader *imageLoader)
+{
+    if (m_imageLoader == imageLoader) return;
+    if (m_imageLoader) disconnect(m_imageLoader, nullptr, this, nullptr);
+    m_imageLoader = imageLoader;
+    if (!m_imageLoader) {
+        updateVehicleImage();
+        return;
+    }
+    connect(m_imageLoader, &ImageLoader::imageLoaded, this,
+            [this](const QString &requestId, const QPixmap &pixmap) {
+                if (requestId != m_vehicleImageRequestId || !m_runtimeVehicleImageLabel) return;
+                m_runtimeVehicleImageLabel->setText(QString());
+                m_runtimeVehicleImageLabel->setPixmap(pixmap.scaled(
+                    m_runtimeVehicleImageLabel->size() - QSize(12, 12),
+                    Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            });
+    connect(m_imageLoader, &ImageLoader::imageFailed, this,
+            [this](const QString &requestId, const QString &) {
+                if (requestId != m_vehicleImageRequestId || !m_runtimeVehicleImageLabel) return;
+                m_runtimeVehicleImageLabel->setPixmap(QPixmap());
+                m_runtimeVehicleImageLabel->setText(QStringLiteral("Vehicle image unavailable"));
+            });
+    updateVehicleImage();
 }
 
 ParkingMapPage::LayoutSnapshot ParkingMapPage::captureLayoutSnapshot() const
@@ -1264,7 +1453,11 @@ void ParkingMapPage::addGeneralZone()
     zone.zoneId = nextZoneId(QStringLiteral("P"));
     zone.zoneType = QStringLiteral("GENERAL");
     zone.displayName = zone.zoneId;
-    zone.cameraChannel = m_cameraChannelCombo ? m_cameraChannelCombo->currentText() : QStringLiteral("CH1");
+    zone.cameraChannel = m_cameraChannelCombo ? m_cameraChannelCombo->currentText() : QStringLiteral("CH3");
+    if (zone.cameraChannel != QStringLiteral("CH3")) {
+        zone.cameraChannel = QStringLiteral("CH3");
+    }
+    zone.slotOrder = 5;
     zone.rect = nextZoneRectForChannel(zone.cameraChannel);
     QString compactId = zone.zoneId;
     compactId.replace(QLatin1Char('-'), QLatin1Char('_'));
@@ -1291,6 +1484,10 @@ void ParkingMapPage::addEvZone()
     zone.zoneType = QStringLiteral("EV");
     zone.displayName = zone.zoneId;
     zone.cameraChannel = m_cameraChannelCombo ? m_cameraChannelCombo->currentText() : QStringLiteral("CH1");
+    if (zone.cameraChannel != QStringLiteral("CH1")) {
+        zone.cameraChannel = QStringLiteral("CH1");
+    }
+    zone.slotOrder = 5;
     zone.rect = nextZoneRectForChannel(zone.cameraChannel);
     QString compactId = zone.zoneId;
     compactId.replace(QLatin1Char('-'), QLatin1Char('_'));
@@ -1335,6 +1532,14 @@ bool ParkingMapPage::saveLayoutNow(QString *errorMessage)
 {
     syncZonesFromItems();
     QString error;
+    if (!validateLayout(&error)) {
+        if (errorMessage) *errorMessage = error;
+        if (m_layoutStatusLabel) {
+            m_layoutStatusLabel->setText(QStringLiteral("Save blocked | %1").arg(error));
+        }
+        emit layoutSaveResult(false, error);
+        return false;
+    }
     if (!saveParkingZoneLayout(m_layoutPath, m_zones, m_channelDisplayNames, &error)) {
         if (errorMessage) *errorMessage = error;
         if (m_layoutStatusLabel) {
@@ -1480,13 +1685,18 @@ void ParkingMapPage::applyEditorFields()
 
 void ParkingMapPage::setEditMode(bool enabled)
 {
-    m_editMode = enabled;
-    m_editToggleButton->setText(enabled ? QStringLiteral("Finish edit") : QStringLiteral("Edit layout"));
-    m_editChannelNamesButton->setEnabled(enabled);
+    Q_UNUSED(enabled);
+    m_editMode = false;
+    if (m_editToggleButton) {
+        const QSignalBlocker blocker(m_editToggleButton);
+        m_editToggleButton->setChecked(false);
+        m_editToggleButton->setText(QStringLiteral("Admin layout edit"));
+    }
+    if (m_editChannelNamesButton) m_editChannelNamesButton->setEnabled(false);
     syncItemsEditable();
     updateEditorFromSelection();
-    if (!m_layoutDirty) {
-        m_layoutStatusLabel->setText(enabled ? QStringLiteral("Edit mode") : QStringLiteral("View mode"));
+    if (!m_layoutDirty && m_layoutStatusLabel) {
+        m_layoutStatusLabel->setText(QStringLiteral("Fixed operator layout"));
     }
 }
 
@@ -1498,7 +1708,22 @@ void ParkingMapPage::loadLayout()
     if (QFile::exists(m_layoutPath)
         && loadParkingZoneLayout(m_layoutPath, &loadedZones,
                                  &loadedChannelDisplayNames, &error)) {
-        m_zones = loadedZones;
+        int ignoredCorridorSlots = 0;
+        const QList<ParkingZoneLayout> defaultZones = defaultParkingZoneLayout();
+        m_zones.clear();
+        for (const ParkingZoneLayout &zone : std::as_const(loadedZones)) {
+            if (isParkingControlChannel(zone.cameraChannel)) m_zones.append(zone);
+            else ++ignoredCorridorSlots;
+        }
+        if (m_zones.isEmpty()) m_zones = defaultParkingZoneLayout();
+        if (ignoredCorridorSlots > 0 || !hasFixedOperatorTopology(m_zones)) {
+            m_zones = defaultZones;
+            m_channelDisplayNames.clear();
+            clearUndoHistory();
+            setLayoutDirty(false, QStringLiteral(
+                "Using fixed operator layout: CH1 EV-01~EV-04 and CH3 P-01~P-04"));
+            return;
+        }
         m_channelDisplayNames = loadedChannelDisplayNames;
         clearUndoHistory();
         setLayoutDirty(false, QStringLiteral("Loaded local layout"));
@@ -1599,11 +1824,7 @@ void ParkingMapPage::editChannelDisplayNames()
 
 QString ParkingMapPage::channelPanelTitle(const QString &channel) const
 {
-    const QString displayName = m_channelDisplayNames.value(channel).trimmed();
-    if (displayName.isEmpty()) {
-        return QStringLiteral("%1 | IVA1-IVA4").arg(channel);
-    }
-    return QStringLiteral("%1 | %2 | IVA1-IVA4").arg(channel, displayName);
+    return channel.trimmed().toUpper();
 }
 
 QString ParkingMapPage::exampleLayoutPath() const
@@ -1637,11 +1858,10 @@ QRectF ParkingMapPage::nextZoneRectForChannel(const QString &channel) const
         return true;
     };
 
-    for (int row = 0; row < 2; ++row) {
+    for (int row = 0; row < 1; ++row) {
         for (int column = 0; column < 4; ++column) {
-            const QRectF candidate(panel.x() + 34 + (column * 96),
-                                   panel.y() + 60 + (row * 94),
-                                   84, 58);
+            const QRectF candidate = parkingSlotRectForChannel(
+                panel, channel, row, column);
             if (isFree(candidate)) return candidate;
         }
     }
@@ -1650,12 +1870,12 @@ QRectF ParkingMapPage::nextZoneRectForChannel(const QString &channel) const
         const int column = stagingIndex % 9;
         const int row = stagingIndex / 9;
         const QRectF candidate(40 + (column * 96),
-                               590 + (row * 72),
+                               kParkingMapBaseHeight + 30.0 + (row * 72),
                                84, 58);
         if (isFree(candidate)) return candidate;
     }
 
-    return QRectF(40, 590, 84, 58);
+    return QRectF(40, kParkingMapBaseHeight + 30.0, 84, 58);
 }
 
 int ParkingMapPage::zoneIndexById(const QString &zoneId) const
@@ -1773,8 +1993,18 @@ void ParkingMapPage::handleZoneItemMoved(const QString &zoneId)
     zone.rect = QRectF(item->pos().x(), item->pos().y(), item->rect().width(), item->rect().height());
     zone.rotation = item->rotation();
     const QString detectedChannel = channelForScenePoint(item->sceneBoundingRect().center());
-    if (!detectedChannel.isEmpty()) {
+    if (!detectedChannel.isEmpty() && isParkingControlChannel(detectedChannel)) {
         zone.cameraChannel = detectedChannel;
+    } else if (!detectedChannel.isEmpty()) {
+        item->setPos(previousZone.rect.topLeft());
+        item->setRect(QRectF(0, 0, previousZone.rect.width(), previousZone.rect.height()));
+        item->setRotation(previousZone.rotation);
+        m_hasPendingDragSnapshot = false;
+        if (m_layoutStatusLabel) {
+            m_layoutStatusLabel->setText(QStringLiteral("Only CH1/CH3 accept parking slots"));
+        }
+        updateEditorFromSelection();
+        return;
     }
     applyZoneTypeRules(&zone);
     if (sameZoneLayout(previousZone, zone)) {
@@ -1798,6 +2028,7 @@ void ParkingMapPage::handleZoneItemMoved(const QString &zoneId)
 void ParkingMapPage::showZoneContextMenu(const QString &zoneId, const QPoint &screenPos)
 {
     selectZoneById(zoneId);
+    if (!m_editMode) return;
 
     QMenu menu(this);
     QAction *resetShapeAction = menu.addAction(QStringLiteral("Reset to default shape"));
@@ -1829,11 +2060,11 @@ void ParkingMapPage::resetSelectedZoneShape()
     const ParkingZoneLayout previousZone = m_zones.at(index);
     QGraphicsRectItem *item = m_zoneItems.value(previousZone.zoneId);
     const bool itemAlreadyDefault = !item
-        || (item->rect().width() == 84.0
-            && item->rect().height() == 58.0
+        || (item->rect().width() == 124.0
+            && item->rect().height() == 72.0
             && item->rotation() == 0.0);
-    if (previousZone.rect.width() == 84.0
-        && previousZone.rect.height() == 58.0
+    if (previousZone.rect.width() == 124.0
+        && previousZone.rect.height() == 72.0
         && previousZone.rotation == 0.0
         && itemAlreadyDefault) {
         return;
@@ -1842,7 +2073,7 @@ void ParkingMapPage::resetSelectedZoneShape()
     pushCurrentLayoutToUndoHistory();
     ParkingZoneLayout zone = previousZone;
     const QPointF position = item ? item->pos() : zone.rect.topLeft();
-    zone.rect = QRectF(position.x(), position.y(), 84, 58);
+    zone.rect = QRectF(position.x(), position.y(), 124, 72);
     zone.rotation = 0.0;
     m_zones[index] = zone;
     if (item) {
@@ -1919,8 +2150,13 @@ void ParkingMapPage::applyZoneTypeRules(ParkingZoneLayout *zone, const QString &
     if (!zone) return;
     zone->zoneType = zone->zoneType.trimmed().toUpper();
     zone->cameraChannel = zone->cameraChannel.trimmed().toUpper();
-    if (zone->cameraChannel.isEmpty()) {
+    if (!isParkingControlChannel(zone->cameraChannel)) {
         zone->cameraChannel = QStringLiteral("CH1");
+    }
+    if (zone->cameraChannel == QStringLiteral("CH1")) {
+        zone->zoneType = QStringLiteral("EV");
+    } else if (zone->cameraChannel == QStringLiteral("CH3")) {
+        zone->zoneType = QStringLiteral("GENERAL");
     }
     if (zone->zoneType != QStringLiteral("EV")) {
         zone->zoneType = QStringLiteral("GENERAL");
@@ -1945,22 +2181,28 @@ void ParkingMapPage::rebuildScene()
     const QSignalBlocker sceneBlocker(m_scene);
     m_zoneItems.clear();
     m_zoneAccentBars.clear();
+    m_zoneTypeIcons.clear();
     m_zoneLabels.clear();
+    m_zonePlateLabels.clear();
     m_zoneStateLabels.clear();
     m_zoneMetaLabels.clear();
+    m_channelSummaryLabels.clear();
+    m_corridorEventLabels.clear();
     m_zoneAlarmHalos.clear();
     m_zoneAlarmBeacons.clear();
     m_zoneAlarmLabels.clear();
     m_scene->clear();
-    qreal sceneHeight = 560.0;
+    qreal sceneHeight = kParkingMapBaseHeight;
     for (const ParkingZoneLayout &zone : m_zones) {
         sceneHeight = qMax(sceneHeight, zone.rect.bottom() + 28.0);
     }
-    m_scene->setSceneRect(0, 0, 920, sceneHeight);
+    m_scene->setSceneRect(0, 0, kParkingMapCanvasWidth, sceneHeight);
     m_scene->addRect(m_scene->sceneRect(), QPen(QColor(QStringLiteral("#101418"))), QBrush(QColor(QStringLiteral("#1b1f23"))));
 
-    if (sceneHeight > 560.0) {
-        const QRectF stagingArea(30, 552, 860, sceneHeight - 566.0);
+    if (sceneHeight > kParkingMapBaseHeight) {
+        const QRectF stagingArea(30, kParkingMapBaseHeight - 8.0,
+                                 kParkingMapCanvasWidth - 60.0,
+                                 sceneHeight - kParkingMapBaseHeight - 4.0);
         m_scene->addRect(stagingArea,
                          QPen(QColor(QStringLiteral("#83919b")), 1, Qt::DashLine),
                          QBrush(QColor(QStringLiteral("#20262b"))));
@@ -1971,14 +2213,18 @@ void ParkingMapPage::rebuildScene()
         stagingFont.setBold(true);
         stagingTitle->setFont(stagingFont);
         stagingTitle->setBrush(QColor(QStringLiteral("#dce5eb")));
-        stagingTitle->setPos(42, 558);
+        stagingTitle->setPos(42, kParkingMapBaseHeight - 2.0);
     }
 
     for (const QString &channel : {QStringLiteral("CH1"), QStringLiteral("CH2"),
                                    QStringLiteral("CH3"), QStringLiteral("CH4")}) {
         const QRectF panel = channelPanelRect(channel);
-        m_scene->addRect(panel, QPen(QColor(QStringLiteral("#5f6c75")), 2),
-                         QBrush(QColor(QStringLiteral("#242a2f"))));
+        const bool parkingControl = isParkingControlChannel(channel);
+        m_scene->addRect(panel,
+                         QPen(QColor(parkingControl ? QStringLiteral("#5f6c75")
+                                                   : QStringLiteral("#455a64")), 2),
+                         QBrush(QColor(parkingControl ? QStringLiteral("#242a2f")
+                                                     : QStringLiteral("#20272c"))));
         QFont titleFont;
         titleFont.setPointSize(10);
         titleFont.setBold(true);
@@ -1990,15 +2236,17 @@ void ParkingMapPage::rebuildScene()
         title->setBrush(QColor(QStringLiteral("#f4f8fb")));
         title->setToolTip(fullTitle);
         title->setPos(panel.x() + 12, panel.y() + 10);
-        m_scene->addRect(QRectF(panel.x() + 18, panel.y() + 124, panel.width() - 36, 22),
-                         QPen(QColor(QStringLiteral("#56626b")), 1, Qt::DashLine),
-                         QBrush(QColor(QStringLiteral("#20262b"))));
-        auto *lane = m_scene->addSimpleText(QStringLiteral("drive aisle"));
-        QFont laneFont;
-        laneFont.setPointSize(7);
-        lane->setFont(laneFont);
-        lane->setBrush(QColor(QStringLiteral("#8a969f")));
-        lane->setPos(panel.x() + panel.width() - 92, panel.y() + 127);
+        if (parkingControl) {
+            auto *channelSummary = m_scene->addSimpleText(
+                QStringLiteral("4 slots · waiting data"));
+            QFont summaryFont;
+            summaryFont.setPointSize(7);
+            summaryFont.setBold(true);
+            channelSummary->setFont(summaryFont);
+            channelSummary->setBrush(QColor(QStringLiteral("#b0bec5")));
+            channelSummary->setPos(panel.x() + 28, panel.y() + 30.0);
+            m_channelSummaryLabels.insert(channel, channelSummary);
+        }
     }
 
     for (const ParkingZoneLayout &zone : m_zones) {
@@ -2009,24 +2257,51 @@ void ParkingMapPage::rebuildScene()
         item->setTransformOriginPoint(item->rect().center());
         item->setRotation(zone.rotation);
         item->setFlag(QGraphicsItem::ItemIsSelectable, true);
-        item->setFlag(QGraphicsItem::ItemIsMovable, true);
+        item->setFlag(QGraphicsItem::ItemIsMovable, false);
         item->setFlag(QGraphicsItem::ItemSendsGeometryChanges, true);
-        item->setAcceptHoverEvents(true);
-        item->setCursor(Qt::SizeAllCursor);
+        item->setAcceptHoverEvents(false);
+        item->setCursor(Qt::ArrowCursor);
         auto *accent = new QGraphicsRectItem(item);
         accent->setRect(QRectF(1, 1, qMax(1.0, zone.rect.width() - 2.0), 4));
         accent->setPen(Qt::NoPen);
         accent->setZValue(1);
         auto *label = new QGraphicsSimpleTextItem(item);
         QFont labelFont;
-        labelFont.setPointSize(7);
+        labelFont.setPointSize(9);
         labelFont.setBold(true);
         label->setFont(labelFont);
         label->setPos(6, 10);
         label->setZValue(2);
+
+        auto *typeIcon = new QGraphicsPathItem(item);
+        QPainterPath boltPath;
+        boltPath.moveTo(10, 0);
+        boltPath.lineTo(2, 13);
+        boltPath.lineTo(8, 13);
+        boltPath.lineTo(5, 25);
+        boltPath.lineTo(18, 8);
+        boltPath.lineTo(11, 8);
+        boltPath.closeSubpath();
+        typeIcon->setPath(boltPath);
+        typeIcon->setPen(QPen(QColor(QStringLiteral("#b9e7ff")), 1.2,
+                              Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        typeIcon->setBrush(QColor(QStringLiteral("#2d9cff")));
+        typeIcon->setAcceptedMouseButtons(Qt::NoButton);
+        typeIcon->setPos(7, 28);
+        typeIcon->setZValue(3);
+
+        auto *plateLabel = new QGraphicsSimpleTextItem(item);
+        QFont plateFont;
+        plateFont.setPointSize(8);
+        plateFont.setBold(true);
+        plateLabel->setFont(plateFont);
+        plateLabel->setBrush(QColor(QStringLiteral("#ffffff")));
+        plateLabel->setZValue(3);
+        plateLabel->setVisible(false);
+
         auto *stateLabel = new QGraphicsSimpleTextItem(item);
         QFont stateFont;
-        stateFont.setPointSize(6);
+        stateFont.setPointSize(7);
         stateFont.setBold(true);
         stateLabel->setFont(stateFont);
         stateLabel->setPos(6, 38);
@@ -2087,16 +2362,20 @@ void ParkingMapPage::rebuildScene()
         };
         m_zoneItems.insert(zone.zoneId, item);
         m_zoneAccentBars.insert(zone.zoneId, accent);
+        m_zoneTypeIcons.insert(zone.zoneId, typeIcon);
         m_zoneLabels.insert(zone.zoneId, label);
+        m_zonePlateLabels.insert(zone.zoneId, plateLabel);
         m_zoneStateLabels.insert(zone.zoneId, stateLabel);
         m_zoneMetaLabels.insert(zone.zoneId, metaLabel);
         m_zoneAlarmHalos.insert(zone.zoneId, alarmHalo);
         m_zoneAlarmBeacons.insert(zone.zoneId, alarmBeacon);
         m_zoneAlarmLabels.insert(zone.zoneId, alarmLabel);
+        item->setEditingEnabled(m_editMode);
         updateZoneVisual(zone.zoneId);
     }
     m_rebuildingScene = false;
     updateAlarmAnimationState();
+    updateOperationalSummary();
 }
 
 void ParkingMapPage::updateZoneVisual(const QString &zoneId)
@@ -2106,7 +2385,9 @@ void ParkingMapPage::updateZoneVisual(const QString &zoneId)
     const ParkingZoneLayout zone = m_zones.at(index);
     QGraphicsRectItem *item = m_zoneItems.value(zoneId);
     QGraphicsRectItem *accent = m_zoneAccentBars.value(zoneId);
+    QGraphicsPathItem *typeIcon = m_zoneTypeIcons.value(zoneId);
     QGraphicsSimpleTextItem *label = m_zoneLabels.value(zoneId);
+    QGraphicsSimpleTextItem *plateLabel = m_zonePlateLabels.value(zoneId);
     QGraphicsSimpleTextItem *stateLabel = m_zoneStateLabels.value(zoneId);
     QGraphicsSimpleTextItem *metaLabel = m_zoneMetaLabels.value(zoneId);
     QGraphicsEllipseItem *alarmHalo = m_zoneAlarmHalos.value(zoneId);
@@ -2138,24 +2419,34 @@ void ParkingMapPage::updateZoneVisual(const QString &zoneId)
     item->setToolTip(toolTip);
     label->setText(zone.displayName.isEmpty() ? zone.zoneId : zone.displayName);
     label->setBrush(slotTextColor(zone.enabled));
-    QString vehicleText = compactVehicleText(visualKnown, visual);
-    if (visual.ocrStatus == OcrStatus::Requested) {
-        vehicleText += QStringLiteral(" [OCR...]");
-    } else if (visual.ocrStatus == OcrStatus::Unrecognized) {
-        vehicleText += QStringLiteral(" [OCR FAIL]");
-    }
-    stateLabel->setText(vehicleText);
+    const QString parkingStateText = !visualKnown
+        ? QStringLiteral("DATA WAIT")
+        : (visual.occupancy == SlotOccupancy::Vacant
+            ? QStringLiteral("VACANT")
+            : (visual.occupancy == SlotOccupancy::Occupied
+                ? QStringLiteral("OCCUPIED") : QStringLiteral("UNKNOWN")));
+    stateLabel->setText(parkingStateText);
     stateLabel->setBrush(slotTextColor(zone.enabled));
     stateLabel->setPos(6, qMax(22.0, item->rect().height() - 18.0));
     metaLabel->setText(slotMetaText(zone));
-    metaLabel->setBrush(zone.enabled ? borderColor.lighter(125) : QColor(QStringLiteral("#9aa5ad")));
-    const QRectF metaBounds = metaLabel->boundingRect();
-    metaLabel->setPos(qMax(6.0, item->rect().width() - metaBounds.width() - 6.0),
-                      visual.alarm == SlotAlarmKind::None ? 10 : 25);
+    metaLabel->setVisible(false);
+
+    if (typeIcon) {
+        typeIcon->setVisible(zone.enabled && zone.zoneType == QStringLiteral("EV"));
+    }
+    if (plateLabel) {
+        const bool occupied = visualKnown && visual.occupancy == SlotOccupancy::Occupied;
+        const QString plateNumber = occupied ? plateNumberForZone(m_lastState, zone.zoneId) : QString();
+        plateLabel->setText(plateNumber);
+        const QRectF plateBounds = plateLabel->boundingRect();
+        plateLabel->setPos(qMax(30.0, (item->rect().width() - plateBounds.width()) / 2.0), 30.0);
+        plateLabel->setVisible(zone.enabled && !plateNumber.isEmpty());
+    }
 
     if (alarmHalo && alarmBeacon && alarmLabel) {
         const bool hasAlarm = visual.alarm != SlotAlarmKind::None;
-        const QColor color = alarmColor(visual.alarm);
+        const QColor color = visual.alarmAcknowledged
+            ? QColor(QStringLiteral("#78909c")) : alarmColor(visual.alarm);
         const QPointF beaconPosition(item->rect().width() - 7.0, -3.0);
         alarmHalo->setPos(beaconPosition);
         alarmBeacon->setPos(beaconPosition);
@@ -2241,6 +2532,21 @@ void ParkingMapPage::updateAlarmPulse()
 void ParkingMapPage::updateRuntimeStatusFromSelection()
 {
     const ParkingZoneLayout *zone = selectedZone();
+    const auto clearRuntime = [this]() {
+        if (m_runtimeVehicleLabel) m_runtimeVehicleLabel->setText(QStringLiteral("-"));
+        if (m_runtimeOccupiedSinceLabel) m_runtimeOccupiedSinceLabel->setText(QStringLiteral("-"));
+        if (m_runtimeOccupiedTimeLabel) m_runtimeOccupiedTimeLabel->setText(QStringLiteral("-"));
+        if (m_runtimeLastUpdatedLabel) m_runtimeLastUpdatedLabel->setText(QStringLiteral("-"));
+        if (m_runtimeAlarmLabel) m_runtimeAlarmLabel->setText(QStringLiteral("-"));
+        if (m_runtimeAlarmStateLabel) {
+            m_runtimeAlarmStateLabel->setText(QStringLiteral("-"));
+            m_runtimeAlarmStateLabel->setStyleSheet(
+                runtimeAlarmStateStyle(false, SlotAlarmKind::None, false));
+        }
+        if (m_eventsButton) m_eventsButton->setEnabled(false);
+        if (m_evidenceButton) m_evidenceButton->setEnabled(false);
+        if (m_cameraButton) m_cameraButton->setEnabled(false);
+    };
     if (!zone) {
         if (m_selectedTitleLabel) m_selectedTitleLabel->setText(QStringLiteral("No slot selected"));
         if (m_selectedStateLabel) {
@@ -2252,15 +2558,7 @@ void ParkingMapPage::updateRuntimeStatusFromSelection()
             m_runtimeDataStatusLabel->setText(QStringLiteral("WAITING DATA"));
             m_runtimeDataStatusLabel->setStyleSheet(runtimeDataStatusStyle(false));
         }
-        if (m_runtimeVehicleLabel) m_runtimeVehicleLabel->setText(QStringLiteral("-"));
-        if (m_runtimePlateLabel) m_runtimePlateLabel->setText(QStringLiteral("-"));
-        if (m_runtimeOccupiedTimeLabel) m_runtimeOccupiedTimeLabel->setText(QStringLiteral("-"));
-        if (m_runtimeAlarmLabel) m_runtimeAlarmLabel->setText(QStringLiteral("-"));
-        if (m_runtimeAlarmStateLabel) {
-            m_runtimeAlarmStateLabel->setText(QStringLiteral("-"));
-            m_runtimeAlarmStateLabel->setStyleSheet(
-                runtimeAlarmStateStyle(false, SlotAlarmKind::None, false));
-        }
+        clearRuntime();
         return;
     }
 
@@ -2286,48 +2584,70 @@ void ParkingMapPage::updateRuntimeStatusFromSelection()
                      zone->hallSensorId.isEmpty() ? QStringLiteral("HALL-")
                                                   : zone->hallSensorId));
     }
+    QDateTime occupiedSince;
+    QDateTime lastUpdatedAt;
+    QString occupiedTime;
+    QString eventId;
+    if (m_lastState.evSlots.contains(zone->zoneId)) {
+        const EvSlotInfo slot = m_lastState.evSlots.value(zone->zoneId);
+        occupiedSince = slot.occupiedSince;
+        lastUpdatedAt = slot.lastUpdatedAt;
+        occupiedTime = slot.occupiedTime;
+        eventId = slot.eventId;
+    } else if (m_lastState.parkingSlots.contains(zone->zoneId)) {
+        const ParkingSlotInfo slot = m_lastState.parkingSlots.value(zone->zoneId);
+        occupiedSince = slot.occupiedSince;
+        lastUpdatedAt = slot.lastUpdatedAt;
+        occupiedTime = slot.occupiedTime;
+        eventId = slot.eventId;
+    }
+    if (!lastUpdatedAt.isValid()) lastUpdatedAt = m_lastState.generatedAt;
+    const bool delayed = runtimeKnown && lastUpdatedAt.isValid()
+        && lastUpdatedAt.secsTo(QDateTime::currentDateTime()) > 30;
     if (m_runtimeDataStatusLabel) {
-        m_runtimeDataStatusLabel->setText(runtimeKnown ? QStringLiteral("AVAILABLE")
-                                                       : QStringLiteral("WAITING DATA"));
+        m_runtimeDataStatusLabel->setText(!runtimeKnown
+            ? QStringLiteral("WAITING DATA")
+            : (delayed ? QStringLiteral("DELAYED") : QStringLiteral("AVAILABLE")));
         m_runtimeDataStatusLabel->setStyleSheet(runtimeDataStatusStyle(runtimeKnown));
     }
 
     if (!runtimeKnown) {
-        if (m_runtimeVehicleLabel) m_runtimeVehicleLabel->setText(QStringLiteral("-"));
-        if (m_runtimePlateLabel) m_runtimePlateLabel->setText(QStringLiteral("-"));
-        if (m_runtimeOccupiedTimeLabel) m_runtimeOccupiedTimeLabel->setText(QStringLiteral("-"));
-        if (m_runtimeAlarmLabel) m_runtimeAlarmLabel->setText(QStringLiteral("-"));
-        if (m_runtimeAlarmStateLabel) {
-            m_runtimeAlarmStateLabel->setText(QStringLiteral("-"));
-            m_runtimeAlarmStateLabel->setStyleSheet(
-                runtimeAlarmStateStyle(false, SlotAlarmKind::None, false));
-        }
+        clearRuntime();
         return;
     }
 
     if (m_runtimeVehicleLabel) {
-        m_runtimeVehicleLabel->setText(compactVehicleText(true, selectedVisual));
+        const QString plateNumber = plateNumberForZone(m_lastState, zone->zoneId);
+        const QString vehicleText = compactVehicleText(true, selectedVisual);
+        m_runtimeVehicleLabel->setText(plateNumber.isEmpty()
+            ? vehicleText
+            : QStringLiteral("%1 · %2").arg(vehicleText, plateNumber));
     }
 
     const bool occupied = selectedVisual.occupancy == SlotOccupancy::Occupied;
-    const bool evRuntime = zone->zoneType == QStringLiteral("EV")
-        && m_lastState.evSlots.contains(zone->zoneId);
-    if (evRuntime) {
-        const EvSlotInfo slot = m_lastState.evSlots.value(zone->zoneId);
-        if (m_runtimePlateLabel) {
-            m_runtimePlateLabel->setText(occupied ? maskedPlateText(slot.plateNumber)
-                                                  : QStringLiteral("-"));
-        }
-        if (m_runtimeOccupiedTimeLabel) {
-            const QString occupiedTime = slot.occupiedTime.trimmed();
-            m_runtimeOccupiedTimeLabel->setText(
-                occupied && !occupiedTime.isEmpty() && occupiedTime != QStringLiteral("-")
-                    ? occupiedTime
-                    : QStringLiteral("-"));
-        }
-    } else {
-        if (m_runtimePlateLabel) m_runtimePlateLabel->setText(QStringLiteral("N/A"));
-        if (m_runtimeOccupiedTimeLabel) m_runtimeOccupiedTimeLabel->setText(QStringLiteral("N/A"));
+    if (m_runtimeOccupiedSinceLabel) {
+        m_runtimeOccupiedSinceLabel->setText(
+            occupied && occupiedSince.isValid()
+                ? occupiedSince.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
+                : QStringLiteral("-"));
+    }
+    if (m_runtimeOccupiedTimeLabel) {
+        const QString trimmedDuration = occupiedTime.trimmed();
+        const QString liveDuration = occupied && occupiedSince.isValid()
+            ? durationTextFromSeconds(qMax<qint64>(
+                  0, occupiedSince.secsTo(QDateTime::currentDateTime())))
+            : QString();
+        m_runtimeOccupiedTimeLabel->setText(
+            !liveDuration.isEmpty()
+                ? liveDuration
+                : (occupied && !trimmedDuration.isEmpty()
+                   && trimmedDuration != QStringLiteral("-")
+                       ? trimmedDuration : QStringLiteral("-")));
+    }
+    if (m_runtimeLastUpdatedLabel) {
+        m_runtimeLastUpdatedLabel->setText(lastUpdatedAt.isValid()
+            ? lastUpdatedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
+            : QStringLiteral("Not provided"));
     }
 
     if (m_runtimeAlarmLabel) {
@@ -2343,17 +2663,25 @@ void ParkingMapPage::updateRuntimeStatusFromSelection()
             runtimeAlarmStateStyle(true, selectedVisual.alarm,
                                    selectedVisual.alarmAcknowledged));
     }
+    if (m_eventsButton) m_eventsButton->setEnabled(!eventId.isEmpty()
+        || selectedVisual.alarm != SlotAlarmKind::None);
+    if (m_evidenceButton) {
+        m_evidenceButton->setEnabled(!m_lastState.slotImages.value(zone->zoneId).isEmpty());
+    }
+    if (m_cameraButton) m_cameraButton->setEnabled(isParkingControlChannel(zone->cameraChannel));
 }
 
 void ParkingMapPage::updateEditorFromSelection()
 {
     updateRuntimeStatusFromSelection();
+    updateVehicleImage();
+    updateRecentEvents();
     m_updatingEditor = true;
     const ParkingZoneLayout *zone = selectedZone();
     const bool hasSelection = zone != nullptr;
     const QList<QWidget *> editorWidgets = {
-        m_zoneIdEdit, m_displayNameEdit, m_zoneTypeCombo, m_cameraChannelCombo,
-        m_ivaAreaCombo, m_hallSensorEdit, m_enabledCheck, m_xSpin, m_ySpin,
+        m_zoneIdEdit, m_displayNameEdit, m_zoneTypeCombo,
+        m_enabledCheck, m_xSpin, m_ySpin,
         m_widthSpin, m_heightSpin, m_widthSlider, m_heightSlider,
         m_rotationSlider, m_deleteButton
     };
@@ -2401,9 +2729,269 @@ void ParkingMapPage::updateEditorFromSelection()
     m_widthSpin->setValue(qRound(zone->rect.width()));
     m_heightSpin->setValue(qRound(zone->rect.height()));
     m_rotationSlider->setValue(qRound(zone->rotation));
-    m_ivaAreaCombo->setEnabled(m_editMode && zone->zoneType == QStringLiteral("EV"));
+    m_cameraChannelCombo->setEnabled(false);
+    m_ivaAreaCombo->setEnabled(false);
+    m_hallSensorEdit->setEnabled(false);
     updateGeometrySliderLabels();
     m_updatingEditor = false;
+}
+
+bool ParkingMapPage::isParkingControlChannel(const QString &channel) const
+{
+    const QString normalized = channel.trimmed().toUpper();
+    return normalized == QStringLiteral("CH1") || normalized == QStringLiteral("CH3");
+}
+
+bool ParkingMapPage::validateLayout(QString *errorMessage) const
+{
+    QSet<QString> zoneIds;
+    QSet<QString> ivaMappings;
+    for (const ParkingZoneLayout &zone : m_zones) {
+        if (zone.zoneId.trimmed().isEmpty()) {
+            if (errorMessage) *errorMessage = QStringLiteral("Zone ID is required");
+            return false;
+        }
+        if (zoneIds.contains(zone.zoneId)) {
+            if (errorMessage) *errorMessage = QStringLiteral("Duplicate Zone ID: %1").arg(zone.zoneId);
+            return false;
+        }
+        zoneIds.insert(zone.zoneId);
+        if (!isParkingControlChannel(zone.cameraChannel)) {
+            if (errorMessage) *errorMessage = QStringLiteral("%1 cannot use corridor channel %2")
+                .arg(zone.zoneId, zone.cameraChannel);
+            return false;
+        }
+        if (zone.slotOrder < 1 || zone.slotOrder > 4) {
+            if (errorMessage) *errorMessage = QStringLiteral("%1 has an invalid slot order")
+                .arg(zone.zoneId);
+            return false;
+        }
+        const QRectF panel = channelPanelRect(zone.cameraChannel);
+        const QGraphicsRectItem *graphicsItem = m_zoneItems.value(zone.zoneId);
+        const QRectF visualBounds = graphicsItem
+            ? graphicsItem->sceneBoundingRect() : zone.rect;
+        if (zone.rect.width() < 16.0 || zone.rect.height() < 16.0
+            || !panel.contains(visualBounds)) {
+            if (errorMessage) *errorMessage = QStringLiteral("%1 is outside its parking-control area")
+                .arg(zone.zoneId);
+            return false;
+        }
+        if (zone.zoneType == QStringLiteral("EV")) {
+            const QString mappingKey = zone.cameraChannel + QLatin1Char(':') + zone.ivaAreaId;
+            if (!isIvaAreaId(zone.ivaAreaId) || ivaMappings.contains(mappingKey)) {
+                if (errorMessage) *errorMessage = QStringLiteral("Invalid or duplicate IVA mapping: %1")
+                    .arg(zone.zoneId);
+                return false;
+            }
+            ivaMappings.insert(mappingKey);
+        }
+    }
+    if (!hasFixedOperatorTopology(m_zones)) {
+        if (errorMessage) *errorMessage = QStringLiteral(
+            "Parking Map uses the fixed CH1 EV-01~EV-04 and CH3 P-01~P-04 topology");
+        return false;
+    }
+    if (errorMessage) errorMessage->clear();
+    return true;
+}
+
+bool ParkingMapPage::zoneMatchesFilters(const ParkingZoneLayout &zone) const
+{
+    if (!isParkingControlChannel(zone.cameraChannel)) return false;
+    const QString query = m_zoneSearchEdit ? m_zoneSearchEdit->text().trimmed() : QString();
+    bool known = false;
+    const SlotVisualState visual = visualStateForZone(zone.zoneId, &known);
+    SlotState state = SlotState::Vacant;
+    stateForZone(zone.zoneId, &state);
+    const QString searchable = QStringLiteral("%1 %2 %3 %4 %5 %6 %7")
+        .arg(zone.zoneId, zone.displayName, zone.cameraChannel, zone.zoneType,
+             displayStateText(known, state), compactVehicleText(known, visual),
+             slotAlarmText(visual.alarm));
+    if (!query.isEmpty() && !searchable.contains(query, Qt::CaseInsensitive)) return false;
+
+    const QString filter = m_stateFilterCombo
+        ? m_stateFilterCombo->currentData().toString() : QStringLiteral("ALL");
+    if (filter == QStringLiteral("VACANT")) {
+        return known && visual.occupancy == SlotOccupancy::Vacant;
+    }
+    if (filter == QStringLiteral("OCCUPIED")) {
+        return known && visual.occupancy == SlotOccupancy::Occupied;
+    }
+    if (filter == QStringLiteral("WAITING")) return !known;
+    if (filter == QStringLiteral("ALERT")) {
+        return known && visual.alarm != SlotAlarmKind::None
+            && !visual.alarmAcknowledged;
+    }
+    return true;
+}
+
+void ParkingMapPage::applyZoneFilters()
+{
+    int visibleCount = 0;
+    QString soleVisibleZoneId;
+    for (int row = 0; row < m_zoneTable->rowCount(); ++row) {
+        const QTableWidgetItem *idItem = m_zoneTable->item(row, 0);
+        const int zoneIndex = idItem ? zoneIndexById(idItem->text()) : -1;
+        const bool visible = zoneIndex >= 0 && zoneMatchesFilters(m_zones.at(zoneIndex));
+        m_zoneTable->setRowHidden(row, !visible);
+        if (QGraphicsRectItem *item = idItem ? m_zoneItems.value(idItem->text()) : nullptr) {
+            item->setVisible(visible);
+        }
+        if (visible) {
+            ++visibleCount;
+            soleVisibleZoneId = idItem ? idItem->text() : QString();
+        }
+    }
+    if (m_filterResultLabel) {
+        m_filterResultLabel->setText(QStringLiteral("%1 of %2 zones")
+            .arg(visibleCount)
+            .arg(m_zoneTable->rowCount()));
+    }
+    if (visibleCount == 1 && m_zoneSearchEdit
+        && !m_zoneSearchEdit->text().trimmed().isEmpty()
+        && selectedZoneId() != soleVisibleZoneId) {
+        selectZoneById(soleVisibleZoneId);
+    }
+}
+
+void ParkingMapPage::updateOperationalSummary()
+{
+    struct ChannelCounts {
+        int total = 0;
+        int vacant = 0;
+        int occupied = 0;
+        int waiting = 0;
+        int alerts = 0;
+    };
+
+    int total = 0;
+    int vacant = 0;
+    int occupied = 0;
+    int waiting = 0;
+    int alerts = 0;
+    QHash<QString, ChannelCounts> channelCounts;
+    for (const ParkingZoneLayout &zone : m_zones) {
+        if (!zone.enabled || !isParkingControlChannel(zone.cameraChannel)) continue;
+        ++total;
+        ChannelCounts &channel = channelCounts[zone.cameraChannel.trimmed().toUpper()];
+        ++channel.total;
+        bool known = false;
+        const SlotVisualState visual = visualStateForZone(zone.zoneId, &known);
+        if (!known || visual.occupancy == SlotOccupancy::Unknown) {
+            ++waiting;
+            ++channel.waiting;
+        } else if (visual.occupancy == SlotOccupancy::Vacant) {
+            ++vacant;
+            ++channel.vacant;
+        } else if (visual.occupancy == SlotOccupancy::Occupied) {
+            ++occupied;
+            ++channel.occupied;
+        }
+        if (known && visual.alarm != SlotAlarmKind::None
+            && !visual.alarmAcknowledged) {
+            ++alerts;
+            ++channel.alerts;
+        }
+    }
+    if (m_totalSummaryLabel) m_totalSummaryLabel->setText(QString::number(total));
+    if (m_vacantSummaryLabel) m_vacantSummaryLabel->setText(QString::number(vacant));
+    if (m_occupiedSummaryLabel) m_occupiedSummaryLabel->setText(QString::number(occupied));
+    if (m_waitingSummaryLabel) m_waitingSummaryLabel->setText(QString::number(waiting));
+    if (m_alertSummaryLabel) m_alertSummaryLabel->setText(QString::number(alerts));
+
+    for (const QString &channelId : {QStringLiteral("CH1"), QStringLiteral("CH3")}) {
+        const ChannelCounts channel = channelCounts.value(channelId);
+        if (QGraphicsSimpleTextItem *summary = m_channelSummaryLabels.value(channelId)) {
+            summary->setText(QStringLiteral("%1 slots · vacant %2 · occupied %3 · waiting %4 · alert %5")
+                                 .arg(channel.total)
+                                 .arg(channel.vacant)
+                                 .arg(channel.occupied)
+                                 .arg(channel.waiting)
+                                 .arg(channel.alerts));
+            summary->setBrush(channel.alerts > 0
+                                  ? QColor(QStringLiteral("#ff8a80"))
+                                  : QColor(QStringLiteral("#b0bec5")));
+        }
+    }
+
+    for (const QString &channelId : {QStringLiteral("CH2"), QStringLiteral("CH4")}) {
+        QGraphicsSimpleTextItem *statusLabel = m_corridorEventLabels.value(channelId);
+        if (!statusLabel) continue;
+        QString latestEvent;
+        QString latestStatus;
+        for (const MonitoringEvent &event : std::as_const(m_recentEvents)) {
+            if (event.sourceId.trimmed().compare(channelId, Qt::CaseInsensitive) != 0) continue;
+            latestEvent = event.eventType.trimmed();
+            latestStatus = monitoringEventStatusText(event).trimmed();
+            break;
+        }
+        if (latestEvent.isEmpty()) {
+            statusLabel->setText(QStringLiteral("No recent events"));
+            statusLabel->setBrush(QColor(QStringLiteral("#8a969f")));
+        } else {
+            statusLabel->setText(QStringLiteral("Latest: %1 · %2")
+                                     .arg(latestEvent, latestStatus.isEmpty()
+                                              ? QStringLiteral("RECORDED")
+                                              : latestStatus));
+            statusLabel->setBrush(latestStatus.compare(QStringLiteral("OPEN"),
+                                                        Qt::CaseInsensitive) == 0
+                                      ? QColor(QStringLiteral("#ffcc80"))
+                                      : QColor(QStringLiteral("#b0bec5")));
+        }
+    }
+}
+
+void ParkingMapPage::updateRecentEvents()
+{
+    if (!m_recentEventsTable) return;
+    const QString zoneId = selectedZoneId();
+    m_recentEventsTable->setRowCount(0);
+    if (zoneId.isEmpty()) return;
+    for (const MonitoringEvent &event : std::as_const(m_recentEvents)) {
+        if (normalizeParkingSlotId(event.sourceId) != zoneId
+            && normalizeParkingSlotId(event.evidenceSlotId) != zoneId) continue;
+        const int row = m_recentEventsTable->rowCount();
+        m_recentEventsTable->insertRow(row);
+        const QString timeText = event.occurredAt.isValid()
+            ? event.occurredAt.toLocalTime().toString(QStringLiteral("MM-dd HH:mm:ss"))
+            : QStringLiteral("-");
+        m_recentEventsTable->setItem(row, 0, new QTableWidgetItem(timeText));
+        m_recentEventsTable->setItem(row, 1, new QTableWidgetItem(event.eventType));
+        m_recentEventsTable->setItem(row, 2, new QTableWidgetItem(monitoringEventStatusText(event)));
+        if (row >= 4) break;
+    }
+}
+
+void ParkingMapPage::updateVehicleImage()
+{
+    if (!m_runtimeVehicleImageLabel) return;
+    m_vehicleImageRequestId.clear();
+    m_runtimeVehicleImageLabel->setPixmap(QPixmap());
+    const ParkingZoneLayout *zone = selectedZone();
+    if (!zone) {
+        m_runtimeVehicleImageLabel->setText(QStringLiteral("Select a slot to view vehicle image"));
+        return;
+    }
+    const QList<ParkingImageResource> images = m_lastState.slotImages.value(zone->zoneId);
+    if (images.isEmpty()) {
+        m_runtimeVehicleImageLabel->setText(QStringLiteral("No vehicle image"));
+        return;
+    }
+    const ParkingImageResource *latest = &images.constFirst();
+    for (const ParkingImageResource &image : images) {
+        if (image.timestamp.isValid()
+            && (!latest->timestamp.isValid() || image.timestamp > latest->timestamp)) {
+            latest = &image;
+        }
+    }
+    if (!m_imageLoader) {
+        m_runtimeVehicleImageLabel->setText(QStringLiteral("Vehicle image available"));
+        return;
+    }
+    m_runtimeVehicleImageLabel->setText(QStringLiteral("Loading vehicle image..."));
+    m_vehicleImageRequestId = QStringLiteral("parking-map:%1:%2")
+        .arg(zone->zoneId, QString::number(qHash(latest->url.toString())));
+    m_imageLoader->load(m_vehicleImageRequestId, latest->url);
 }
 
 void ParkingMapPage::updateZoneTable()
@@ -2432,6 +3020,8 @@ void ParkingMapPage::updateZoneTable()
             m_zoneTable->selectRow(row);
         }
     }
+    updateOperationalSummary();
+    applyZoneFilters();
 }
 
 void ParkingMapPage::scrollMapToOrigin()
@@ -2486,8 +3076,12 @@ void ParkingMapPage::syncZonesFromItems()
 void ParkingMapPage::syncItemsEditable()
 {
     for (QGraphicsRectItem *item : m_zoneItems) {
-        item->setFlag(QGraphicsItem::ItemIsMovable, true);
-        item->setCursor(Qt::SizeAllCursor);
+        if (auto *zoneItem = dynamic_cast<ParkingZoneGraphicsItem *>(item)) {
+            zoneItem->setEditingEnabled(m_editMode);
+        } else {
+            item->setFlag(QGraphicsItem::ItemIsMovable, m_editMode);
+            item->setCursor(m_editMode ? Qt::SizeAllCursor : Qt::ArrowCursor);
+        }
     }
 }
 

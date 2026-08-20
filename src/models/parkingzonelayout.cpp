@@ -8,7 +8,27 @@
 #include <QJsonObject>
 
 namespace {
-ParkingZoneLayout makeZone(const QString &zoneId, const QString &zoneType, const QRectF &rect,
+constexpr double kOperatorSlotWidth = 124.0;
+constexpr double kOperatorSlotHeight = 72.0;
+constexpr double kOperatorSlotGap = 22.0;
+constexpr double kOperatorPanelX = 30.0;
+constexpr double kOperatorPanelWidth = 860.0;
+constexpr double kOperatorSlotTopOffset = 58.0;
+
+QRectF fixedOperatorSlotRect(const QString &channel, int slotOrder)
+{
+    if ((channel != QStringLiteral("CH1") && channel != QStringLiteral("CH3"))
+        || slotOrder < 1 || slotOrder > 4) return QRectF();
+
+    const double panelY = channel == QStringLiteral("CH3") ? 282.0 : 32.0;
+    const double slotBlockWidth = (kOperatorSlotWidth * 4.0) + (kOperatorSlotGap * 3.0);
+    const double slotOriginX = kOperatorPanelX + ((kOperatorPanelWidth - slotBlockWidth) / 2.0);
+    return QRectF(slotOriginX + ((slotOrder - 1) * (kOperatorSlotWidth + kOperatorSlotGap)),
+                  panelY + kOperatorSlotTopOffset,
+                  kOperatorSlotWidth, kOperatorSlotHeight);
+}
+
+ParkingZoneLayout makeZone(const QString &zoneId, const QString &zoneType, int slotOrder,
                            const QString &cameraChannel, const QString &ivaAreaId,
                            const QString &hallSensorId)
 {
@@ -16,16 +36,12 @@ ParkingZoneLayout makeZone(const QString &zoneId, const QString &zoneType, const
     zone.zoneId = zoneId;
     zone.zoneType = zoneType;
     zone.displayName = zoneId;
-    zone.rect = rect;
+    zone.slotOrder = slotOrder;
+    zone.rect = fixedOperatorSlotRect(cameraChannel, slotOrder);
     zone.cameraChannel = cameraChannel;
     zone.ivaAreaId = ivaAreaId;
     zone.hallSensorId = hallSensorId;
     return zone;
-}
-
-QRectF miniStallRect(double x, double y)
-{
-    return QRectF(x, y, 84, 58);
 }
 
 QString numberedZoneId(const QString &prefix, int number)
@@ -39,30 +55,24 @@ QString hallSensorIdFor(const QString &prefix, int number)
 }
 
 void appendChannelTestLayout(QList<ParkingZoneLayout> *zones, int channelNumber,
-                             int firstEvNumber, int firstParkingNumber,
+                             const QString &zonePrefix, const QString &zoneType,
+                             int firstZoneNumber,
                              double panelX, double panelY)
 {
     if (!zones) return;
     const QString channel = QStringLiteral("CH%1").arg(channelNumber);
+    Q_UNUSED(panelX)
+    Q_UNUSED(panelY)
+    const bool isEv = zoneType == QStringLiteral("EV");
     for (int index = 0; index < 4; ++index) {
-        const int evNumber = firstEvNumber + index;
+        const int zoneNumber = firstZoneNumber + index;
         zones->append(makeZone(
-            numberedZoneId(QStringLiteral("EV"), evNumber),
-            QStringLiteral("EV"),
-            miniStallRect(panelX + 34 + (index * 96), panelY + 60),
+            numberedZoneId(zonePrefix, zoneNumber),
+            zoneType,
+            index + 1,
             channel,
-            QStringLiteral("IVA%1").arg(index + 1),
-            hallSensorIdFor(QStringLiteral("EV"), evNumber)));
-    }
-    for (int index = 0; index < 4; ++index) {
-        const int parkingNumber = firstParkingNumber + index;
-        zones->append(makeZone(
-            numberedZoneId(QStringLiteral("P"), parkingNumber),
-            QStringLiteral("GENERAL"),
-            miniStallRect(panelX + 34 + (index * 96), panelY + 154),
-            channel,
-            QString(),
-            hallSensorIdFor(QStringLiteral("P"), parkingNumber)));
+            isEv ? QStringLiteral("IVA%1").arg(index + 1) : QString(),
+            hallSensorIdFor(zonePrefix, zoneNumber)));
     }
 }
 
@@ -72,11 +82,7 @@ QJsonObject zoneToJson(const ParkingZoneLayout &zone)
     object.insert(QStringLiteral("zone_id"), zone.zoneId);
     object.insert(QStringLiteral("zone_type"), zone.zoneType);
     object.insert(QStringLiteral("display_name"), zone.displayName);
-    object.insert(QStringLiteral("x"), zone.rect.x());
-    object.insert(QStringLiteral("y"), zone.rect.y());
-    object.insert(QStringLiteral("width"), zone.rect.width());
-    object.insert(QStringLiteral("height"), zone.rect.height());
-    object.insert(QStringLiteral("rotation"), zone.rotation);
+    object.insert(QStringLiteral("slot_order"), zone.slotOrder);
     object.insert(QStringLiteral("camera_channel"), zone.cameraChannel);
     object.insert(QStringLiteral("iva_area_id"), zone.ivaAreaId);
     object.insert(QStringLiteral("hall_sensor_id"), zone.hallSensorId);
@@ -90,13 +96,18 @@ ParkingZoneLayout zoneFromJson(const QJsonObject &object)
     zone.zoneId = object.value(QStringLiteral("zone_id")).toString().trimmed().toUpper();
     zone.zoneType = object.value(QStringLiteral("zone_type")).toString(QStringLiteral("GENERAL")).trimmed().toUpper();
     zone.displayName = object.value(QStringLiteral("display_name")).toString(zone.zoneId).trimmed();
-    zone.rect = QRectF(
-        object.value(QStringLiteral("x")).toDouble(),
-        object.value(QStringLiteral("y")).toDouble(),
-        object.value(QStringLiteral("width")).toDouble(84.0),
-        object.value(QStringLiteral("height")).toDouble(58.0));
-    zone.rotation = object.value(QStringLiteral("rotation")).toDouble();
     zone.cameraChannel = object.value(QStringLiteral("camera_channel")).toString().trimmed().toUpper();
+    zone.slotOrder = object.value(QStringLiteral("slot_order")).toInt();
+    zone.rect = fixedOperatorSlotRect(zone.cameraChannel, zone.slotOrder);
+    if (zone.rect.isEmpty()) {
+        // Version 1/2 local files used absolute coordinates. Retain them only
+        // while deriving a stable order during load; version 3 writes no coordinates.
+        zone.rect = QRectF(
+            object.value(QStringLiteral("x")).toDouble(),
+            object.value(QStringLiteral("y")).toDouble(),
+            object.value(QStringLiteral("width")).toDouble(kOperatorSlotWidth),
+            object.value(QStringLiteral("height")).toDouble(kOperatorSlotHeight));
+    }
     zone.ivaAreaId = object.value(QStringLiteral("iva_area_id")).toString().trimmed().toUpper();
     zone.hallSensorId = object.value(QStringLiteral("hall_sensor_id")).toString().trimmed().toUpper();
     zone.enabled = object.value(QStringLiteral("enabled")).toBool(true);
@@ -157,10 +168,8 @@ QJsonObject channelDisplayNamesToJson(const ParkingChannelDisplayNames &names)
 QList<ParkingZoneLayout> defaultParkingZoneLayout()
 {
     QList<ParkingZoneLayout> zones;
-    appendChannelTestLayout(&zones, 1, 1, 1, 30, 36);
-    appendChannelTestLayout(&zones, 2, 5, 5, 470, 36);
-    appendChannelTestLayout(&zones, 3, 9, 9, 30, 304);
-    appendChannelTestLayout(&zones, 4, 13, 13, 470, 304);
+    appendChannelTestLayout(&zones, 1, QStringLiteral("EV"), QStringLiteral("EV"), 1, 30, 32);
+    appendChannelTestLayout(&zones, 3, QStringLiteral("P"), QStringLiteral("GENERAL"), 1, 30, 282);
     return zones;
 }
 
@@ -193,9 +202,20 @@ bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones,
     const QJsonObject root = document.object();
     const QJsonArray zoneArray = root.value(QStringLiteral("zones")).toArray();
     QList<ParkingZoneLayout> loadedZones;
+    QHash<QString, int> nextSlotOrder;
     for (const QJsonValue &value : zoneArray) {
         if (!value.isObject()) continue;
         ParkingZoneLayout zone = zoneFromJson(value.toObject());
+        if (zone.slotOrder <= 0) {
+            zone.slotOrder = nextSlotOrder.value(zone.cameraChannel, 0) + 1;
+        }
+        nextSlotOrder.insert(zone.cameraChannel,
+                             qMax(nextSlotOrder.value(zone.cameraChannel), zone.slotOrder));
+        const QRectF fixedRect = fixedOperatorSlotRect(zone.cameraChannel, zone.slotOrder);
+        if (!fixedRect.isEmpty()) {
+            zone.rect = fixedRect;
+            zone.rotation = 0.0;
+        }
         if (!zone.zoneId.isEmpty() && zone.rect.width() > 0.0 && zone.rect.height() > 0.0) {
             loadedZones.append(zone);
         }
@@ -230,9 +250,9 @@ bool saveParkingZoneLayout(const QString &path, const QList<ParkingZoneLayout> &
     }
 
     QJsonObject root;
-    root.insert(QStringLiteral("version"), 2);
+    root.insert(QStringLiteral("version"), 3);
     root.insert(QStringLiteral("canvas_width"), 920);
-    root.insert(QStringLiteral("canvas_height"), 560);
+    root.insert(QStringLiteral("canvas_height"), 460);
     root.insert(QStringLiteral("channel_display_names"),
                 channelDisplayNamesToJson(channelDisplayNames));
     QJsonArray zoneArray;

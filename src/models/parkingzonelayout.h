@@ -10,6 +10,9 @@ struct ParkingZoneLayout {
     QString zoneId;
     QString zoneType;
     QString displayName;
+    // One-based position in the channel's fixed operator row. Scene geometry
+    // is derived from this value so configuration does not need x/y values.
+    int slotOrder = 0;
     QRectF rect;
     double rotation = 0.0;
     QString cameraChannel;

@@ -78,8 +78,11 @@ private:
     QStackedWidget *m_pages = nullptr;
     QStackedWidget *m_pageHelpStack = nullptr;
     QPushButton *m_eventsNavButton = nullptr;
+    QPushButton *m_dashboardNavButton = nullptr;
     QPushButton *m_evidenceNavButton = nullptr;
     QPushButton *m_imageCompareNavButton = nullptr;
+    QPushButton *m_ivaNavButton = nullptr;
+    QPushButton *m_parkingRoiNavButton = nullptr;
     DashboardPage *m_dashboardPage = nullptr;
     ParkingMapPage *m_parkingMapPage = nullptr;
     ParkingRoiSettingsPage *m_parkingRoiSettingsPage = nullptr;

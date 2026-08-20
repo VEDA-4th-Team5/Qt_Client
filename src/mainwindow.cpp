@@ -224,15 +224,15 @@ void MainWindow::buildUi()
                 [this, index]() { m_pages->setCurrentIndex(index); });
         return button;
     };
-    auto *dashboardButton = addNavButton(QStringLiteral("Dashboard"), 0);
+    m_dashboardNavButton = addNavButton(QStringLiteral("Dashboard"), 0);
     addNavButton(QStringLiteral("Parking Map"), 1);
     m_eventsNavButton = addNavButton(QStringLiteral("Events"), 2);
     m_evidenceNavButton = addNavButton(QStringLiteral("Evidence"), 3);
     m_imageCompareNavButton = addNavButton(
         QStringLiteral("Image Compare"), 4);
     addNavButton(QStringLiteral("Settings"), 5);
-    addNavButton(QStringLiteral("IVA Setup"), 6);
-    addNavButton(QStringLiteral("Parking ROI"), 7);
+    m_ivaNavButton = addNavButton(QStringLiteral("IVA Setup"), 6);
+    m_parkingRoiNavButton = addNavButton(QStringLiteral("Parking ROI"), 7);
     addNavButton(QStringLiteral("Debug"), 8);
     connect(m_evidenceNavButton, &QPushButton::clicked, this, [this]() {
         if (m_evidencePage) {
@@ -359,7 +359,7 @@ void MainWindow::buildUi()
     rootLayout->addWidget(sidebar);
     rootLayout->addWidget(contentWidget, 1);
     setCentralWidget(central);
-    dashboardButton->setChecked(true);
+    m_dashboardNavButton->setChecked(true);
     m_pages->setCurrentIndex(0);
 
     setStyleSheet(QStringLiteral(
@@ -436,6 +436,7 @@ void MainWindow::connectPages()
     m_imageComparePage->setImageLoader(m_parkingController->imageLoader());
     connect(m_parkingController, &ParkingController::authenticationExpired,
             this, &MainWindow::reauthenticationRequested);
+    m_parkingMapPage->setImageLoader(m_parkingController->imageLoader());
     connect(m_parkingController, &ParkingController::stateChanged,
             this, &MainWindow::renderParkingState);
     connect(m_parkingController, &ParkingController::bannerChanged, this,
@@ -459,6 +460,7 @@ void MainWindow::connectPages()
             [this](const MonitoringEvent &event) {
                 m_dashboardPage->prependEvent(event);
                 m_eventsPage->appendEvent(event);
+                m_parkingMapPage->appendEvent(event);
                 m_notificationCenter->ingestEvent(event);
             });
     connect(m_parkingController, &ParkingController::eventLogged,
@@ -548,6 +550,36 @@ void MainWindow::connectPages()
             [this](const QString &eventId, const QString &slotId,
                    const QString &message) {
                 m_evidencePage->showEventError(eventId, slotId, message);
+            });
+    connect(m_parkingMapPage, &ParkingMapPage::eventsRequested, this,
+            [this](const QString &, const QString &) { showEventsPage(); });
+    connect(m_parkingMapPage, &ParkingMapPage::evidenceRequested, this,
+            [this](const QString &zoneId, const QString &eventId) {
+                if (!eventId.trimmed().isEmpty()
+                    && m_parkingController->hasEventEvidence(eventId)) {
+                    showEventEvidencePage(eventId);
+                    return;
+                }
+                m_pages->setCurrentWidget(m_evidencePage);
+                if (m_evidenceNavButton) m_evidenceNavButton->setChecked(true);
+                if (m_evidencePage->selectSlot(zoneId)) {
+                    m_evidencePage->requestCurrentEvidence();
+                }
+            });
+    connect(m_parkingMapPage, &ParkingMapPage::cameraRequested, this,
+            [this](const QString &) {
+                m_pages->setCurrentWidget(m_dashboardPage);
+                if (m_dashboardNavButton) m_dashboardNavButton->setChecked(true);
+            });
+    connect(m_parkingMapPage, &ParkingMapPage::ivaSettingsRequested, this,
+            [this]() {
+                m_pages->setCurrentWidget(m_ivaSettingsPage);
+                if (m_ivaNavButton) m_ivaNavButton->setChecked(true);
+            });
+    connect(m_parkingMapPage, &ParkingMapPage::parkingRoiRequested, this,
+            [this]() {
+                m_pages->setCurrentWidget(m_parkingRoiSettingsPage);
+                if (m_parkingRoiNavButton) m_parkingRoiNavButton->setChecked(true);
             });
     connect(m_parkingController, &ParkingController::detailError, this,
             [this](const QString &message) {
