@@ -7,6 +7,7 @@
 #include "api/imageloader.h"
 #include "api/parkingroi.h"
 #include "api/parkingresponseparser.h"
+#include "api/urlorigin.h"
 #include "services/mqttserviceclient.h"
 
 #include <QDateTime>
@@ -326,8 +327,10 @@ void ParkingController::initializeMqttClient()
     const bool followApiHost =
         setting(QStringLiteral("mqtt/follow_api_host"), true).toBool();
     if (followApiHost) {
-        const QUrl apiUrl(
-            setting(QStringLiteral("api/base_url"), QString()).toString().trimmed());
+        const QUrl apiUrl = m_hasAuthenticatedServerOverride
+            ? m_authenticatedServerOrigin
+            : QUrl(setting(QStringLiteral("api/base_url"), QString())
+                       .toString().trimmed());
         if (apiUrl.isValid() && !apiUrl.host().isEmpty()) {
             mqttSettings.host = apiUrl.host();
         }
@@ -1334,7 +1337,8 @@ void ParkingController::initializeApiClient()
                                            : sharedSettings.value(key, defaultValue);
     };
 
-    m_state.apiEnabled = setting(QStringLiteral("api/enabled"), false).toBool();
+    m_state.apiEnabled = m_hasAuthenticatedServerOverride
+        || setting(QStringLiteral("api/enabled"), false).toBool();
     m_apiDiagnostic = ApiDiagnosticState{};
     m_apiDiagnostic.enabled = m_state.apiEnabled;
     if (!m_state.apiEnabled) {
@@ -1345,7 +1349,10 @@ void ParkingController::initializeApiClient()
         return;
     }
 
-    m_apiBaseUrl = QUrl(setting(QStringLiteral("api/base_url"), QString()).toString().trimmed());
+    m_apiBaseUrl = m_hasAuthenticatedServerOverride
+        ? m_authenticatedServerOrigin
+        : QUrl(setting(QStringLiteral("api/base_url"), QString())
+                   .toString().trimmed());
     m_apiDiagnostic.endpoint = m_apiBaseUrl.toString(
         QUrl::RemoveUserInfo | QUrl::RemoveQuery | QUrl::RemoveFragment);
     m_apiDiagnostic.status = QStringLiteral("DISCONNECTED");
@@ -1414,6 +1421,26 @@ void ParkingController::rebuildApiClient()
         m_apiBaseUrl, m_apiTimeoutMs, m_allowInsecureHttp, this);
     m_imageLoader = new ImageLoader(
         m_apiTimeoutMs, m_allowInsecureHttp, this);
+    m_apiClient->setBearerAuthentication(m_authenticatedServerOrigin,
+                                         m_bearerToken);
+    m_imageLoader->setBearerAuthentication(m_authenticatedServerOrigin,
+                                            m_bearerToken);
+
+    const auto handleAuthenticationExpired = [this]() {
+        if (m_authenticationExpired) {
+            return;
+        }
+        m_authenticationExpired = true;
+        m_snapshotRequestInFlight = false;
+        if (m_reconnectTimer) {
+            m_reconnectTimer->stop();
+        }
+        emit authenticationExpired();
+    };
+    connect(m_apiClient, &ApiClient::authenticationRequired,
+            this, handleAuthenticationExpired);
+    connect(m_imageLoader, &ImageLoader::authenticationRequired,
+            this, handleAuthenticationExpired);
 
     connect(m_apiClient, &ApiClient::jsonReceived, this,
             [this](const QString &path, const QJsonDocument &document,
@@ -1494,8 +1521,34 @@ void ParkingController::rebuildApiClient()
     publishApiDiagnostic();
     notifyStateChanged();
 }
+
+void ParkingController::setBearerAuthentication(
+    const QUrl &fixedLoginOrigin, const QByteArray &token)
+{
+    m_authenticatedServerOrigin =
+        UrlOrigin::normalizedHttpOrigin(fixedLoginOrigin);
+    m_bearerToken = token;
+    if (m_bearerToken.contains('\r') || m_bearerToken.contains('\n')) {
+        m_bearerToken.clear();
+    }
+    m_hasAuthenticatedServerOverride =
+        !m_authenticatedServerOrigin.isEmpty() && !m_bearerToken.isEmpty();
+    m_authenticationExpired = false;
+    if (m_apiClient) {
+        m_apiClient->setBearerAuthentication(m_authenticatedServerOrigin,
+                                             m_bearerToken);
+    }
+    if (m_imageLoader) {
+        m_imageLoader->setBearerAuthentication(m_authenticatedServerOrigin,
+                                               m_bearerToken);
+    }
+}
+
 void ParkingController::reconnectNow()
 {
+    if (m_authenticationExpired) {
+        return;
+    }
     if (!m_state.apiEnabled || !m_apiClient) {
         emit serverConnectionChanged(QStringLiteral("API disabled"), false);
         return;
@@ -1856,7 +1909,8 @@ void ParkingController::applyOverstayThresholdResponse(
 
 void ParkingController::scheduleReconnect(const QString &reason)
 {
-    if (!m_state.apiEnabled || !m_reconnectTimer) return;
+    if (m_authenticationExpired
+        || !m_state.apiEnabled || !m_reconnectTimer) return;
     const int delayMs = m_currentReconnectDelayMs;
     emit bannerChanged(
         QStringLiteral("Parking API unavailable | Retrying in %1 seconds")
@@ -1888,6 +1942,12 @@ void ParkingController::updateServerBaseUrl(const QString &baseUrl)
             QStringLiteral("Enter a valid %1 server URL including port.")
                 .arg(m_allowInsecureHttp ? QStringLiteral("HTTP or HTTPS")
                                         : QStringLiteral("HTTPS")));
+        return;
+    }
+    if (m_hasAuthenticatedServerOverride
+        && !UrlOrigin::sameHttpOrigin(url, m_authenticatedServerOrigin)) {
+        emit serverConfigurationError(QStringLiteral(
+            "Sign in again before changing to a different server."));
         return;
     }
 

@@ -70,6 +70,9 @@ endif()
 
 add_executable(smart_parking_qt_client
     src/main.cpp
+    src/auth/authclient.cpp
+    src/auth/authclient.h
+    src/auth/authsession.h
     src/adapters/serverfireeventadapter.cpp
     src/adapters/serverfireeventadapter.h
     src/adapters/serverparkingeventadapter.cpp
@@ -85,6 +88,8 @@ add_executable(smart_parking_qt_client
     src/dialogs/slotevidencedialog.h
     src/dialogs/firealarmpopup.cpp
     src/dialogs/firealarmpopup.h
+    src/dialogs/logindialog.cpp
+    src/dialogs/logindialog.h
     src/models/monitoringevent.cpp
     src/models/monitoringevent.h
     src/models/parkingcapturegroup.cpp
@@ -130,6 +135,7 @@ add_executable(smart_parking_qt_client
     src/api/apiclient.h
     src/api/imageloader.cpp
     src/api/imageloader.h
+    src/api/urlorigin.h
     src/api/parkingmodels.h
     src/api/parkingroi.cpp
     src/api/parkingroi.h
@@ -515,6 +521,66 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME api_client_json COMMAND apiclient_json_test)
+
+    add_executable(authclient_test
+        tests/authclient_test.cpp
+        src/auth/authclient.cpp
+        src/auth/authclient.h
+        src/auth/authsession.h
+        src/api/urlorigin.h
+    )
+    target_include_directories(authclient_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(authclient_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Network
+        Qt${QT_VERSION_MAJOR}::Test
+    )
+    set_target_properties(authclient_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME auth_client COMMAND authclient_test)
+
+    add_executable(logindialog_test
+        tests/logindialog_test.cpp
+        src/auth/authclient.cpp
+        src/auth/authclient.h
+        src/auth/authsession.h
+        src/api/urlorigin.h
+        src/dialogs/logindialog.cpp
+        src/dialogs/logindialog.h
+    )
+    target_include_directories(logindialog_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(logindialog_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+        Qt${QT_VERSION_MAJOR}::Test
+    )
+    set_target_properties(logindialog_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME login_dialog COMMAND logindialog_test)
+
+    add_executable(imageloader_auth_test
+        tests/imageloader_auth_test.cpp
+        src/api/imageloader.cpp
+        src/api/imageloader.h
+        src/api/urlorigin.h
+    )
+    target_include_directories(imageloader_auth_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(imageloader_auth_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network
+    )
+    set_target_properties(imageloader_auth_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME image_loader_auth COMMAND imageloader_auth_test)
 
     add_executable(settingspage_overstay_test
         tests/settingspage_overstay_test.cpp
@@ -1012,6 +1078,16 @@ if (BUILD_TESTING)
         TIMEOUT 30
     )
     set_tests_properties(settings_page_overstay PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
+    set_tests_properties(login_dialog PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
+        TIMEOUT 30
+    )
+    set_tests_properties(image_loader_auth PROPERTIES
         ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
         TIMEOUT 30

@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 
+#include "auth/authsession.h"
 #include "controllers/parkingcontroller.h"
 #include "diagnostics/diagnosticsservice.h"
 #include "dialogs/firealarmpopup.h"
@@ -61,7 +62,7 @@ QString formatNotificationDetail(const NotificationRecord &notification)
 }
 }
 
-MainWindow::MainWindow(QWidget *parent)
+MainWindow::MainWindow(const AuthSession &authSession, QWidget *parent)
     : QMainWindow(parent)
     , m_cameraSettings(cameraConfigPath())
     , m_notificationCenter(new NotificationCenter(this))
@@ -77,9 +78,52 @@ MainWindow::MainWindow(QWidget *parent)
         m_cameraSettings.httpsCertificateSha256();
     m_wiseAiConfigClient = new WiseAiConfigClient(wiseAiOptions, this);
     m_parkingController = new ParkingController(clientConfigPath(), clientLocalConfigPath(), this);
+    m_parkingController->setBearerAuthentication(authSession.serverOrigin,
+                                                 authSession.accessToken);
     m_parkingSimulationService = new ParkingSimulationService(m_parkingController, this);
     connectPages();
     m_parkingController->start();
+}
+
+bool MainWindow::prepareForReauthentication()
+{
+    if (!m_parkingMapPage || !m_parkingMapPage->hasUnsavedLayoutChanges()) {
+        return true;
+    }
+
+    for (;;) {
+        const QMessageBox::StandardButton choice = QMessageBox::warning(
+            this,
+            QStringLiteral("Session ended"),
+            QStringLiteral(
+                "Your session ended and you need to sign in again.\n\n"
+                "The parking map layout has unsaved changes. Save them before signing in again?"),
+            QMessageBox::Save | QMessageBox::Discard,
+            QMessageBox::Save);
+
+        if (choice == QMessageBox::Discard) {
+            return true;
+        }
+        if (choice != QMessageBox::Save) {
+            continue;
+        }
+
+        QString error;
+        if (m_parkingMapPage->saveLayoutNow(&error)) {
+            return true;
+        }
+
+        const QMessageBox::StandardButton failureChoice = QMessageBox::warning(
+            this,
+            QStringLiteral("Parking map layout"),
+            QStringLiteral("%1\n\nRetry saving, or discard the changes and sign in again.")
+                .arg(error),
+            QMessageBox::Retry | QMessageBox::Discard,
+            QMessageBox::Retry);
+        if (failureChoice == QMessageBox::Discard) {
+            return true;
+        }
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -390,6 +434,8 @@ void MainWindow::connectPages()
 {
     m_evidencePage->setImageLoader(m_parkingController->imageLoader());
     m_imageComparePage->setImageLoader(m_parkingController->imageLoader());
+    connect(m_parkingController, &ParkingController::authenticationExpired,
+            this, &MainWindow::reauthenticationRequested);
     connect(m_parkingController, &ParkingController::stateChanged,
             this, &MainWindow::renderParkingState);
     connect(m_parkingController, &ParkingController::bannerChanged, this,
