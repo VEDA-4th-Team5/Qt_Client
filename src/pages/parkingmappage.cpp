@@ -148,6 +148,32 @@ static_assert(kOverviewLayoutMetrics.channelFootprintWidth()
               <= kOverviewLayoutMetrics.cardSize,
               "Overview channels must fit inside a camera card");
 
+QLabel *addCompactSummaryChip(QWidget *parent, QHBoxLayout *row,
+                               const QString &title, const QString &objectName,
+                               const QString &accent)
+{
+    auto *chip = new QFrame(parent);
+    chip->setFixedHeight(28);
+    chip->setMinimumWidth(74);
+    chip->setStyleSheet(QStringLiteral(
+        "QFrame { background:#f8fafb; border:1px solid #c7d0d8; "
+        "border-left:3px solid %1; border-radius:4px; }").arg(accent));
+    auto *chipLayout = new QHBoxLayout(chip);
+    chipLayout->setContentsMargins(6, 0, 6, 0);
+    chipLayout->setSpacing(4);
+    auto *titleLabel = new QLabel(title, chip);
+    titleLabel->setStyleSheet(QStringLiteral(
+        "border:none;color:#607d8b;font-size:10px;font-weight:700;"));
+    auto *value = new QLabel(QStringLiteral("0"), chip);
+    value->setObjectName(objectName);
+    value->setStyleSheet(QStringLiteral(
+        "border:none;color:#263238;font-size:13px;font-weight:900;"));
+    chipLayout->addWidget(titleLabel);
+    chipLayout->addWidget(value);
+    row->addWidget(chip);
+    return value;
+}
+
 OverviewChannelRole overviewChannelRole(const ParkingOverviewCameraLayout &camera,
                                         const QString &channel)
 {
@@ -560,13 +586,13 @@ QColor slotFillColor(bool known, const SlotVisualState &visual, bool enabled)
     if (!enabled) return QColor(QStringLiteral("#2f353a"));
     if (!known) return QColor(QStringLiteral("#343b41"));
     if (visual.occupancy == SlotOccupancy::Vacant) {
-        return QColor(QStringLiteral("#2a3035"));
+        return QColor(QStringLiteral("#1f5a3a"));
     }
     if (visual.occupancy == SlotOccupancy::Unknown) {
-        return QColor(QStringLiteral("#343b41"));
+        return QColor(QStringLiteral("#3c474f"));
     }
     switch (visual.vehicleClass) {
-    case VehicleClass::Electric: return QColor(QStringLiteral("#174a66"));
+    case VehicleClass::Electric: return QColor(QStringLiteral("#155d7a"));
     case VehicleClass::General: return QColor(QStringLiteral("#46535f"));
     case VehicleClass::Unknown: return QColor(QStringLiteral("#39434b"));
     }
@@ -821,7 +847,20 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         button->setCursor(Qt::PointingHandCursor);
         button->setStyleSheet(overviewZoomButtonStyle);
     }
+
     overviewTitleRow->addWidget(overviewTitle);
+    m_overviewTotalSummaryLabel = addCompactSummaryChip(
+        overviewPage, overviewTitleRow, QStringLiteral("TOTAL"),
+        QStringLiteral("parkingOverviewSummaryTotal"), QStringLiteral("#607d8b"));
+    m_overviewVacantSummaryLabel = addCompactSummaryChip(
+        overviewPage, overviewTitleRow, QStringLiteral("VACANT"),
+        QStringLiteral("parkingOverviewSummaryVacant"), QStringLiteral("#2ecc71"));
+    m_overviewOccupiedSummaryLabel = addCompactSummaryChip(
+        overviewPage, overviewTitleRow, QStringLiteral("OCCUPIED"),
+        QStringLiteral("parkingOverviewSummaryOccupied"), QStringLiteral("#2d9cff"));
+    m_overviewAlertSummaryLabel = addCompactSummaryChip(
+        overviewPage, overviewTitleRow, QStringLiteral("ALERT"),
+        QStringLiteral("parkingOverviewSummaryAlert"), QStringLiteral("#ff1744"));
     overviewTitleRow->addStretch();
     overviewTitleRow->addWidget(overviewZoomOutButton);
     overviewTitleRow->addWidget(overviewZoomLabel);
@@ -957,8 +996,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     detailLayout->setSpacing(10);
     m_operationViewStack->addWidget(detailPage);
 
-    auto *mapGroup = new QGroupBox(
-        QStringLiteral("Camera 1 Detail · CH1 / CH3"), detailPage);
+    auto *mapGroup = new QGroupBox(QStringLiteral("Camera 1 Detail"), detailPage);
     auto *mapLayout = new QVBoxLayout(mapGroup);
     mapLayout->setSpacing(8);
 
@@ -986,8 +1024,6 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     auto *saveButton = new QPushButton(QStringLiteral("Save layout"), mapGroup);
     auto *reloadButton = new QPushButton(QStringLiteral("Reload"), mapGroup);
     auto *resetButton = new QPushButton(QStringLiteral("Reset default"), mapGroup);
-    m_layoutStatusLabel = new QLabel(QStringLiteral("-"), mapGroup);
-    m_layoutStatusLabel->setStyleSheet(QStringLiteral("color: #607d8b; font-size: 11px;"));
     toolbarLayout->addWidget(m_editToggleButton);
     toolbarLayout->addWidget(m_undoButton);
     toolbarLayout->addWidget(m_editChannelNamesButton);
@@ -1001,10 +1037,30 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     adminToolbar->setVisible(false);
 
     auto *statusLayout = new QHBoxLayout;
-    auto *overviewButton = new QPushButton(QStringLiteral("Back to overview"), mapGroup);
+    auto *overviewButton = new QPushButton(QStringLiteral("← Overview"), mapGroup);
     overviewButton->setObjectName(QStringLiteral("parkingBackToOverviewButton"));
+    overviewButton->setAccessibleName(QStringLiteral("Back to parking overview"));
+    overviewButton->setToolTip(QStringLiteral("Back to parking overview"));
+    overviewButton->setMinimumWidth(104);
     overviewButton->setCursor(Qt::PointingHandCursor);
+    overviewButton->setStyleSheet(QStringLiteral(
+        "QPushButton { background:#eef3f6; color:#263238; border:1px solid #b8c4cc; "
+        "border-radius:5px; padding:6px 12px; font-weight:800; }"
+        "QPushButton:hover { background:#dceaf3; border-color:#2d9cff; }"
+        "QPushButton:pressed { background:#cbdce7; }"));
     statusLayout->addWidget(overviewButton);
+    m_totalSummaryLabel = addCompactSummaryChip(
+        mapGroup, statusLayout, QStringLiteral("TOTAL"),
+        QStringLiteral("parkingSummaryTotal"), QStringLiteral("#607d8b"));
+    m_vacantSummaryLabel = addCompactSummaryChip(
+        mapGroup, statusLayout, QStringLiteral("VACANT"),
+        QStringLiteral("parkingSummaryVacant"), QStringLiteral("#2ecc71"));
+    m_occupiedSummaryLabel = addCompactSummaryChip(
+        mapGroup, statusLayout, QStringLiteral("OCCUPIED"),
+        QStringLiteral("parkingSummaryOccupied"), QStringLiteral("#2d9cff"));
+    m_alertSummaryLabel = addCompactSummaryChip(
+        mapGroup, statusLayout, QStringLiteral("ALERT"),
+        QStringLiteral("parkingSummaryAlert"), QStringLiteral("#ff1744"));
     statusLayout->addStretch();
     auto *helpButton = new QPushButton(QStringLiteral("Parking Map 안내"), mapGroup);
     helpButton->setObjectName(QStringLiteral("parkingMapHelpButton"));
@@ -1020,41 +1076,6 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         "QPushButton:pressed { background:#1c252a; }"));
     statusLayout->addWidget(helpButton);
     mapLayout->addLayout(statusLayout);
-
-    auto *summaryLayout = new QHBoxLayout;
-    summaryLayout->setSpacing(7);
-    auto addSummaryCard = [mapGroup, summaryLayout](const QString &title,
-                                                     const QString &objectName,
-                                                     QLabel **valueLabel,
-                                                     const QString &accent) {
-        auto *card = new QFrame(mapGroup);
-        card->setStyleSheet(QStringLiteral(
-            "QFrame { background:#f8fafb; border:1px solid #c7d0d8; border-left:4px solid %1; border-radius:5px; }")
-                                .arg(accent));
-        auto *layout = new QVBoxLayout(card);
-        layout->setContentsMargins(8, 5, 8, 5);
-        layout->setSpacing(1);
-        auto *titleLabel = new QLabel(title, card);
-        titleLabel->setStyleSheet(QStringLiteral("border:none;color:#607d8b;font-size:10px;font-weight:700;"));
-        auto *value = new QLabel(QStringLiteral("0"), card);
-        value->setObjectName(objectName);
-        value->setStyleSheet(QStringLiteral("border:none;color:#263238;font-size:17px;font-weight:900;"));
-        layout->addWidget(titleLabel);
-        layout->addWidget(value);
-        summaryLayout->addWidget(card, 1);
-        *valueLabel = value;
-    };
-    addSummaryCard(QStringLiteral("TOTAL"), QStringLiteral("parkingSummaryTotal"),
-                   &m_totalSummaryLabel, QStringLiteral("#607d8b"));
-    addSummaryCard(QStringLiteral("VACANT"), QStringLiteral("parkingSummaryVacant"),
-                   &m_vacantSummaryLabel, QStringLiteral("#2ecc71"));
-    addSummaryCard(QStringLiteral("OCCUPIED"), QStringLiteral("parkingSummaryOccupied"),
-                   &m_occupiedSummaryLabel, QStringLiteral("#2d9cff"));
-    addSummaryCard(QStringLiteral("WAITING"), QStringLiteral("parkingSummaryWaiting"),
-                   &m_waitingSummaryLabel, QStringLiteral("#90a4ae"));
-    addSummaryCard(QStringLiteral("ALERT"), QStringLiteral("parkingSummaryAlert"),
-                   &m_alertSummaryLabel, QStringLiteral("#ff1744"));
-    mapLayout->addLayout(summaryLayout);
 
     m_scene = new QGraphicsScene(0, 0, kParkingMapCanvasWidth,
                                  kParkingMapBaseHeight, this);
@@ -1096,34 +1117,6 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
             this, &ParkingMapPage::updateRuntimeStatusFromSelection);
     m_runtimeClockTimer->start();
 
-    auto *legendLayout = new QHBoxLayout;
-    legendLayout->setSpacing(6);
-    legendLayout->addWidget(createLegendItem(QStringLiteral("VACANT"),
-                                              QColor(QStringLiteral("#2a3035")),
-                                              QColor(QStringLiteral("#68727a"))));
-    legendLayout->addWidget(createLegendItem(QStringLiteral("EV CAR"),
-                                              QColor(QStringLiteral("#174a66")),
-                                              QColor(QStringLiteral("#38bdf8"))));
-    legendLayout->addWidget(createLegendItem(QStringLiteral("GENERAL CAR"),
-                                              QColor(QStringLiteral("#46535f")),
-                                              QColor(QStringLiteral("#aebbc5"))));
-    legendLayout->addWidget(createLegendItem(QStringLiteral("EV ZONE"),
-                                              QColor(QStringLiteral("#242a2f")),
-                                              QColor(QStringLiteral("#2d9cff"))));
-    legendLayout->addWidget(createLegendItem(QStringLiteral("GENERAL ZONE"),
-                                              QColor(QStringLiteral("#242a2f")),
-                                              QColor(QStringLiteral("#ffd447"))));
-    legendLayout->addWidget(createLegendItem(QStringLiteral("NON-EV"),
-                                              QColor(QStringLiteral("#ff1744")),
-                                              QColor(QStringLiteral("#ff8aa1")), true));
-    legendLayout->addWidget(createLegendItem(QStringLiteral("OVERSTAY"),
-                                              QColor(QStringLiteral("#fb8c00")),
-                                              QColor(QStringLiteral("#ffcc80")), true));
-    legendLayout->addWidget(createLegendItem(QStringLiteral("SENSOR"),
-                                              QColor(QStringLiteral("#b388ff")),
-                                              QColor(QStringLiteral("#d1c4e9")), true));
-    legendLayout->addStretch();
-    mapLayout->addLayout(legendLayout);
     detailLayout->addWidget(mapGroup, 3);
 
     auto *rightPanel = new QWidget(detailPage);
@@ -1614,9 +1607,9 @@ void ParkingMapPage::showHelpDialog()
     };
     const QList<HelpState> states{
         {QStringLiteral("VACANT"), QStringLiteral("빈 슬롯"),
-         QStringLiteral("#2a3035"), QStringLiteral("#68727a")},
+         QStringLiteral("#1f5a3a"), QStringLiteral("#38d978")},
         {QStringLiteral("EV CAR"), QStringLiteral("전기차 점유"),
-         QStringLiteral("#174a66"), QStringLiteral("#38bdf8")},
+         QStringLiteral("#155d7a"), QStringLiteral("#38bdf8")},
         {QStringLiteral("GENERAL CAR"), QStringLiteral("일반차 점유"),
          QStringLiteral("#46535f"), QStringLiteral("#aebbc5")},
         {QStringLiteral("EV ZONE"), QStringLiteral("파란 테두리"),
@@ -3560,6 +3553,10 @@ void ParkingMapPage::updateOperationalSummary()
     if (m_occupiedSummaryLabel) m_occupiedSummaryLabel->setText(QString::number(occupied));
     if (m_waitingSummaryLabel) m_waitingSummaryLabel->setText(QString::number(waiting));
     if (m_alertSummaryLabel) m_alertSummaryLabel->setText(QString::number(alerts));
+    if (m_overviewTotalSummaryLabel) m_overviewTotalSummaryLabel->setText(QString::number(total));
+    if (m_overviewVacantSummaryLabel) m_overviewVacantSummaryLabel->setText(QString::number(vacant));
+    if (m_overviewOccupiedSummaryLabel) m_overviewOccupiedSummaryLabel->setText(QString::number(occupied));
+    if (m_overviewAlertSummaryLabel) m_overviewAlertSummaryLabel->setText(QString::number(alerts));
     updateOverviewSummary();
 
     for (const QString &channelId : {QStringLiteral("CH1"), QStringLiteral("CH3")}) {
@@ -4009,22 +4006,4 @@ void ParkingMapPage::setLayoutDirty(bool dirty, const QString &status)
     }
 
     if (changed) emit layoutDirtyChanged(dirty);
-}
-
-QWidget *ParkingMapPage::createLegendItem(const QString &label, const QColor &fill,
-                                          const QColor &border, bool circular)
-{
-    auto *container = new QWidget(this);
-    auto *layout = new QHBoxLayout(container);
-    layout->setContentsMargins(0, 0, 0, 0);
-    auto *swatch = new QLabel(container);
-    swatch->setFixedSize(14, 14);
-    swatch->setStyleSheet(QStringLiteral("background: %1; border: 2px solid %2; border-radius: %3px;")
-                              .arg(fill.name(), border.name())
-                              .arg(circular ? 7 : 3));
-    layout->addWidget(swatch);
-    auto *text = new QLabel(label, container);
-    text->setStyleSheet(QStringLiteral("color: #263238;"));
-    layout->addWidget(text);
-    return container;
 }

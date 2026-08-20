@@ -41,9 +41,13 @@ int main(int argc, char **argv)
     QLabel *alarmState = statusLabel(page, "runtimeAlarmStateLabel");
     QLabel *selectedState = statusLabel(page, "selectedSlotStateLabel");
     QLabel *summaryTotal = statusLabel(page, "parkingSummaryTotal");
+    QLabel *summaryVacant = statusLabel(page, "parkingSummaryVacant");
     QLabel *summaryOccupied = statusLabel(page, "parkingSummaryOccupied");
-    QLabel *summaryWaiting = statusLabel(page, "parkingSummaryWaiting");
     QLabel *summaryAlert = statusLabel(page, "parkingSummaryAlert");
+    QLabel *overviewTotal = statusLabel(page, "parkingOverviewSummaryTotal");
+    QLabel *overviewVacant = statusLabel(page, "parkingOverviewSummaryVacant");
+    QLabel *overviewOccupied = statusLabel(page, "parkingOverviewSummaryOccupied");
+    QLabel *overviewAlert = statusLabel(page, "parkingOverviewSummaryAlert");
     QLabel *filterResult = statusLabel(page, "parkingFilterResultLabel");
     QLineEdit *search = page.findChild<QLineEdit *>(QStringLiteral("parkingZoneSearchEdit"));
     QComboBox *stateFilter = page.findChild<QComboBox *>(QStringLiteral("parkingStateFilterCombo"));
@@ -51,7 +55,8 @@ int main(int argc, char **argv)
     if (!dataStatus || !vehicle || !vehicleImage || !occupiedSince
         || !occupiedTime || !lastUpdated || !alarm
         || !alarmState || !selectedState || !summaryTotal || !summaryOccupied
-        || !summaryWaiting || !summaryAlert || !filterResult || !search
+        || !summaryVacant || !summaryAlert || !overviewTotal || !overviewVacant
+        || !overviewOccupied || !overviewAlert || !filterResult || !search
         || !stateFilter || !undoButton) return 3;
     if (statusLabel(page, "runtimePlateLabel")) return 28;
 
@@ -87,9 +92,13 @@ int main(int argc, char **argv)
     if (alarm->text() != QStringLiteral("NON-EV")) return 11;
     if (alarmState->text() != QStringLiteral("ACTIVE")) return 12;
     if (summaryTotal->text() != QStringLiteral("8")
+        || summaryVacant->text() != QStringLiteral("0")
         || summaryOccupied->text() != QStringLiteral("1")
-        || summaryWaiting->text() != QStringLiteral("7")
         || summaryAlert->text() != QStringLiteral("1")) return 31;
+    if (overviewTotal->text() != QStringLiteral("8")
+        || overviewVacant->text() != QStringLiteral("0")
+        || overviewOccupied->text() != QStringLiteral("1")
+        || overviewAlert->text() != QStringLiteral("1")) return 34;
     search->setText(QStringLiteral("EV-01"));
     if (filterResult->text() != QStringLiteral("1 of 8 zones")) return 32;
     search->clear();

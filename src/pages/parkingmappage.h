@@ -147,8 +147,6 @@ private:
     void markLayoutDirty(const QString &detail = QString());
     void setLayoutDirty(bool dirty, const QString &status = QString());
     QString channelPanelTitle(const QString &channel) const;
-    QWidget *createLegendItem(const QString &label, const QColor &fill,
-                              const QColor &border, bool circular = false);
 
     QString m_layoutPath;
     QList<ParkingZoneLayout> m_zones;
@@ -229,6 +227,10 @@ private:
     QLabel *m_occupiedSummaryLabel = nullptr;
     QLabel *m_waitingSummaryLabel = nullptr;
     QLabel *m_alertSummaryLabel = nullptr;
+    QLabel *m_overviewTotalSummaryLabel = nullptr;
+    QLabel *m_overviewVacantSummaryLabel = nullptr;
+    QLabel *m_overviewOccupiedSummaryLabel = nullptr;
+    QLabel *m_overviewAlertSummaryLabel = nullptr;
     QLabel *m_filterResultLabel = nullptr;
     QLineEdit *m_zoneSearchEdit = nullptr;
     QLineEdit *m_overviewSearchEdit = nullptr;
