@@ -86,12 +86,15 @@ DebugPage::DebugPage(QWidget *parent)
 {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
+    layout->addLayout(createPageHeader(
+        this, QStringLiteral("Debug"),
+        QStringLiteral("Inspect runtime connections and test scenarios")));
     auto *tabs = new QTabWidget(this);
     tabs->addTab(createOverviewTab(), QStringLiteral("Overview"));
     tabs->addTab(createLogsTab(), QStringLiteral("Live Logs"));
     tabs->addTab(createTestToolsTab(), QStringLiteral("Test Tools"));
-    tabs->setCornerWidget(createPageHelpButton(
-        this, tabs,
+    createPageHelpButton(
+        this, this,
         {QStringLiteral("debug"), QStringLiteral("Debug"),
          QStringLiteral("Debug 사용 안내"),
          QStringLiteral("Pi API, RTSP, 주차 데이터의 상태를 진단하고 로컬 테스트 시나리오를 실행합니다."),
@@ -102,7 +105,7 @@ DebugPage::DebugPage(QWidget *parent)
              "<b>4. Manual message</b><br><i>RX message</i>에 정규화 메시지를 입력하고 <i>Inject locally</i>로 parser와 화면 반영을 시험합니다."),
          QStringLiteral(
              "※ Test Tools와 Inject locally는 Pi 서버로 전송되지 않는 로컬 simulation sandbox입니다. 실제 장비 통합 성공 증거로 사용하지 마세요.\n"
-             "   시뮬레이션 후 Runtime data가 MIXED로 표시될 수 있습니다.")}));
+             "   시뮬레이션 후 Runtime data가 MIXED로 표시될 수 있습니다.")});
     layout->addWidget(tabs);
 
     m_ageRefreshTimer = new QTimer(this);

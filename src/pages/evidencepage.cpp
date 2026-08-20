@@ -104,9 +104,15 @@ int slotNumber(const QString &slotId)
 EvidencePage::EvidencePage(QWidget *parent)
     : QWidget(parent)
 {
-    auto *rootLayout = new QHBoxLayout(this);
+    auto *rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(12);
+    rootLayout->addLayout(createPageHeader(
+        this, QStringLiteral("Evidence"),
+        QStringLiteral("Review parking captures and evidence history")));
+
+    auto *bodyLayout = new QHBoxLayout;
+    bodyLayout->setSpacing(12);
 
     auto *slotPanel = new QFrame(this);
     slotPanel->setObjectName(QStringLiteral("evidenceSlotPanel"));
@@ -131,7 +137,7 @@ EvidencePage::EvidencePage(QWidget *parent)
     auto *refreshButton = new QPushButton(QStringLiteral("Refresh evidence"), slotPanel);
     refreshButton->setObjectName(QStringLiteral("evidenceRefreshButton"));
     slotLayout->addWidget(refreshButton);
-    rootLayout->addWidget(slotPanel);
+    bodyLayout->addWidget(slotPanel);
 
     auto *content = new QWidget(this);
     auto *contentLayout = new QVBoxLayout(content);
@@ -168,7 +174,7 @@ EvidencePage::EvidencePage(QWidget *parent)
          QStringLiteral(
              "※ 사진이 표시되지 않으면 서버에 저장된 증거가 없거나 아직 이미지가 전달되지 않은 상태입니다.\n"
              "   촬영 사유는 서버 metadata가 제공될 때 표시됩니다.")});
-    summaryLayout->addWidget(helpButton, 0, Qt::AlignTop);
+    Q_UNUSED(helpButton);
     contentLayout->addWidget(summaryFrame);
 
     auto *comparisonLayout = new QHBoxLayout;
@@ -233,7 +239,8 @@ EvidencePage::EvidencePage(QWidget *parent)
     m_captureTable->setMaximumHeight(190);
     timelineLayout->addWidget(m_captureTable);
     contentLayout->addWidget(timelineGroup);
-    rootLayout->addWidget(content, 1);
+    bodyLayout->addWidget(content, 1);
+    rootLayout->addLayout(bodyLayout, 1);
 
     connect(m_slotList, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem *current, QListWidgetItem *) {

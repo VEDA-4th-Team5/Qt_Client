@@ -33,8 +33,9 @@ DashboardPage::DashboardPage(const QStringList &lowRtspUrls,
     pageLayout->setContentsMargins(0, 0, 0, 0);
     pageLayout->setSpacing(10);
 
-    auto *helpLayout = new QHBoxLayout;
-    helpLayout->addStretch();
+    pageLayout->addLayout(createPageHeader(
+        this, QStringLiteral("Dashboard"),
+        QStringLiteral("Live monitoring, summary, and recent events")));
     auto *helpButton = new QPushButton(QStringLiteral("Dashboard 안내"), this);
     helpButton->setObjectName(QStringLiteral("dashboardHelpButton"));
     helpButton->setAccessibleName(QStringLiteral("Dashboard 관제 안내"));
@@ -47,9 +48,6 @@ DashboardPage::DashboardPage(const QStringList &lowRtspUrls,
         "border-radius:6px; padding:6px 11px; font-weight:800; }"
         "QPushButton:hover { background:#37474f; border-color:#fb8c00; }"
         "QPushButton:pressed { background:#1c252a; }"));
-    helpLayout->addWidget(helpButton);
-    pageLayout->addLayout(helpLayout);
-
     auto *topLayout = new QHBoxLayout;
     topLayout->setSpacing(10);
     auto *videoGroup = new QGroupBox(QStringLiteral("4-Channel RTSP Monitor"), this);

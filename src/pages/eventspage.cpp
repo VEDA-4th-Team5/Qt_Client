@@ -24,6 +24,9 @@ EventsPage::EventsPage(QWidget *parent)
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
+    layout->addLayout(createPageHeader(
+        this, QStringLiteral("Events"),
+        QStringLiteral("Search, filter, and export monitoring history")));
 
     auto *filterLayout = new QHBoxLayout;
     filterLayout->setSpacing(8);
@@ -60,7 +63,7 @@ EventsPage::EventsPage(QWidget *parent)
     m_resetFilterButton->setObjectName(QStringLiteral("eventFilterResetButton"));
     m_resetFilterButton->setEnabled(false);
     filterLayout->addWidget(m_resetFilterButton);
-    filterLayout->addWidget(createPageHelpButton(
+    createPageHelpButton(
         this, this,
         {QStringLiteral("events"), QStringLiteral("Events"),
          QStringLiteral("Events 사용 안내"),
@@ -72,7 +75,7 @@ EventsPage::EventsPage(QWidget *parent)
              "<b>4. CSV 저장</b><br><i>Export CSV</i>를 누르면 현재 필터와 관계없이 전체 이벤트 로그를 저장합니다."),
          QStringLiteral(
              "※ 화재 채널이나 SYSTEM처럼 주차 슬롯으로 연결되지 않는 이벤트는 Evidence로 이동하지 않습니다.\n"
-             "   Reset filters는 검색어와 모든 필터를 초기화합니다.")}));
+             "   Reset filters는 검색어와 모든 필터를 초기화합니다.")});
     layout->addLayout(filterLayout);
 
     m_eventTable = new QTableWidget(0, 5, this);
