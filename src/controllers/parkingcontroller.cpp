@@ -1505,10 +1505,6 @@ void ParkingController::reconnectNow()
         emit serverConnectionChanged(QStringLiteral("Connection already in progress"), false);
         return;
     }
-    const QString message =
-        QStringLiteral("Connecting to %1...").arg(m_apiBaseUrl.toString(
-            QUrl::RemoveUserInfo | QUrl::RemoveQuery | QUrl::RemoveFragment));
-    emit bannerChanged(message, false);
     emit serverConnectionChanged(QStringLiteral("Connecting..."), false);
     m_apiDiagnostic.connected = false;
     m_apiDiagnostic.status = QStringLiteral("CONNECTING");
