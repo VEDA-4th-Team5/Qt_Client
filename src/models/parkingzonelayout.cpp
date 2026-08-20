@@ -7,6 +7,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <algorithm>
+#include <array>
+
 namespace {
 constexpr double kOperatorSlotWidth = 124.0;
 constexpr double kOperatorSlotHeight = 72.0;
@@ -69,7 +72,7 @@ void appendChannelTestLayout(QList<ParkingZoneLayout> *zones, int channelNumber,
         zones->append(makeZone(
             numberedZoneId(zonePrefix, zoneNumber),
             zoneType,
-            index + 1,
+            4 - index,
             channel,
             isEv ? QStringLiteral("IVA%1").arg(index + 1) : QString(),
             hallSensorIdFor(zonePrefix, zoneNumber)));
@@ -163,6 +166,97 @@ QJsonObject channelDisplayNamesToJson(const ParkingChannelDisplayNames &names)
     }
     return object;
 }
+
+QString normalizedOverviewRole(const QString &role)
+{
+    const QString normalized = role.trimmed().toUpper();
+    if (normalized == QStringLiteral("PARKING")
+        || normalized == QStringLiteral("ENTRANCE")
+        || normalized == QStringLiteral("EXIT")) {
+        return normalized;
+    }
+    return QStringLiteral("HIDDEN");
+}
+
+ParkingOverviewChannelLayout overviewChannelLayout(const QString &role, int slotCount = 0)
+{
+    ParkingOverviewChannelLayout layout;
+    layout.role = normalizedOverviewRole(role);
+    layout.slotCount = layout.role == QStringLiteral("PARKING")
+        ? qBound(1, slotCount, 8)
+        : 0;
+    return layout;
+}
+
+ParkingOverviewCameraLayout overviewCameraLayout(
+    int cameraNumber, int gridRow, int gridColumn,
+    const std::array<const char *, 4> &roles)
+{
+    ParkingOverviewCameraLayout layout;
+    layout.cameraNumber = cameraNumber;
+    layout.gridRow = gridRow;
+    layout.gridColumn = gridColumn;
+    for (int index = 0; index < 4; ++index) {
+        const QString channel = QStringLiteral("CH%1").arg(index + 1);
+        layout.channels.insert(channel,
+                               overviewChannelLayout(QString::fromLatin1(roles.at(index)), 4));
+    }
+    return layout;
+}
+
+ParkingOverviewLayouts overviewLayoutsFromJson(const QJsonObject &root)
+{
+    ParkingOverviewLayouts layouts = defaultParkingOverviewLayouts();
+    const QJsonArray layoutArray = root.value(QStringLiteral("overview_layout")).toArray();
+    for (const QJsonValue &value : layoutArray) {
+        if (!value.isObject()) continue;
+        const QJsonObject cameraObject = value.toObject();
+        const int cameraNumber = cameraObject.value(QStringLiteral("camera_number")).toInt();
+        auto camera = std::find_if(layouts.begin(), layouts.end(),
+                                   [cameraNumber](const ParkingOverviewCameraLayout &layout) {
+                                       return layout.cameraNumber == cameraNumber;
+                                   });
+        if (camera == layouts.end() || cameraNumber == 1) continue;
+
+        const QJsonObject channels = cameraObject.value(QStringLiteral("channels")).toObject();
+        for (int channelNumber = 1; channelNumber <= 4; ++channelNumber) {
+            const QString channel = QStringLiteral("CH%1").arg(channelNumber);
+            const QJsonObject channelObject = channels.value(channel).toObject();
+            if (channelObject.isEmpty()) continue;
+            const QString role = normalizedOverviewRole(
+                channelObject.value(QStringLiteral("role")).toString());
+            const int slotCount = channelObject.value(QStringLiteral("slot_count")).toInt();
+            camera->channels.insert(channel, overviewChannelLayout(role, slotCount));
+        }
+    }
+    return layouts;
+}
+
+QJsonArray overviewLayoutsToJson(const ParkingOverviewLayouts &layouts)
+{
+    QJsonArray layoutArray;
+    for (const ParkingOverviewCameraLayout &camera : layouts) {
+        QJsonObject cameraObject;
+        cameraObject.insert(QStringLiteral("camera_number"), camera.cameraNumber);
+        QJsonObject channels;
+        for (int channelNumber = 1; channelNumber <= 4; ++channelNumber) {
+            const QString channel = QStringLiteral("CH%1").arg(channelNumber);
+            const ParkingOverviewChannelLayout channelLayout = camera.channels.value(channel);
+            QJsonObject channelObject;
+            channelObject.insert(QStringLiteral("role"),
+                                 normalizedOverviewRole(channelLayout.role));
+            channelObject.insert(QStringLiteral("slot_count"),
+                                 normalizedOverviewRole(channelLayout.role)
+                                     == QStringLiteral("PARKING")
+                                     ? qBound(1, channelLayout.slotCount, 8)
+                                     : 0);
+            channels.insert(channel, channelObject);
+        }
+        cameraObject.insert(QStringLiteral("channels"), channels);
+        layoutArray.append(cameraObject);
+    }
+    return layoutArray;
+}
 }
 
 QList<ParkingZoneLayout> defaultParkingZoneLayout()
@@ -173,13 +267,39 @@ QList<ParkingZoneLayout> defaultParkingZoneLayout()
     return zones;
 }
 
+ParkingOverviewLayouts defaultParkingOverviewLayouts()
+{
+    return {
+        overviewCameraLayout(2, 0, 0, {"PARKING", "HIDDEN", "HIDDEN", "PARKING"}),
+        overviewCameraLayout(3, 0, 1, {"PARKING", "HIDDEN", "PARKING", "PARKING"}),
+        overviewCameraLayout(4, 0, 2, {"HIDDEN", "HIDDEN", "PARKING", "HIDDEN"}),
+        overviewCameraLayout(1, 0, 3, {"PARKING", "ENTRANCE", "PARKING", "HIDDEN"}),
+        overviewCameraLayout(5, 1, 0, {"PARKING", "HIDDEN", "HIDDEN", "PARKING"}),
+        overviewCameraLayout(6, 1, 1, {"HIDDEN", "HIDDEN", "PARKING", "PARKING"}),
+        overviewCameraLayout(7, 1, 2, {"HIDDEN", "HIDDEN", "PARKING", "PARKING"}),
+        overviewCameraLayout(8, 1, 3, {"HIDDEN", "HIDDEN", "PARKING", "PARKING"}),
+        overviewCameraLayout(9, 2, 0, {"PARKING", "HIDDEN", "PARKING", "PARKING"}),
+        overviewCameraLayout(10, 2, 1, {"HIDDEN", "HIDDEN", "PARKING", "PARKING"}),
+        overviewCameraLayout(11, 2, 2, {"HIDDEN", "HIDDEN", "PARKING", "PARKING"}),
+        overviewCameraLayout(12, 2, 3, {"HIDDEN", "EXIT", "PARKING", "PARKING"})
+    };
+}
+
 bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones, QString *errorMessage)
 {
-    return loadParkingZoneLayout(path, zones, nullptr, errorMessage);
+    return loadParkingZoneLayout(path, zones, nullptr, nullptr, errorMessage);
 }
 
 bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones,
                            ParkingChannelDisplayNames *channelDisplayNames,
+                           QString *errorMessage)
+{
+    return loadParkingZoneLayout(path, zones, channelDisplayNames, nullptr, errorMessage);
+}
+
+bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones,
+                           ParkingChannelDisplayNames *channelDisplayNames,
+                           ParkingOverviewLayouts *overviewLayouts,
                            QString *errorMessage)
 {
     if (!zones) {
@@ -230,16 +350,29 @@ bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones,
     if (channelDisplayNames) {
         *channelDisplayNames = channelDisplayNamesFromJson(root);
     }
+    if (overviewLayouts) {
+        *overviewLayouts = overviewLayoutsFromJson(root);
+    }
     return true;
 }
 
 bool saveParkingZoneLayout(const QString &path, const QList<ParkingZoneLayout> &zones, QString *errorMessage)
 {
-    return saveParkingZoneLayout(path, zones, ParkingChannelDisplayNames(), errorMessage);
+    return saveParkingZoneLayout(path, zones, ParkingChannelDisplayNames(),
+                                 defaultParkingOverviewLayouts(), errorMessage);
 }
 
 bool saveParkingZoneLayout(const QString &path, const QList<ParkingZoneLayout> &zones,
                            const ParkingChannelDisplayNames &channelDisplayNames,
+                           QString *errorMessage)
+{
+    return saveParkingZoneLayout(path, zones, channelDisplayNames,
+                                 defaultParkingOverviewLayouts(), errorMessage);
+}
+
+bool saveParkingZoneLayout(const QString &path, const QList<ParkingZoneLayout> &zones,
+                           const ParkingChannelDisplayNames &channelDisplayNames,
+                           const ParkingOverviewLayouts &overviewLayouts,
                            QString *errorMessage)
 {
     const QFileInfo fileInfo(path);
@@ -255,6 +388,7 @@ bool saveParkingZoneLayout(const QString &path, const QList<ParkingZoneLayout> &
     root.insert(QStringLiteral("canvas_height"), 460);
     root.insert(QStringLiteral("channel_display_names"),
                 channelDisplayNamesToJson(channelDisplayNames));
+    root.insert(QStringLiteral("overview_layout"), overviewLayoutsToJson(overviewLayouts));
     QJsonArray zoneArray;
     for (const ParkingZoneLayout &zone : zones) {
         zoneArray.append(zoneToJson(zone));

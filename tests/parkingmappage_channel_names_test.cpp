@@ -15,13 +15,15 @@
 #include <QLabel>
 #include <QMetaObject>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QTemporaryDir>
 
 namespace {
 
 bool sceneHasText(ParkingMapPage &page, const QString &expected)
 {
-    QGraphicsView *view = page.findChild<QGraphicsView *>();
+    QGraphicsView *view = page.findChild<QGraphicsView *>(
+        QStringLiteral("parkingMapDetailView"));
     if (!view || !view->scene()) return false;
     for (QGraphicsItem *item : view->scene()->items()) {
         auto *textItem = dynamic_cast<QGraphicsSimpleTextItem *>(item);
@@ -32,11 +34,24 @@ bool sceneHasText(ParkingMapPage &page, const QString &expected)
 
 bool sceneHasRect(ParkingMapPage &page, const QRectF &expected)
 {
-    QGraphicsView *view = page.findChild<QGraphicsView *>();
+    QGraphicsView *view = page.findChild<QGraphicsView *>(
+        QStringLiteral("parkingMapDetailView"));
     if (!view || !view->scene()) return false;
     for (QGraphicsItem *item : view->scene()->items()) {
         auto *rectItem = dynamic_cast<QGraphicsRectItem *>(item);
         if (rectItem && !rectItem->parentItem() && rectItem->rect() == expected) return true;
+    }
+    return false;
+}
+
+bool overviewSceneHasText(ParkingMapPage &page, const QString &expected)
+{
+    QGraphicsView *view = page.findChild<QGraphicsView *>(
+        QStringLiteral("parkingOverviewMapView"));
+    if (!view || !view->scene()) return false;
+    for (QGraphicsItem *item : view->scene()->items()) {
+        auto *textItem = dynamic_cast<QGraphicsSimpleTextItem *>(item);
+        if (textItem && textItem->text() == expected) return true;
     }
     return false;
 }
@@ -102,6 +117,30 @@ int main(int argc, char **argv)
     if (!sceneHasText(page, QStringLiteral(
             "4 slots · vacant 0 · occupied 0 · waiting 4 · alert 0"))) return 52;
     if (sceneHasText(page, QStringLiteral("No recent events"))) return 53;
+
+    QStackedWidget *operationStack = page.findChild<QStackedWidget *>(
+        QStringLiteral("parkingMapOperationViewStack"));
+    QWidget *overviewPage = page.findChild<QWidget *>(
+        QStringLiteral("parkingMapOverviewPage"));
+    QWidget *detailPage = page.findChild<QWidget *>(
+        QStringLiteral("parkingMapZoneDetailPage"));
+    QPushButton *openDetailButton = page.findChild<QPushButton *>(
+        QStringLiteral("parkingOpenZoneDetailButton"));
+    QPushButton *backToOverviewButton = page.findChild<QPushButton *>(
+        QStringLiteral("parkingBackToOverviewButton"));
+    if (!operationStack || !overviewPage || !detailPage || !openDetailButton
+        || !backToOverviewButton || operationStack->currentWidget() != overviewPage) return 64;
+    if (!overviewSceneHasText(page, QStringLiteral("CH1 · LIVE"))
+        || !overviewSceneHasText(page, QStringLiteral("DEMO · L SHAPE"))
+        || !overviewSceneHasText(page, QStringLiteral("DEMO · U SHAPE"))
+        || !overviewSceneHasText(page, QStringLiteral("DEMO · STRAIGHT A"))
+        || !overviewSceneHasText(page, QStringLiteral("DEMO · STRAIGHT B"))) return 67;
+    openDetailButton->click();
+    QApplication::processEvents();
+    if (operationStack->currentWidget() != detailPage) return 65;
+    backToOverviewButton->click();
+    QApplication::processEvents();
+    if (operationStack->currentWidget() != overviewPage) return 66;
 
     QPushButton *namesButton = page.findChild<QPushButton *>(QStringLiteral("editChannelNamesButton"));
     QWidget *adminToolbar = page.findChild<QWidget *>(QStringLiteral("parkingMapAdminToolbar"));

@@ -13,6 +13,7 @@ class QCheckBox;
 class QColor;
 class QComboBox;
 class QDoubleSpinBox;
+class QFrame;
 class QGraphicsEllipseItem;
 class QGraphicsPathItem;
 class QGraphicsRectItem;
@@ -21,6 +22,8 @@ class QGraphicsSimpleTextItem;
 class QGraphicsView;
 class QLabel;
 class QLineEdit;
+class QListWidget;
+class QListWidgetItem;
 class QPoint;
 class QPointF;
 class QPushButton;
@@ -28,6 +31,7 @@ class QResizeEvent;
 class QShowEvent;
 class QSlider;
 class QSpinBox;
+class QStackedWidget;
 class QTableWidget;
 class QTimer;
 class ImageLoader;
@@ -76,11 +80,17 @@ private slots:
     void setEditMode(bool enabled);
     void editChannelDisplayNames();
     void applyZoneFilters();
+    void updateOverviewSearchResults();
+    void openOverviewSearchResult(QListWidgetItem *item);
+    void showOverview();
+    void showCurrentZoneDetail();
+    void editOverviewLayout();
 
 private:
     struct LayoutSnapshot {
         QList<ParkingZoneLayout> zones;
         ParkingChannelDisplayNames channelDisplayNames;
+        ParkingOverviewLayouts overviewLayouts;
         QString selectedZoneId;
     };
 
@@ -105,6 +115,7 @@ private:
     bool stateForZone(const QString &zoneId, SlotState *state) const;
     SlotVisualState visualStateForZone(const QString &zoneId, bool *known = nullptr) const;
     bool isParkingControlChannel(const QString &channel) const;
+    QString zoneSearchText(const ParkingZoneLayout &zone) const;
     bool zoneMatchesFilters(const ParkingZoneLayout &zone) const;
     bool validateLayout(QString *errorMessage) const;
     void handleZoneItemDragStarted(const QString &zoneId);
@@ -121,6 +132,10 @@ private:
     void updateAlarmPulse();
     void updateRuntimeStatusFromSelection();
     void updateOperationalSummary();
+    void updateOverviewSummary();
+    void positionOverviewSearchPopup();
+    void rebuildOverviewScene();
+    void updateOverviewScene();
     void updateRecentEvents();
     void updateVehicleImage();
     void updateEditorFromSelection();
@@ -138,6 +153,7 @@ private:
     QString m_layoutPath;
     QList<ParkingZoneLayout> m_zones;
     ParkingChannelDisplayNames m_channelDisplayNames;
+    ParkingOverviewLayouts m_overviewLayouts;
     ParkingViewState m_lastState;
     QList<MonitoringEvent> m_recentEvents;
     bool m_editMode = false;
@@ -154,6 +170,9 @@ private:
 
     QGraphicsScene *m_scene = nullptr;
     QGraphicsView *m_mapView = nullptr;
+    QGraphicsScene *m_overviewScene = nullptr;
+    QGraphicsView *m_overviewMapView = nullptr;
+    QStackedWidget *m_operationViewStack = nullptr;
     QHash<QString, QGraphicsRectItem *> m_zoneItems;
     QHash<QString, QGraphicsRectItem *> m_zoneAccentBars;
     QHash<QString, QGraphicsPathItem *> m_zoneTypeIcons;
@@ -166,6 +185,7 @@ private:
     QHash<QString, QGraphicsEllipseItem *> m_zoneAlarmHalos;
     QHash<QString, QGraphicsPathItem *> m_zoneAlarmBeacons;
     QHash<QString, QGraphicsSimpleTextItem *> m_zoneAlarmLabels;
+    QHash<QString, QGraphicsRectItem *> m_overviewSlotItems;
     QTableWidget *m_zoneTable = nullptr;
     QTimer *m_alarmPulseTimer = nullptr;
     QTimer *m_runtimeClockTimer = nullptr;
@@ -211,6 +231,10 @@ private:
     QLabel *m_alertSummaryLabel = nullptr;
     QLabel *m_filterResultLabel = nullptr;
     QLineEdit *m_zoneSearchEdit = nullptr;
+    QLineEdit *m_overviewSearchEdit = nullptr;
+    QFrame *m_overviewSearchPopup = nullptr;
+    QListWidget *m_overviewSearchResults = nullptr;
+    QLabel *m_overviewSearchStatusLabel = nullptr;
     QComboBox *m_stateFilterCombo = nullptr;
     QTableWidget *m_recentEventsTable = nullptr;
     QPushButton *m_eventsButton = nullptr;

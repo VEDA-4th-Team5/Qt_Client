@@ -34,8 +34,11 @@
 #include <QLabel>
 #include <QKeySequence>
 #include <QLineEdit>
+#include <QListWidget>
+#include <QListWidgetItem>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPair>
@@ -52,6 +55,7 @@
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -59,8 +63,10 @@
 #include <QtMath>
 #include <QVariant>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <utility>
 
@@ -86,6 +92,132 @@ bool isCameraChannelId(const QString &value)
         || value == QStringLiteral("CH2")
         || value == QStringLiteral("CH3")
         || value == QStringLiteral("CH4");
+}
+
+enum class OverviewChannelRole {
+    Hidden,
+    Parking,
+    Entrance,
+    Exit
+};
+
+struct OverviewLayoutMetrics {
+    int gridRows = 3;
+    int gridColumns = 4;
+    qreal outerMargin = 16.0;
+    qreal sceneHeaderHeight = 0.0;
+    qreal cardSize = 300.0;
+    qreal cardGap = 0.0;
+    qreal cardHeaderHeight = 38.0;
+    qreal channelEdgeInset = 12.0;
+    qreal channelGap = 8.0;
+    qreal horizontalChannelWidth = 130.0;
+    qreal horizontalChannelHeight = 65.0;
+    qreal verticalChannelWidth = 65.0;
+    qreal verticalChannelHeight = 130.0;
+    qreal accessLaneWidth = 86.0;
+    qreal accessLaneHeight = 42.0;
+    qreal accessGateInset = 10.0;
+
+    constexpr qreal sceneWidth() const
+    {
+        return (outerMargin * 2.0)
+            + (cardSize * gridColumns)
+            + (cardGap * (gridColumns - 1));
+    }
+
+    constexpr qreal sceneHeight() const
+    {
+        return (outerMargin * 2.0) + sceneHeaderHeight
+            + (cardSize * gridRows)
+            + (cardGap * (gridRows - 1));
+    }
+
+    constexpr qreal channelFootprintWidth() const
+    {
+        return (verticalChannelWidth * 2.0)
+            + (channelGap * 2.0)
+            + horizontalChannelWidth;
+    }
+};
+
+constexpr OverviewLayoutMetrics kOverviewLayoutMetrics{};
+constexpr qreal kOverviewFitZoom = 0.75;
+static_assert(kOverviewLayoutMetrics.channelFootprintWidth()
+                  + (kOverviewLayoutMetrics.channelEdgeInset * 2.0)
+              <= kOverviewLayoutMetrics.cardSize,
+              "Overview channels must fit inside a camera card");
+
+OverviewChannelRole overviewChannelRole(const ParkingOverviewCameraLayout &camera,
+                                        const QString &channel)
+{
+    const QString role = camera.channels.value(channel).role;
+    if (role == QStringLiteral("PARKING")) return OverviewChannelRole::Parking;
+    if (role == QStringLiteral("ENTRANCE")) return OverviewChannelRole::Entrance;
+    if (role == QStringLiteral("EXIT")) return OverviewChannelRole::Exit;
+    return OverviewChannelRole::Hidden;
+}
+
+QRectF overviewCameraRect(const ParkingOverviewCameraLayout &camera)
+{
+    const OverviewLayoutMetrics &metrics = kOverviewLayoutMetrics;
+    return QRectF(
+        metrics.outerMargin
+            + (camera.gridColumn * (metrics.cardSize + metrics.cardGap)),
+        metrics.outerMargin + metrics.sceneHeaderHeight
+            + (camera.gridRow * (metrics.cardSize + metrics.cardGap)),
+        metrics.cardSize, metrics.cardSize);
+}
+
+QRectF overviewChannelRect(const QRectF &cameraRect, const QString &channel)
+{
+    const OverviewLayoutMetrics &metrics = kOverviewLayoutMetrics;
+    const qreal leftVerticalX = cameraRect.left() + metrics.channelEdgeInset;
+    const qreal horizontalX = leftVerticalX
+        + metrics.verticalChannelWidth + metrics.channelGap;
+    const qreal rightVerticalX = horizontalX
+        + metrics.horizontalChannelWidth + metrics.channelGap;
+    const qreal topY = cameraRect.top() + metrics.cardHeaderHeight
+        + metrics.channelEdgeInset;
+    const qreal bottomY = cameraRect.bottom() - metrics.channelEdgeInset
+        - metrics.horizontalChannelHeight;
+    const qreal verticalCenterY = (topY + bottomY
+                                   + metrics.horizontalChannelHeight) / 2.0;
+    const qreal verticalY = verticalCenterY
+        - (metrics.verticalChannelHeight / 2.0);
+
+    const QString normalized = channel.trimmed().toUpper();
+    if (normalized == QStringLiteral("CH1")) {
+        return QRectF(horizontalX, topY,
+                      metrics.horizontalChannelWidth,
+                      metrics.horizontalChannelHeight);
+    }
+    if (normalized == QStringLiteral("CH2")) {
+        return QRectF(rightVerticalX, verticalY,
+                      metrics.verticalChannelWidth,
+                      metrics.verticalChannelHeight);
+    }
+    if (normalized == QStringLiteral("CH3")) {
+        return QRectF(horizontalX, bottomY,
+                      metrics.horizontalChannelWidth,
+                      metrics.horizontalChannelHeight);
+    }
+    if (normalized == QStringLiteral("CH4")) {
+        return QRectF(leftVerticalX, verticalY,
+                      metrics.verticalChannelWidth,
+                      metrics.verticalChannelHeight);
+    }
+    return QRectF();
+}
+
+QRectF overviewAccessLaneRect(const QRectF &cameraRect,
+                              const QRectF &channelRect)
+{
+    const OverviewLayoutMetrics &metrics = kOverviewLayoutMetrics;
+    return QRectF(cameraRect.right() - metrics.accessLaneWidth,
+                  channelRect.center().y() - (metrics.accessLaneHeight / 2.0),
+                  metrics.accessLaneWidth,
+                  metrics.accessLaneHeight);
 }
 
 constexpr qreal kParkingMapCanvasWidth = 920.0;
@@ -376,6 +508,40 @@ private:
     bool m_editingEnabled = false;
 };
 
+class OverviewMapGraphicsView : public QGraphicsView
+{
+public:
+    explicit OverviewMapGraphicsView(QGraphicsScene *scene, QWidget *parent = nullptr)
+        : QGraphicsView(scene, parent)
+    {
+    }
+
+    std::function<void(const QPointF &)> onSceneDoubleClicked;
+    std::function<void(int)> onZoomRequested;
+
+protected:
+    void mouseDoubleClickEvent(QMouseEvent *event) override
+    {
+        if (event->button() == Qt::LeftButton && onSceneDoubleClicked) {
+            onSceneDoubleClicked(mapToScene(event->position().toPoint()));
+            event->accept();
+            return;
+        }
+        QGraphicsView::mouseDoubleClickEvent(event);
+    }
+
+    void wheelEvent(QWheelEvent *event) override
+    {
+        if (event->modifiers().testFlag(Qt::ControlModifier)
+            && event->angleDelta().y() != 0 && onZoomRequested) {
+            onZoomRequested(event->angleDelta().y());
+            event->accept();
+            return;
+        }
+        QGraphicsView::wheelEvent(event);
+    }
+};
+
 QColor stateColor(SlotState state)
 {
     switch (state) {
@@ -405,6 +571,23 @@ QColor slotFillColor(bool known, const SlotVisualState &visual, bool enabled)
     case VehicleClass::Unknown: return QColor(QStringLiteral("#39434b"));
     }
     return QColor(QStringLiteral("#343b41"));
+}
+
+QColor overviewSlotFillColor(bool known, const SlotVisualState &visual, bool enabled)
+{
+    if (!enabled) return QColor(QStringLiteral("#4b5359"));
+    if (!known || visual.occupancy == SlotOccupancy::Unknown) {
+        return QColor(QStringLiteral("#59646c"));
+    }
+    if (visual.occupancy == SlotOccupancy::Vacant) {
+        return QColor(QStringLiteral("#2e7d32"));
+    }
+    switch (visual.vehicleClass) {
+    case VehicleClass::Electric: return QColor(QStringLiteral("#1565c0"));
+    case VehicleClass::General: return QColor(QStringLiteral("#546e7a"));
+    case VehicleClass::Unknown: return QColor(QStringLiteral("#455a64"));
+    }
+    return QColor(QStringLiteral("#455a64"));
 }
 
 QString compactVehicleText(bool known, const SlotVisualState &visual)
@@ -505,9 +688,9 @@ QString runtimeAlarmStateStyle(bool known, SlotAlarmKind alarm, bool acknowledge
 
 QRectF channelPanelRect(const QString &channel)
 {
-    if (channel == QStringLiteral("CH2")) return QRectF(30, 204, 160, 64);
+    if (channel == QStringLiteral("CH2")) return QRectF(812, 190, 78, 86);
     if (channel == QStringLiteral("CH3")) return QRectF(30, 282, 860, 150);
-    if (channel == QStringLiteral("CH4")) return QRectF(730, 204, 160, 64);
+    if (channel == QStringLiteral("CH4")) return QRectF(30, 190, 78, 86);
     return QRectF(30, 32, 860, 150);
 }
 
@@ -523,6 +706,34 @@ bool sameZoneLayout(const ParkingZoneLayout &left, const ParkingZoneLayout &righ
         && left.ivaAreaId == right.ivaAreaId
         && left.hallSensorId == right.hallSensorId
         && left.enabled == right.enabled;
+}
+
+bool sameOverviewLayouts(const ParkingOverviewLayouts &left,
+                        const ParkingOverviewLayouts &right)
+{
+    if (left.size() != right.size()) return false;
+    for (const ParkingOverviewCameraLayout &leftCamera : left) {
+        const auto rightCamera = std::find_if(
+            right.cbegin(), right.cend(),
+            [&leftCamera](const ParkingOverviewCameraLayout &camera) {
+                return camera.cameraNumber == leftCamera.cameraNumber;
+            });
+        if (rightCamera == right.cend()
+            || leftCamera.gridRow != rightCamera->gridRow
+            || leftCamera.gridColumn != rightCamera->gridColumn) {
+            return false;
+        }
+        for (int channelNumber = 1; channelNumber <= 4; ++channelNumber) {
+            const QString channel = QStringLiteral("CH%1").arg(channelNumber);
+            const ParkingOverviewChannelLayout leftChannel = leftCamera.channels.value(channel);
+            const ParkingOverviewChannelLayout rightChannel = rightCamera->channels.value(channel);
+            if (leftChannel.role != rightChannel.role
+                || leftChannel.slotCount != rightChannel.slotCount) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool hasFixedOperatorTopology(const QList<ParkingZoneLayout> &zones)
@@ -549,7 +760,9 @@ bool hasFixedOperatorTopology(const QList<ParkingZoneLayout> &zones)
         const bool expectedEv = index < 4;
         if (zone.zoneId != expectedSlots.at(index).first
             || zone.cameraChannel != expectedSlots.at(index).second
-            || zone.slotOrder != (index % 4) + 1
+            // The physical operator view is mirrored: left-to-right is
+            // slot 4, 3, 2, 1 for both EV and general parking channels.
+            || zone.slotOrder != 4 - (index % 4)
             || (expectedEv && zone.zoneType != QStringLiteral("EV"))
             || (!expectedEv && zone.zoneType != QStringLiteral("GENERAL"))) {
             return false;
@@ -565,12 +778,187 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     : QWidget(parent)
     , m_layoutPath(layoutPath)
 {
-    auto *pageLayout = new QHBoxLayout(this);
+    auto *pageLayout = new QVBoxLayout(this);
     pageLayout->setContentsMargins(0, 0, 0, 0);
-    pageLayout->setSpacing(10);
+    pageLayout->setSpacing(0);
+
+    m_operationViewStack = new QStackedWidget(this);
+    m_operationViewStack->setObjectName(QStringLiteral("parkingMapOperationViewStack"));
+    pageLayout->addWidget(m_operationViewStack);
+
+    auto *overviewPage = new QWidget(m_operationViewStack);
+    overviewPage->setObjectName(QStringLiteral("parkingMapOverviewPage"));
+    auto *overviewLayout = new QVBoxLayout(overviewPage);
+    overviewLayout->setContentsMargins(12, 12, 12, 12);
+    overviewLayout->setSpacing(12);
+
+    auto *overviewTitleRow = new QHBoxLayout;
+    overviewTitleRow->setContentsMargins(0, 0, 0, 0);
+    auto *overviewTitle = new QLabel(QStringLiteral("Parking Overview"), overviewPage);
+    overviewTitle->setStyleSheet(QStringLiteral("color:#202124;font-size:20px;font-weight:900;"));
+    auto *overviewLayoutButton = new QPushButton(QStringLiteral("Edit overview layout"), overviewPage);
+    overviewLayoutButton->setObjectName(QStringLiteral("parkingOverviewLayoutEditButton"));
+    overviewLayoutButton->setCursor(Qt::PointingHandCursor);
+    const QString overviewZoomButtonStyle = QStringLiteral(
+        "QPushButton { background:#eef3f6; color:#263238; border:1px solid #b8c4cc; "
+        "border-radius:4px; padding:0; font-size:14px; font-weight:800; }"
+        "QPushButton:hover { background:#dceaf3; border-color:#2d9cff; }"
+        "QPushButton:pressed { background:#cbdce7; }");
+    auto *overviewZoomOutButton = new QPushButton(QStringLiteral("-"), overviewPage);
+    overviewZoomOutButton->setObjectName(QStringLiteral("parkingOverviewZoomOutButton"));
+    overviewZoomOutButton->setToolTip(QStringLiteral("Zoom out (Ctrl+mouse wheel)"));
+    auto *overviewZoomLabel = new QPushButton(QStringLiteral("100%"), overviewPage);
+    overviewZoomLabel->setObjectName(QStringLiteral("parkingOverviewZoomLabel"));
+    overviewZoomLabel->setToolTip(QStringLiteral("Reset zoom to fitted overview (100%)"));
+    overviewZoomLabel->setFixedSize(48, 28);
+    overviewZoomLabel->setCursor(Qt::PointingHandCursor);
+    overviewZoomLabel->setStyleSheet(overviewZoomButtonStyle);
+    auto *overviewZoomInButton = new QPushButton(QStringLiteral("+"), overviewPage);
+    overviewZoomInButton->setObjectName(QStringLiteral("parkingOverviewZoomInButton"));
+    overviewZoomInButton->setToolTip(QStringLiteral("Zoom in (Ctrl+mouse wheel)"));
+    for (QPushButton *button : {overviewZoomOutButton, overviewZoomInButton}) {
+        button->setFixedSize(28, 28);
+        button->setCursor(Qt::PointingHandCursor);
+        button->setStyleSheet(overviewZoomButtonStyle);
+    }
+    overviewTitleRow->addWidget(overviewTitle);
+    overviewTitleRow->addStretch();
+    overviewTitleRow->addWidget(overviewZoomOutButton);
+    overviewTitleRow->addWidget(overviewZoomLabel);
+    overviewTitleRow->addWidget(overviewZoomInButton);
+    overviewTitleRow->addWidget(overviewLayoutButton);
+    m_overviewSearchEdit = new QLineEdit(overviewPage);
+    m_overviewSearchEdit->setObjectName(QStringLiteral("parkingOverviewSearchEdit"));
+    m_overviewSearchEdit->setPlaceholderText(
+        QStringLiteral("Search plate, zone, channel"));
+    m_overviewSearchEdit->setClearButtonEnabled(true);
+    m_overviewSearchEdit->setMaximumWidth(260);
+    m_overviewSearchEdit->setToolTip(
+        QStringLiteral("Search a vehicle plate, parking zone, or camera channel"));
+    overviewTitleRow->insertWidget(1, m_overviewSearchEdit);
+    overviewLayout->addLayout(overviewTitleRow);
+    connect(overviewLayoutButton, &QPushButton::clicked,
+            this, &ParkingMapPage::editOverviewLayout);
+
+    m_overviewSearchPopup = new QFrame(overviewPage);
+    m_overviewSearchPopup->setObjectName(QStringLiteral("parkingOverviewSearchPopup"));
+    m_overviewSearchPopup->setStyleSheet(QStringLiteral(
+        "QFrame#parkingOverviewSearchPopup { background:#ffffff;"
+        "border:1px solid #aebbc5;border-radius:5px; }"));
+    auto *overviewSearchPopupLayout = new QVBoxLayout(m_overviewSearchPopup);
+    overviewSearchPopupLayout->setContentsMargins(4, 4, 4, 4);
+    overviewSearchPopupLayout->setSpacing(3);
+
+    m_overviewSearchStatusLabel = new QLabel(m_overviewSearchPopup);
+    m_overviewSearchStatusLabel->setObjectName(QStringLiteral("parkingOverviewSearchStatusLabel"));
+    m_overviewSearchStatusLabel->setStyleSheet(QStringLiteral(
+        "color:#607d8b;font-size:10px;font-weight:700;"));
+    m_overviewSearchStatusLabel->setVisible(false);
+    overviewSearchPopupLayout->addWidget(m_overviewSearchStatusLabel);
+
+    m_overviewSearchResults = new QListWidget(m_overviewSearchPopup);
+    m_overviewSearchResults->setObjectName(QStringLiteral("parkingOverviewSearchResults"));
+    m_overviewSearchResults->setMaximumHeight(126);
+    m_overviewSearchResults->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_overviewSearchResults->setStyleSheet(QStringLiteral(
+        "QListWidget { background:#f8fafb;border:0;padding:2px; }"
+        "QListWidget::item { padding:5px 7px; }"
+        "QListWidget::item:hover { background:#eef5f9; }"
+        "QListWidget::item:selected { background:#dceaf5;color:#10212c; }"));
+    m_overviewSearchResults->setVisible(false);
+    overviewSearchPopupLayout->addWidget(m_overviewSearchResults);
+    m_overviewSearchPopup->setVisible(false);
+    m_overviewSearchPopup->raise();
+
+    auto *overviewMapGroup = new QGroupBox(overviewPage);
+    overviewMapGroup->setObjectName(QStringLiteral("parkingOverviewMapGroup"));
+    auto *overviewMapLayout = new QVBoxLayout(overviewMapGroup);
+    overviewMapLayout->setContentsMargins(8, 10, 8, 8);
+    m_overviewScene = new QGraphicsScene(
+        0, 0,
+        kOverviewLayoutMetrics.sceneWidth(),
+        kOverviewLayoutMetrics.sceneHeight(),
+        this);
+    m_overviewScene->setBackgroundBrush(QColor(QStringLiteral("#1b1f23")));
+    auto *overviewMapView = new OverviewMapGraphicsView(m_overviewScene, overviewMapGroup);
+    overviewMapView->onSceneDoubleClicked = [this](const QPointF &scenePosition) {
+        const auto liveCamera = std::find_if(
+            m_overviewLayouts.cbegin(), m_overviewLayouts.cend(),
+            [](const ParkingOverviewCameraLayout &camera) { return camera.cameraNumber == 1; });
+        if (liveCamera == m_overviewLayouts.cend()
+            || !overviewCameraRect(*liveCamera).contains(scenePosition)) {
+            return;
+        }
+
+        for (auto it = m_overviewSlotItems.cbegin(); it != m_overviewSlotItems.cend(); ++it) {
+            QGraphicsRectItem *slot = it.value();
+            if (slot && slot->contains(slot->mapFromScene(scenePosition))) {
+                selectZoneById(it.key());
+                break;
+            }
+        }
+        showCurrentZoneDetail();
+    };
+    m_overviewMapView = overviewMapView;
+    m_overviewMapView->setObjectName(QStringLiteral("parkingOverviewMapView"));
+    m_overviewMapView->setMinimumHeight(400);
+    m_overviewMapView->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_overviewMapView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_overviewMapView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_overviewMapView->setRenderHint(QPainter::Antialiasing, true);
+    m_overviewMapView->setDragMode(QGraphicsView::ScrollHandDrag);
+    m_overviewMapView->setCursor(Qt::OpenHandCursor);
+    m_overviewMapView->setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+    m_overviewMapView->scale(kOverviewFitZoom, kOverviewFitZoom);
+    m_overviewMapView->setProperty("overviewZoom", 1.0);
+    m_overviewMapView->setToolTip(QStringLiteral(
+        "Left-drag to pan. Double-click Camera 1 to open detail. Ctrl+mouse wheel zooms."));
+    m_overviewMapView->setStyleSheet(QStringLiteral(
+        "QGraphicsView { background:#1b1f23;border:1px solid #3f4a53;border-radius:5px; }"));
+    overviewMapLayout->addWidget(m_overviewMapView);
+    overviewLayout->addWidget(overviewMapGroup, 1);
+    overviewLayout->addStretch();
+    const auto applyOverviewZoom = [this, overviewZoomLabel](qreal requestedZoom) {
+        if (!m_overviewMapView) return;
+        const qreal currentZoom = m_overviewMapView->property("overviewZoom").toReal();
+        const qreal normalizedCurrentZoom = currentZoom > 0.0 ? currentZoom : 1.0;
+        const qreal zoom = qBound(0.55, requestedZoom, 2.5);
+        m_overviewMapView->scale(zoom / normalizedCurrentZoom,
+                                  zoom / normalizedCurrentZoom);
+        m_overviewMapView->setProperty("overviewZoom", zoom);
+        overviewZoomLabel->setText(QStringLiteral("%1%")
+                                       .arg(qRound(zoom * 100.0)));
+    };
+    overviewMapView->onZoomRequested = [this, applyOverviewZoom](int delta) {
+        const qreal currentZoom = m_overviewMapView
+            ? m_overviewMapView->property("overviewZoom").toReal() : 1.0;
+        applyOverviewZoom((currentZoom > 0.0 ? currentZoom : 1.0)
+                          * (delta > 0 ? 1.15 : (1.0 / 1.15)));
+    };
+    connect(overviewZoomOutButton, &QPushButton::clicked, this, [this, applyOverviewZoom]() {
+        const qreal currentZoom = m_overviewMapView
+            ? m_overviewMapView->property("overviewZoom").toReal() : 1.0;
+        applyOverviewZoom((currentZoom > 0.0 ? currentZoom : 1.0) / 1.15);
+    });
+    connect(overviewZoomLabel, &QPushButton::clicked, this, [applyOverviewZoom]() {
+        applyOverviewZoom(1.0);
+    });
+    connect(overviewZoomInButton, &QPushButton::clicked, this, [this, applyOverviewZoom]() {
+        const qreal currentZoom = m_overviewMapView
+            ? m_overviewMapView->property("overviewZoom").toReal() : 1.0;
+        applyOverviewZoom((currentZoom > 0.0 ? currentZoom : 1.0) * 1.15);
+    });
+    m_operationViewStack->addWidget(overviewPage);
+
+    auto *detailPage = new QWidget(m_operationViewStack);
+    detailPage->setObjectName(QStringLiteral("parkingMapZoneDetailPage"));
+    auto *detailLayout = new QHBoxLayout(detailPage);
+    detailLayout->setContentsMargins(0, 0, 0, 0);
+    detailLayout->setSpacing(10);
+    m_operationViewStack->addWidget(detailPage);
 
     auto *mapGroup = new QGroupBox(
-        QStringLiteral("Parking Operations Map · CH1 / CH2 / CH3 / CH4"), this);
+        QStringLiteral("Camera 1 Detail · CH1 / CH3"), detailPage);
     auto *mapLayout = new QVBoxLayout(mapGroup);
     mapLayout->setSpacing(8);
 
@@ -613,6 +1001,10 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     adminToolbar->setVisible(false);
 
     auto *statusLayout = new QHBoxLayout;
+    auto *overviewButton = new QPushButton(QStringLiteral("Back to overview"), mapGroup);
+    overviewButton->setObjectName(QStringLiteral("parkingBackToOverviewButton"));
+    overviewButton->setCursor(Qt::PointingHandCursor);
+    statusLayout->addWidget(overviewButton);
     statusLayout->addStretch();
     auto *helpButton = new QPushButton(QStringLiteral("Parking Map 안내"), mapGroup);
     helpButton->setObjectName(QStringLiteral("parkingMapHelpButton"));
@@ -668,6 +1060,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
                                  kParkingMapBaseHeight, this);
     m_scene->setBackgroundBrush(QColor(QStringLiteral("#1b1f23")));
     m_mapView = new QGraphicsView(m_scene, mapGroup);
+    m_mapView->setObjectName(QStringLiteral("parkingMapDetailView"));
     m_mapView->setMinimumSize(680, 520);
     m_mapView->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_mapView->setResizeAnchor(QGraphicsView::NoAnchor);
@@ -731,9 +1124,10 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
                                               QColor(QStringLiteral("#d1c4e9")), true));
     legendLayout->addStretch();
     mapLayout->addLayout(legendLayout);
-    pageLayout->addWidget(mapGroup, 3);
+    detailLayout->addWidget(mapGroup, 3);
 
-    auto *rightPanel = new QWidget(this);
+    auto *rightPanel = new QWidget(detailPage);
+    rightPanel->setFixedWidth(280);
     auto *rightLayout = new QVBoxLayout(rightPanel);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(10);
@@ -744,7 +1138,8 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     auto *filterLayout = new QHBoxLayout;
     m_zoneSearchEdit = new QLineEdit(mappingGroup);
     m_zoneSearchEdit->setObjectName(QStringLiteral("parkingZoneSearchEdit"));
-    m_zoneSearchEdit->setPlaceholderText(QStringLiteral("Search zone, name, channel, type"));
+    m_zoneSearchEdit->setPlaceholderText(
+        QStringLiteral("Search zone, plate, name, channel, type"));
     m_stateFilterCombo = new QComboBox(mappingGroup);
     m_stateFilterCombo->setObjectName(QStringLiteral("parkingStateFilterCombo"));
     m_stateFilterCombo->addItem(QStringLiteral("All states"), QStringLiteral("ALL"));
@@ -809,11 +1204,14 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     auto *selectedTitleRow = new QHBoxLayout;
     selectedTitleRow->setContentsMargins(0, 0, 0, 0);
     m_selectedTitleLabel = new QLabel(QStringLiteral("No slot selected"), selectedHeader);
+    m_selectedTitleLabel->setWordWrap(true);
+    m_selectedTitleLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     m_selectedTitleLabel->setStyleSheet(QStringLiteral("color: #202124; font-size: 15px; font-weight: 900;"));
     m_selectedStateLabel = new QLabel(QStringLiteral("WAITING"), selectedHeader);
     m_selectedStateLabel->setObjectName(QStringLiteral("selectedSlotStateLabel"));
     m_selectedStateLabel->setAlignment(Qt::AlignCenter);
     m_selectedStateLabel->setMinimumHeight(24);
+    m_selectedStateLabel->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     m_selectedStateLabel->setStyleSheet(statePillStyle(false, SlotState::Vacant));
     selectedTitleRow->addWidget(m_selectedTitleLabel, 1);
     selectedTitleRow->addWidget(m_selectedStateLabel);
@@ -978,7 +1376,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     editorLayout->addRow(QString(), m_deleteButton);
     rightLayout->insertWidget(1, editorGroup, 1);
     editorGroup->setVisible(false);
-    pageLayout->addWidget(rightPanel, 2);
+    detailLayout->addWidget(rightPanel, 2);
 
     connect(m_scene, &QGraphicsScene::selectionChanged,
             this, &ParkingMapPage::handleSceneSelectionChanged);
@@ -986,6 +1384,14 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
             this, &ParkingMapPage::handleZoneTableClicked);
     connect(m_zoneSearchEdit, &QLineEdit::textChanged,
             this, &ParkingMapPage::applyZoneFilters);
+    connect(m_overviewSearchEdit, &QLineEdit::textChanged,
+            this, &ParkingMapPage::updateOverviewSearchResults);
+    connect(m_overviewSearchEdit, &QLineEdit::returnPressed, this, [this]() {
+        if (!m_overviewSearchResults || m_overviewSearchResults->count() != 1) return;
+        openOverviewSearchResult(m_overviewSearchResults->item(0));
+    });
+    connect(m_overviewSearchResults, &QListWidget::itemClicked,
+            this, &ParkingMapPage::openOverviewSearchResult);
     connect(m_stateFilterCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ParkingMapPage::applyZoneFilters);
     connect(ivaSettingsButton, &QPushButton::clicked,
@@ -1029,6 +1435,8 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         const ParkingZoneLayout *zone = selectedZone();
         if (zone) emit cameraRequested(zone->cameraChannel);
     });
+    connect(overviewButton, &QPushButton::clicked,
+            this, &ParkingMapPage::showOverview);
 
     const QList<QLineEdit *> lineEdits = {m_zoneIdEdit, m_displayNameEdit, m_hallSensorEdit};
     for (QLineEdit *edit : lineEdits) {
@@ -1069,8 +1477,11 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
 
     loadLayout();
     rebuildScene();
+    rebuildOverviewScene();
     updateZoneTable();
     updateEditorFromSelection();
+    updateOverviewSummary();
+    showOverview();
     scrollMapToOrigin();
     QTimer::singleShot(0, this, &ParkingMapPage::scrollMapToOrigin);
 }
@@ -1112,9 +1523,13 @@ void ParkingMapPage::showHelpDialog()
     layout->addWidget(title);
 
     auto *intro = new QLabel(
-        QStringLiteral("동일 주차장 위치의 카메라 4대를 CH1·CH2·CH3·CH4로 표시합니다. "
-                       "CH1에는 EV-01~EV-04, CH3에는 P-01~P-04를 배치하고 "
-                       "CH1이 위, CH3이 아래, CH2와 CH4가 좌우에 배치되며, "
+        QStringLiteral("Parking Map은 주차면이 연결된 채널과 부지 입·출구를 표시합니다. "
+                       "Camera 1은 CH1(EV-01~EV-04), CH3(P-01~P-04) 주차면과 "
+                       "CH2 입구 표식을 표시합니다. Camera 12 CH2는 출구 표식입니다. "
+                       "입·출구는 주차면 집계에 포함되지 않습니다. "
+                       "Camera 2~12의 UI Preview 채널 역할과 주차면 수는 Overview의 "
+                       "Edit overview layout에서 설정하고 로컬 배치 파일에 저장합니다. "
+                       "입·출구를 제외한 통로 관제 채널은 이 화면에서 제외됩니다. "
                        "이 화면은 고정 도면에서 실시간 상태·차량 이미지·경고를 확인하는 관제 화면입니다. "
                        "주차면 배치와 IVA 매핑 변경은 전용 설정 탭에서 관리합니다."),
         content);
@@ -1142,7 +1557,9 @@ void ParkingMapPage::showHelpDialog()
     for (int channel = 0; channel < 4; ++channel) {
         const int channelNumber = channel + 1;
         const bool parkingControl = channelNumber == 1 || channelNumber == 3;
+        if (!parkingControl) continue;
         auto *channelFrame = new QFrame(miniMap);
+        channelFrame->setMinimumSize(360, 90);
         channelFrame->setStyleSheet(QStringLiteral(
             "QFrame { background:#1b1f23;border:1px solid #455a64;border-radius:6px; }"));
         auto *channelLayout = new QVBoxLayout(channelFrame);
@@ -1162,16 +1579,14 @@ void ParkingMapPage::showHelpDialog()
                 "border-radius:4px;padding:5px;font-size:11px;").arg(border));
             return slot;
         };
-        if (parkingControl) {
-            const bool evChannel = channelNumber == 1;
-            channelLayout->addWidget(makeSlotSample(
-                evChannel ? QStringLiteral("EV-01 ~ EV-04")
-                          : QStringLiteral("P-01 ~ P-04"),
-                evChannel ? QStringLiteral("IVA mapped") : QStringLiteral("IVA N/A"),
-                evChannel ? QStringLiteral("#2d9cff") : QStringLiteral("#ffd447")));
-        }
+        const bool evChannel = channelNumber == 1;
+        channelLayout->addWidget(makeSlotSample(
+            evChannel ? QStringLiteral("EV-01 ~ EV-04")
+                      : QStringLiteral("P-01 ~ P-04"),
+            evChannel ? QStringLiteral("IVA mapped") : QStringLiteral("IVA N/A"),
+            evChannel ? QStringLiteral("#2d9cff") : QStringLiteral("#ffd447")));
         const int gridRow = channelNumber == 1 ? 0 : (channelNumber == 3 ? 2 : 1);
-        const int gridColumn = channelNumber == 2 ? 0 : (channelNumber == 4 ? 2 : 1);
+        const int gridColumn = channelNumber == 2 ? 2 : (channelNumber == 4 ? 0 : 1);
         miniMapLayout->addWidget(channelFrame, gridRow, gridColumn);
     }
     monitorLayout->addWidget(miniMap);
@@ -1251,7 +1666,7 @@ void ParkingMapPage::showHelpDialog()
             "관제 동작\n"
             "• 빨간색·주황색·보라색 경고가 있는 슬롯을 선택하고 Open Events로 전체 이력과 처리 화면으로 이동합니다.\n"
             "• View Camera는 선택 슬롯과 연결된 기존 채널 스트림을 엽니다.\n"
-            "• CH2·CH4는 통로 관찰용 채널이며 주차면 점유 수에는 포함하지 않습니다.\n"
+            "• 주차면이 없는 채널은 Parking Map에 표시하지 않으며 주차면 점유 수에도 포함하지 않습니다.\n"
             "• 이 화면의 EV/P Zone ID와 서버의 slot_id는 자동으로 같은 ID라고 가정하지 않습니다."),
         content);
     safetyNotes->setObjectName(QStringLiteral("parkingMapHelpSafetyNotes"));
@@ -1290,6 +1705,7 @@ void ParkingMapPage::showEvent(QShowEvent *event)
 void ParkingMapPage::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
+    positionOverviewSearchPopup();
     QTimer::singleShot(0, this, &ParkingMapPage::scrollMapToOrigin);
 }
 
@@ -1350,6 +1766,7 @@ ParkingMapPage::LayoutSnapshot ParkingMapPage::captureLayoutSnapshot() const
     LayoutSnapshot snapshot;
     snapshot.zones = m_zones;
     snapshot.channelDisplayNames = m_channelDisplayNames;
+    snapshot.overviewLayouts = m_overviewLayouts;
     snapshot.selectedZoneId = selectedZoneId();
     return snapshot;
 }
@@ -1382,11 +1799,13 @@ void ParkingMapPage::restoreLayoutSnapshot(const LayoutSnapshot &snapshot)
 {
     m_zones = snapshot.zones;
     m_channelDisplayNames = snapshot.channelDisplayNames;
+    m_overviewLayouts = snapshot.overviewLayouts;
     m_hasPendingDragSnapshot = false;
     m_editorSliderGestureActive = false;
     m_editorSliderSnapshotRecorded = false;
 
     rebuildScene();
+    rebuildOverviewScene();
     updateZoneTable();
     if (!snapshot.selectedZoneId.isEmpty()
         && zoneIndexById(snapshot.selectedZoneId) >= 0) {
@@ -1399,6 +1818,7 @@ void ParkingMapPage::restoreLayoutSnapshot(const LayoutSnapshot &snapshot)
 bool ParkingMapPage::layoutMatchesCleanSnapshot() const
 {
     if (m_channelDisplayNames != m_cleanLayoutSnapshot.channelDisplayNames
+        || !sameOverviewLayouts(m_overviewLayouts, m_cleanLayoutSnapshot.overviewLayouts)
         || m_zones.size() != m_cleanLayoutSnapshot.zones.size()) {
         return false;
     }
@@ -1540,7 +1960,8 @@ bool ParkingMapPage::saveLayoutNow(QString *errorMessage)
         emit layoutSaveResult(false, error);
         return false;
     }
-    if (!saveParkingZoneLayout(m_layoutPath, m_zones, m_channelDisplayNames, &error)) {
+    if (!saveParkingZoneLayout(m_layoutPath, m_zones, m_channelDisplayNames,
+                               m_overviewLayouts, &error)) {
         if (errorMessage) *errorMessage = error;
         if (m_layoutStatusLabel) {
             m_layoutStatusLabel->setText(
@@ -1564,6 +1985,7 @@ void ParkingMapPage::reloadLayout()
 {
     loadLayout();
     rebuildScene();
+    rebuildOverviewScene();
     updateZoneTable();
     updateEditorFromSelection();
     scrollMapToOrigin();
@@ -1573,7 +1995,10 @@ void ParkingMapPage::resetDefaultLayout()
 {
     syncZonesFromItems();
     const QList<ParkingZoneLayout> defaultZones = defaultParkingZoneLayout();
-    if (m_channelDisplayNames.isEmpty() && m_zones.size() == defaultZones.size()) {
+    const ParkingOverviewLayouts defaultOverviewLayouts = defaultParkingOverviewLayouts();
+    if (m_channelDisplayNames.isEmpty()
+        && sameOverviewLayouts(m_overviewLayouts, defaultOverviewLayouts)
+        && m_zones.size() == defaultZones.size()) {
         bool alreadyDefault = true;
         for (int index = 0; index < m_zones.size(); ++index) {
             if (!sameZoneLayout(m_zones.at(index), defaultZones.at(index))) {
@@ -1586,7 +2011,9 @@ void ParkingMapPage::resetDefaultLayout()
     pushCurrentLayoutToUndoHistory();
     m_zones = defaultZones;
     m_channelDisplayNames.clear();
+    m_overviewLayouts = defaultOverviewLayouts;
     rebuildScene();
+    rebuildOverviewScene();
     updateZoneTable();
     updateEditorFromSelection();
     scrollMapToOrigin();
@@ -1705,9 +2132,11 @@ void ParkingMapPage::loadLayout()
     QString error;
     QList<ParkingZoneLayout> loadedZones;
     ParkingChannelDisplayNames loadedChannelDisplayNames;
+    ParkingOverviewLayouts loadedOverviewLayouts;
     if (QFile::exists(m_layoutPath)
         && loadParkingZoneLayout(m_layoutPath, &loadedZones,
-                                 &loadedChannelDisplayNames, &error)) {
+                                 &loadedChannelDisplayNames,
+                                 &loadedOverviewLayouts, &error)) {
         int ignoredCorridorSlots = 0;
         const QList<ParkingZoneLayout> defaultZones = defaultParkingZoneLayout();
         m_zones.clear();
@@ -1719,12 +2148,14 @@ void ParkingMapPage::loadLayout()
         if (ignoredCorridorSlots > 0 || !hasFixedOperatorTopology(m_zones)) {
             m_zones = defaultZones;
             m_channelDisplayNames.clear();
+            m_overviewLayouts = defaultParkingOverviewLayouts();
             clearUndoHistory();
             setLayoutDirty(false, QStringLiteral(
                 "Using fixed operator layout: CH1 EV-01~EV-04 and CH3 P-01~P-04"));
             return;
         }
         m_channelDisplayNames = loadedChannelDisplayNames;
+        m_overviewLayouts = loadedOverviewLayouts;
         clearUndoHistory();
         setLayoutDirty(false, QStringLiteral("Loaded local layout"));
         return;
@@ -1732,6 +2163,7 @@ void ParkingMapPage::loadLayout()
 
     m_zones = defaultParkingZoneLayout();
     m_channelDisplayNames.clear();
+    m_overviewLayouts = defaultParkingOverviewLayouts();
     clearUndoHistory();
     setLayoutDirty(false, QStringLiteral("Loaded default layout"));
 }
@@ -1822,9 +2254,136 @@ void ParkingMapPage::editChannelDisplayNames()
     markLayoutDirty(QStringLiteral("Channel display names updated"));
 }
 
+void ParkingMapPage::editOverviewLayout()
+{
+    ParkingOverviewLayouts workingLayouts = m_overviewLayouts;
+    if (workingLayouts.isEmpty()) workingLayouts = defaultParkingOverviewLayouts();
+
+    QDialog dialog(this);
+    dialog.setObjectName(QStringLiteral("parkingOverviewLayoutDialog"));
+    dialog.setWindowTitle(QStringLiteral("Edit overview layout"));
+    dialog.setMinimumWidth(460);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *description = new QLabel(
+        QStringLiteral("Camera 2–12 preview channels can be shown as parking, entrance, exit, or hidden. "
+                       "Camera 1 uses its live slot mapping and is edited from its detail view."),
+        &dialog);
+    description->setWordWrap(true);
+    description->setStyleSheet(QStringLiteral("color:#54636d;"));
+    layout->addWidget(description);
+
+    auto *cameraCombo = new QComboBox(&dialog);
+    cameraCombo->setObjectName(QStringLiteral("parkingOverviewCameraCombo"));
+    for (const ParkingOverviewCameraLayout &camera : std::as_const(workingLayouts)) {
+        if (camera.cameraNumber != 1) {
+            cameraCombo->addItem(QStringLiteral("Camera %1").arg(camera.cameraNumber),
+                                 camera.cameraNumber);
+        }
+    }
+    auto *form = new QFormLayout;
+    form->addRow(QStringLiteral("Camera"), cameraCombo);
+
+    QHash<QString, QComboBox *> roleCombos;
+    QHash<QString, QSpinBox *> slotSpins;
+    for (int channelNumber = 1; channelNumber <= 4; ++channelNumber) {
+        const QString channel = QStringLiteral("CH%1").arg(channelNumber);
+        auto *row = new QWidget(&dialog);
+        auto *rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        auto *roleCombo = new QComboBox(row);
+        roleCombo->addItem(QStringLiteral("Hidden"), QStringLiteral("HIDDEN"));
+        roleCombo->addItem(QStringLiteral("Parking"), QStringLiteral("PARKING"));
+        roleCombo->addItem(QStringLiteral("Entrance"), QStringLiteral("ENTRANCE"));
+        roleCombo->addItem(QStringLiteral("Exit"), QStringLiteral("EXIT"));
+        auto *slotSpin = new QSpinBox(row);
+        slotSpin->setRange(1, 8);
+        slotSpin->setSuffix(QStringLiteral(" slots"));
+        rowLayout->addWidget(roleCombo, 1);
+        rowLayout->addWidget(slotSpin);
+        form->addRow(channel, row);
+        roleCombos.insert(channel, roleCombo);
+        slotSpins.insert(channel, slotSpin);
+    }
+    layout->addLayout(form);
+
+    bool loadingCamera = false;
+    const auto findCamera = [&workingLayouts](int cameraNumber) {
+        return std::find_if(workingLayouts.begin(), workingLayouts.end(),
+                            [cameraNumber](const ParkingOverviewCameraLayout &camera) {
+                                return camera.cameraNumber == cameraNumber;
+                            });
+    };
+    const auto loadCamera = [&]() {
+        const auto camera = findCamera(cameraCombo->currentData().toInt());
+        if (camera == workingLayouts.end()) return;
+        loadingCamera = true;
+        for (int channelNumber = 1; channelNumber <= 4; ++channelNumber) {
+            const QString channel = QStringLiteral("CH%1").arg(channelNumber);
+            const ParkingOverviewChannelLayout channelLayout = camera->channels.value(channel);
+            QComboBox *roleCombo = roleCombos.value(channel);
+            QSpinBox *slotSpin = slotSpins.value(channel);
+            const int roleIndex = roleCombo->findData(channelLayout.role);
+            roleCombo->setCurrentIndex(roleIndex < 0 ? 0 : roleIndex);
+            slotSpin->setValue(qBound(1, channelLayout.slotCount, 8));
+            slotSpin->setEnabled(channelLayout.role == QStringLiteral("PARKING"));
+        }
+        loadingCamera = false;
+    };
+    const auto storeChannel = [&](const QString &channel) {
+        if (loadingCamera) return;
+        const auto camera = findCamera(cameraCombo->currentData().toInt());
+        if (camera == workingLayouts.end()) return;
+        const QString role = roleCombos.value(channel)->currentData().toString();
+        ParkingOverviewChannelLayout channelLayout;
+        channelLayout.role = role;
+        channelLayout.slotCount = role == QStringLiteral("PARKING")
+            ? slotSpins.value(channel)->value()
+            : 0;
+        camera->channels.insert(channel, channelLayout);
+        slotSpins.value(channel)->setEnabled(role == QStringLiteral("PARKING"));
+    };
+    connect(cameraCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            &dialog, [loadCamera](int) { loadCamera(); });
+    for (int channelNumber = 1; channelNumber <= 4; ++channelNumber) {
+        const QString channel = QStringLiteral("CH%1").arg(channelNumber);
+        connect(roleCombos.value(channel), qOverload<int>(&QComboBox::currentIndexChanged),
+                &dialog, [storeChannel, channel](int) { storeChannel(channel); });
+        connect(slotSpins.value(channel), qOverload<int>(&QSpinBox::valueChanged),
+                &dialog, [storeChannel, channel](int) { storeChannel(channel); });
+    }
+    loadCamera();
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel,
+                                         Qt::Horizontal, &dialog);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    m_overviewLayouts = workingLayouts;
+    rebuildOverviewScene();
+    markLayoutDirty(QStringLiteral("Overview layout updated"));
+    QString error;
+    if (!saveLayoutNow(&error)) {
+        QMessageBox::warning(this, QStringLiteral("Parking overview layout"), error);
+    }
+}
+
 QString ParkingMapPage::channelPanelTitle(const QString &channel) const
 {
     return channel.trimmed().toUpper();
+}
+
+void ParkingMapPage::showOverview()
+{
+    if (m_operationViewStack) m_operationViewStack->setCurrentIndex(0);
+}
+
+void ParkingMapPage::showCurrentZoneDetail()
+{
+    if (!m_operationViewStack) return;
+    m_operationViewStack->setCurrentIndex(1);
+    QTimer::singleShot(0, this, &ParkingMapPage::scrollMapToOrigin);
 }
 
 QString ParkingMapPage::exampleLayoutPath() const
@@ -2220,11 +2779,10 @@ void ParkingMapPage::rebuildScene()
                                    QStringLiteral("CH3"), QStringLiteral("CH4")}) {
         const QRectF panel = channelPanelRect(channel);
         const bool parkingControl = isParkingControlChannel(channel);
+        if (!parkingControl) continue;
         m_scene->addRect(panel,
-                         QPen(QColor(parkingControl ? QStringLiteral("#5f6c75")
-                                                   : QStringLiteral("#455a64")), 2),
-                         QBrush(QColor(parkingControl ? QStringLiteral("#242a2f")
-                                                     : QStringLiteral("#20272c"))));
+                         QPen(QColor(QStringLiteral("#5f6c75")), 2),
+                         QBrush(QColor(QStringLiteral("#242a2f"))));
         QFont titleFont;
         titleFont.setPointSize(10);
         titleFont.setBold(true);
@@ -2236,17 +2794,16 @@ void ParkingMapPage::rebuildScene()
         title->setBrush(QColor(QStringLiteral("#f4f8fb")));
         title->setToolTip(fullTitle);
         title->setPos(panel.x() + 12, panel.y() + 10);
-        if (parkingControl) {
-            auto *channelSummary = m_scene->addSimpleText(
-                QStringLiteral("4 slots · waiting data"));
-            QFont summaryFont;
-            summaryFont.setPointSize(7);
-            summaryFont.setBold(true);
-            channelSummary->setFont(summaryFont);
-            channelSummary->setBrush(QColor(QStringLiteral("#b0bec5")));
-            channelSummary->setPos(panel.x() + 28, panel.y() + 30.0);
-            m_channelSummaryLabels.insert(channel, channelSummary);
-        }
+
+        auto *channelSummary = m_scene->addSimpleText(
+            QStringLiteral("4 slots · waiting data"));
+        QFont summaryFont;
+        summaryFont.setPointSize(7);
+        summaryFont.setBold(true);
+        channelSummary->setFont(summaryFont);
+        channelSummary->setBrush(QColor(QStringLiteral("#b0bec5")));
+        channelSummary->setPos(panel.x() + 28, panel.y() + 30.0);
+        m_channelSummaryLabels.insert(channel, channelSummary);
     }
 
     for (const ParkingZoneLayout &zone : m_zones) {
@@ -2795,6 +3352,114 @@ bool ParkingMapPage::validateLayout(QString *errorMessage) const
     return true;
 }
 
+QString ParkingMapPage::zoneSearchText(const ParkingZoneLayout &zone) const
+{
+    bool known = false;
+    const SlotVisualState visual = visualStateForZone(zone.zoneId, &known);
+    SlotState state = SlotState::Vacant;
+    stateForZone(zone.zoneId, &state);
+    return QStringLiteral("%1 %2 %3 %4 %5 %6 %7 %8")
+        .arg(zone.zoneId, zone.displayName, zone.cameraChannel, zone.zoneType,
+             plateNumberForZone(m_lastState, zone.zoneId),
+             displayStateText(known, state), compactVehicleText(known, visual),
+             slotAlarmText(visual.alarm));
+}
+
+void ParkingMapPage::positionOverviewSearchPopup()
+{
+    if (!m_overviewSearchEdit || !m_overviewSearchPopup
+        || !m_overviewSearchPopup->isVisible()) {
+        return;
+    }
+
+    QWidget *overviewPage = m_overviewSearchEdit->parentWidget();
+    if (!overviewPage) return;
+
+    const QRect editRect(
+        m_overviewSearchEdit->mapTo(overviewPage, QPoint(0, 0)),
+        m_overviewSearchEdit->size());
+    const int popupWidth = qMax(260, editRect.width());
+    m_overviewSearchPopup->setFixedWidth(popupWidth);
+    m_overviewSearchPopup->adjustSize();
+
+    const int horizontalMargin = 8;
+    const int gap = 4;
+    int x = editRect.right() - popupWidth + 1;
+    x = qBound(horizontalMargin, x,
+               qMax(horizontalMargin, overviewPage->width() - popupWidth - horizontalMargin));
+    int y = editRect.bottom() + gap;
+    if (y + m_overviewSearchPopup->height() > overviewPage->height() - horizontalMargin) {
+        y = editRect.top() - m_overviewSearchPopup->height() - gap;
+    }
+    y = qMax(horizontalMargin, y);
+    m_overviewSearchPopup->move(x, y);
+    m_overviewSearchPopup->raise();
+}
+
+void ParkingMapPage::updateOverviewSearchResults()
+{
+    if (!m_overviewSearchEdit || !m_overviewSearchPopup || !m_overviewSearchResults) return;
+
+    const QString query = m_overviewSearchEdit->text().trimmed();
+    m_overviewSearchResults->clear();
+    if (m_overviewSearchStatusLabel) {
+        m_overviewSearchStatusLabel->clear();
+        m_overviewSearchStatusLabel->setVisible(false);
+    }
+    m_overviewSearchResults->setVisible(false);
+    m_overviewSearchPopup->setVisible(false);
+    if (query.isEmpty()) return;
+
+    int matchCount = 0;
+    for (const ParkingZoneLayout &zone : m_zones) {
+        if (!zone.enabled || !isParkingControlChannel(zone.cameraChannel)
+            || !zoneSearchText(zone).contains(query, Qt::CaseInsensitive)) {
+            continue;
+        }
+
+        bool known = false;
+        const SlotVisualState visual = visualStateForZone(zone.zoneId, &known);
+        SlotState state = SlotState::Vacant;
+        stateForZone(zone.zoneId, &state);
+        const QString plate = plateNumberForZone(m_lastState, zone.zoneId);
+        const QString primary = plate.isEmpty() ? zone.zoneId : plate;
+        auto *item = new QListWidgetItem(
+            QStringLiteral("%1  ·  %2  ·  %3  ·  %4")
+                .arg(primary, zone.zoneId, zone.cameraChannel,
+                     displayStateText(known, state)),
+            m_overviewSearchResults);
+        item->setData(Qt::UserRole, zone.zoneId);
+        item->setToolTip(QStringLiteral("Camera 1 · %1 · %2")
+                             .arg(zone.cameraChannel, compactVehicleText(known, visual)));
+        ++matchCount;
+    }
+
+    if (m_overviewSearchStatusLabel) {
+        m_overviewSearchStatusLabel->setText(
+            matchCount == 0
+                ? QStringLiteral("No matching parking zone or plate")
+                : QStringLiteral("%1 matching zone%2")
+                      .arg(matchCount)
+                      .arg(matchCount == 1 ? QString() : QStringLiteral("s")));
+        m_overviewSearchStatusLabel->setVisible(true);
+    }
+    m_overviewSearchResults->setVisible(matchCount > 0);
+    m_overviewSearchResults->setFixedHeight(
+        matchCount > 0 ? qBound(34, (matchCount * 30) + 8, 126) : 0);
+    m_overviewSearchPopup->setVisible(true);
+    positionOverviewSearchPopup();
+}
+
+void ParkingMapPage::openOverviewSearchResult(QListWidgetItem *item)
+{
+    if (!item) return;
+    const QString zoneId = item->data(Qt::UserRole).toString();
+    if (zoneId.isEmpty()) return;
+    selectZoneById(zoneId);
+    showCurrentZoneDetail();
+    if (m_overviewSearchEdit) m_overviewSearchEdit->clear();
+}
+
 bool ParkingMapPage::zoneMatchesFilters(const ParkingZoneLayout &zone) const
 {
     if (!isParkingControlChannel(zone.cameraChannel)) return false;
@@ -2803,10 +3468,7 @@ bool ParkingMapPage::zoneMatchesFilters(const ParkingZoneLayout &zone) const
     const SlotVisualState visual = visualStateForZone(zone.zoneId, &known);
     SlotState state = SlotState::Vacant;
     stateForZone(zone.zoneId, &state);
-    const QString searchable = QStringLiteral("%1 %2 %3 %4 %5 %6 %7")
-        .arg(zone.zoneId, zone.displayName, zone.cameraChannel, zone.zoneType,
-             displayStateText(known, state), compactVehicleText(known, visual),
-             slotAlarmText(visual.alarm));
+    const QString searchable = zoneSearchText(zone);
     if (!query.isEmpty() && !searchable.contains(query, Qt::CaseInsensitive)) return false;
 
     const QString filter = m_stateFilterCombo
@@ -2898,6 +3560,7 @@ void ParkingMapPage::updateOperationalSummary()
     if (m_occupiedSummaryLabel) m_occupiedSummaryLabel->setText(QString::number(occupied));
     if (m_waitingSummaryLabel) m_waitingSummaryLabel->setText(QString::number(waiting));
     if (m_alertSummaryLabel) m_alertSummaryLabel->setText(QString::number(alerts));
+    updateOverviewSummary();
 
     for (const QString &channelId : {QStringLiteral("CH1"), QStringLiteral("CH3")}) {
         const ChannelCounts channel = channelCounts.value(channelId);
@@ -2938,6 +3601,244 @@ void ParkingMapPage::updateOperationalSummary()
                                       ? QColor(QStringLiteral("#ffcc80"))
                                       : QColor(QStringLiteral("#b0bec5")));
         }
+    }
+}
+
+void ParkingMapPage::updateOverviewSummary()
+{
+    updateOverviewScene();
+}
+
+void ParkingMapPage::rebuildOverviewScene()
+{
+    if (!m_overviewScene) return;
+    m_overviewSlotItems.clear();
+    m_overviewScene->clear();
+    const QStringList channels = {
+        QStringLiteral("CH1"), QStringLiteral("CH2"),
+        QStringLiteral("CH3"), QStringLiteral("CH4")
+    };
+    QHash<QString, QList<const ParkingZoneLayout *>> zonesByChannel;
+    for (const ParkingZoneLayout &zone : m_zones) {
+        const QString channel = zone.cameraChannel.trimmed().isEmpty()
+            ? QStringLiteral("UNASSIGNED")
+            : zone.cameraChannel.trimmed().toUpper();
+        zonesByChannel[channel].append(&zone);
+    }
+    for (auto it = zonesByChannel.begin(); it != zonesByChannel.end(); ++it) {
+        std::sort(it.value().begin(), it.value().end(),
+                  [](const ParkingZoneLayout *left, const ParkingZoneLayout *right) {
+                      if (left->slotOrder != right->slotOrder) {
+                          return left->slotOrder < right->slotOrder;
+                      }
+                      return left->zoneId < right->zoneId;
+                  });
+    }
+
+    const qreal sceneWidth = kOverviewLayoutMetrics.sceneWidth();
+    const qreal sceneHeight = kOverviewLayoutMetrics.sceneHeight();
+    m_overviewScene->setSceneRect(0, 0, sceneWidth, sceneHeight);
+    m_overviewScene->addRect(m_overviewScene->sceneRect(), Qt::NoPen,
+                             QBrush(QColor(QStringLiteral("#20272c"))));
+
+    auto addText = [this](const QString &text, const QPointF &position,
+                          int pointSize, const QColor &color, bool bold = false) {
+        auto *item = m_overviewScene->addSimpleText(text);
+        QFont font;
+        font.setPointSize(pointSize);
+        font.setBold(bold);
+        item->setFont(font);
+        item->setBrush(color);
+        item->setPos(position);
+        return item;
+    };
+    const QColor liveAccent(QStringLiteral("#2d9cff"));
+    const QColor livePanel(QStringLiteral("#2d353b"));
+    const QColor previewPanel(QStringLiteral("#272d32"));
+    const QColor liveParkingChannelColor(QStringLiteral("#81c784"));
+    const QColor previewParkingChannelColor(QStringLiteral("#59636a"));
+    const QColor entranceAccent(QStringLiteral("#4dd0e1"));
+    const QColor entranceFill(QStringLiteral("#19353a"));
+    const QColor exitAccent(QStringLiteral("#ffb74d"));
+    const QColor exitFill(QStringLiteral("#3a2b18"));
+
+    const ParkingOverviewLayouts overviewLayouts = m_overviewLayouts.isEmpty()
+        ? defaultParkingOverviewLayouts()
+        : m_overviewLayouts;
+    for (const ParkingOverviewCameraLayout &cameraSpec : overviewLayouts) {
+        const int cameraNumber = cameraSpec.cameraNumber;
+        const bool live = cameraNumber == 1;
+        const QRectF cameraRect = overviewCameraRect(cameraSpec);
+        auto *cameraItem = m_overviewScene->addRect(
+            cameraRect, Qt::NoPen,
+            QBrush(live ? livePanel : previewPanel));
+        cameraItem->setToolTip(
+            live ? QStringLiteral("Camera 1 | Live | Double-click to open detail")
+                 : QStringLiteral("Camera %1 | UI preview").arg(cameraNumber));
+        addText(live ? QStringLiteral("C%1 · LIVE").arg(cameraNumber)
+                     : QStringLiteral("C%1").arg(cameraNumber),
+                cameraRect.topLeft() + QPointF(10, 8), 9,
+                live ? QColor(QStringLiteral("#e1f5fe"))
+                     : QColor(QStringLiteral("#b0bac0")), true);
+        if (live) {
+            m_overviewScene->addLine(
+                cameraRect.left() + 1.0, cameraRect.top() + 1.0,
+                cameraRect.right() - 1.0, cameraRect.top() + 1.0,
+                QPen(liveAccent, 3.0));
+        }
+        for (const QString &channel : channels) {
+            const OverviewChannelRole channelRole = overviewChannelRole(
+                cameraSpec, channel);
+            if (channelRole == OverviewChannelRole::Hidden) continue;
+            const QRectF channelRect = overviewChannelRect(cameraRect, channel);
+
+            if (channelRole == OverviewChannelRole::Entrance
+                || channelRole == OverviewChannelRole::Exit) {
+                const bool entrance = channelRole
+                    == OverviewChannelRole::Entrance;
+                const QColor accessAccent = entrance
+                    ? entranceAccent : exitAccent;
+                const QColor accessFill = entrance ? entranceFill : exitFill;
+                const QString accessType = entrance
+                    ? QStringLiteral("Entrance") : QStringLiteral("Exit");
+                const qreal laneRight = cameraRect.right();
+                const QRectF laneRect = overviewAccessLaneRect(
+                    cameraRect, channelRect);
+                auto *lane = m_overviewScene->addRect(
+                    laneRect, QPen(accessAccent.darker(115), 1.2),
+                    QBrush(accessFill));
+                lane->setToolTip(
+                    QStringLiteral("Camera %1 | %2 | %3")
+                        .arg(cameraNumber)
+                        .arg(channel)
+                        .arg(accessType));
+
+                // The facility border remains continuous; draw the access
+                // gate immediately inside that external boundary.
+                const qreal gateX = laneRight
+                    - kOverviewLayoutMetrics.accessGateInset;
+                m_overviewScene->addLine(
+                    gateX, laneRect.top() + 8.0,
+                    gateX, laneRect.bottom() - 8.0,
+                    QPen(accessAccent, 3.0));
+
+                QPen arrowPen(accessAccent, 2.2);
+                arrowPen.setCapStyle(Qt::RoundCap);
+                arrowPen.setJoinStyle(Qt::RoundJoin);
+                const qreal arrowY = laneRect.center().y();
+                const qreal arrowTipX = entrance
+                    ? laneRect.left() + 18.0 : gateX - 4.0;
+                const qreal arrowTailX = entrance
+                    ? gateX - 8.0 : laneRect.left() + 18.0;
+                const qreal arrowHeadDirection = entrance ? 1.0 : -1.0;
+                m_overviewScene->addLine(
+                    arrowTailX, arrowY, arrowTipX, arrowY, arrowPen);
+                m_overviewScene->addLine(
+                    arrowTipX, arrowY,
+                    arrowTipX + (arrowHeadDirection * 11.0),
+                    arrowY - 7.0, arrowPen);
+                m_overviewScene->addLine(
+                    arrowTipX, arrowY,
+                    arrowTipX + (arrowHeadDirection * 11.0),
+                    arrowY + 7.0, arrowPen);
+                continue;
+            }
+
+            const bool sideChannel = channel == QStringLiteral("CH2")
+                || channel == QStringLiteral("CH4");
+            const QColor visibleChannelAccent = live
+                ? liveParkingChannelColor
+                : previewParkingChannelColor;
+            m_overviewScene->addRect(
+                channelRect,
+                QPen(visibleChannelAccent, 1.4),
+                QBrush(live
+                           ? QColor(QStringLiteral("#20272c"))
+                           : QColor(QStringLiteral("#292f34"))));
+
+            addText(channel, channelRect.topLeft() + QPointF(6, 4), 7,
+                    live ? QColor(QStringLiteral("#f7fbff"))
+                         : QColor(QStringLiteral("#929da3")), true);
+
+            const QList<const ParkingZoneLayout *> zones = zonesByChannel.value(channel);
+            const int visibleSlots = live
+                ? qMin(4, static_cast<int>(zones.size()))
+                : cameraSpec.channels.value(channel).slotCount;
+            const qreal slotGap = 3.0;
+            const qreal slotWidth = sideChannel
+                ? channelRect.width() - 12.0
+                : (visibleSlots > 0
+                       ? (channelRect.width() - 12.0
+                          - ((visibleSlots - 1) * slotGap)) / visibleSlots
+                       : 0.0);
+            const qreal slotStart = 19.0;
+            const qreal slotHeight = sideChannel && visibleSlots > 0
+                ? (channelRect.height() - slotStart - 8.0
+                   - ((visibleSlots - 1) * slotGap)) / visibleSlots
+                : channelRect.height() - slotStart - 8.0;
+            for (int slotIndex = 0; slotIndex < visibleSlots; ++slotIndex) {
+                const QRectF slotRect(
+                    channelRect.x() + 6.0
+                        + (sideChannel ? 0.0
+                                       : slotIndex * (slotWidth + slotGap)),
+                    channelRect.y() + slotStart
+                        + (sideChannel ? slotIndex * (slotHeight + slotGap) : 0.0),
+                    slotWidth, slotHeight);
+                if (!live) {
+                    m_overviewScene->addRect(
+                        slotRect, QPen(QColor(QStringLiteral("#485158")), 1.0),
+                        QBrush(QColor(QStringLiteral("#2b3237"))));
+                    continue;
+                }
+                const ParkingZoneLayout *zone = zones.at(slotIndex);
+                auto *slot = m_overviewScene->addRect(
+                    slotRect, QPen(slotBorderColor(*zone), 1.4),
+                    QBrush(QColor(QStringLiteral("#45515a"))));
+                slot->setToolTip(QStringLiteral("Camera 1 | %1 | %2")
+                                     .arg(channel, zone->zoneId));
+                m_overviewSlotItems.insert(zone->zoneId, slot);
+            }
+        }
+    }
+
+    const OverviewLayoutMetrics &metrics = kOverviewLayoutMetrics;
+    const QRectF facilityRect(
+        metrics.outerMargin,
+        metrics.outerMargin + metrics.sceneHeaderHeight,
+        (metrics.cardSize * metrics.gridColumns)
+            + (metrics.cardGap * (metrics.gridColumns - 1)),
+        (metrics.cardSize * metrics.gridRows)
+            + (metrics.cardGap * (metrics.gridRows - 1)));
+    const QPen separatorPen(QColor(QStringLiteral("#46535d")), 1.0, Qt::DashLine);
+    for (int column = 1; column < metrics.gridColumns; ++column) {
+        const qreal x = facilityRect.left() + (column * metrics.cardSize)
+            + ((column - 0.5) * metrics.cardGap);
+        m_overviewScene->addLine(x, facilityRect.top(), x, facilityRect.bottom(), separatorPen);
+    }
+    for (int row = 1; row < metrics.gridRows; ++row) {
+        const qreal y = facilityRect.top() + (row * metrics.cardSize)
+            + ((row - 0.5) * metrics.cardGap);
+        m_overviewScene->addLine(facilityRect.left(), y, facilityRect.right(), y, separatorPen);
+    }
+    m_overviewScene->addRect(facilityRect,
+                             QPen(QColor(QStringLiteral("#6d7b85")), 1.0),
+                             QBrush(Qt::NoBrush));
+
+    updateOverviewScene();
+}
+
+void ParkingMapPage::updateOverviewScene()
+{
+    for (auto it = m_overviewSlotItems.begin(); it != m_overviewSlotItems.end(); ++it) {
+        const QString zoneId = it.key();
+        QGraphicsRectItem *slot = it.value();
+        const int zoneIndex = zoneIndexById(zoneId);
+        if (!slot || zoneIndex < 0) continue;
+        const ParkingZoneLayout &slotZone = m_zones.at(zoneIndex);
+        bool known = false;
+        const SlotVisualState visual = visualStateForZone(zoneId, &known);
+        slot->setBrush(overviewSlotFillColor(known, visual, slotZone.enabled));
+        slot->setPen(QPen(slotBorderColor(slotZone), 2.0));
     }
 }
 
@@ -3022,6 +3923,7 @@ void ParkingMapPage::updateZoneTable()
     }
     updateOperationalSummary();
     applyZoneFilters();
+    updateOverviewSearchResults();
 }
 
 void ParkingMapPage::scrollMapToOrigin()
