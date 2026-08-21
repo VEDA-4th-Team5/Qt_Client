@@ -73,15 +73,14 @@ Settings 화면에서 프로토콜, `Server IP / Host`, `API Port`를 각각 입
 저장됩니다. 연결 실패 시 5초부터 최대 60초까지 지수 백오프로 자동 재시도하며
 `Reconnect now` 버튼으로 즉시 다시 연결할 수 있습니다.
 
-`Parking ROI` 화면은 Dashboard에서 이미 디코딩 중인 CH1 프레임을 공유합니다.
+Parking ROI 저장은 IVA Setup의 `Save Crop ROI to Pi` 흐름에서 처리합니다.
 프레임이나 미리보기 이미지를 서버에 업로드하지 않으며, 화면에서 선택한 영역을
 `x`, `y`, `width`, `height`의 0~1 정규화 좌표로 변환해 Pi REST API에만 전송합니다.
-화면 진입 시 SQLite에 저장된 EV01~EV04 좌표를 GET으로 다시 읽어 오버레이를 복원합니다.
 
 ## 소스 구조
 
 - `src/mainwindow.*`: 사이드바, 페이지 전환, 화면 간 signal 연결
-- `src/pages/`: Dashboard, Parking Map, Parking ROI, Events, Settings, Debug 화면
+- `src/pages/`: Dashboard, Parking Map, Events, Evidence, IVA Setup, Settings, Debug 화면
 - `src/controllers/parkingcontroller.*`: API·Mock 데이터와 주차 상태/알람 처리
 - `src/auth/`, `src/dialogs/logindialog.*`: 앱 계정 로그인과 메모리 전용 세션
 - `src/dialogs/slotevidencedialog.*`: 차량·번호판 이미지 증거 화면

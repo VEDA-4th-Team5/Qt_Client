@@ -112,8 +112,6 @@ add_executable(smart_parking_qt_client
     src/pages/ivasettingspage.h
     src/pages/parkingmappage.cpp
     src/pages/parkingmappage.h
-    src/pages/parkingroisettingspage.cpp
-    src/pages/parkingroisettingspage.h
     src/pages/settingspage.cpp
     src/pages/settingspage.h
     src/services/camerasettings.cpp
@@ -197,7 +195,6 @@ if (QT_VERSION_MAJOR EQUAL 6)
             resources/icons/evidence.svg
             resources/icons/settings.svg
             resources/icons/iva-setup.svg
-            resources/icons/parking-roi.svg
             resources/icons/debug.svg
             resources/icons/monitor-connected.svg
             resources/icons/monitor-connecting.svg
@@ -649,27 +646,6 @@ if (BUILD_TESTING)
     )
     add_test(NAME parkingroi_codec COMMAND parkingroi_codec_test)
 
-    add_executable(parkingroisettingspage_test
-        tests/parkingroisettingspage_test.cpp
-        src/api/parkingroi.cpp
-        src/api/parkingroi.h
-        src/iva/ivaareamodels.h
-        src/iva/ivavideocanvas.cpp
-        src/iva/ivavideocanvas.h
-        src/pages/parkingroisettingspage.cpp
-        src/pages/parkingroisettingspage.h
-    )
-    target_include_directories(parkingroisettingspage_test PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    )
-    target_link_libraries(parkingroisettingspage_test PRIVATE
-        Qt${QT_VERSION_MAJOR}::Widgets
-    )
-    set_target_properties(parkingroisettingspage_test PROPERTIES
-        AUTOMOC_COMPILER_PREDEFINES OFF
-    )
-    add_test(NAME parking_roi_settings_page COMMAND parkingroisettingspage_test)
-
     add_executable(parkingroicontroller_test
         tests/parkingroicontroller_test.cpp
         src/adapters/serverfireeventadapter.cpp
@@ -1074,11 +1050,6 @@ if (BUILD_TESTING)
         TIMEOUT 30
     )
     set_tests_properties(image_loader_auth PROPERTIES
-        ENVIRONMENT
-            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
-        TIMEOUT 30
-    )
-    set_tests_properties(parking_roi_settings_page PROPERTIES
         ENVIRONMENT
             "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${QT_RUNTIME_ROOT}/plugins/platforms"
         TIMEOUT 30
