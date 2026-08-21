@@ -1172,11 +1172,8 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     mappingLayout->addWidget(m_zoneTable);
     auto *mappingActions = new QHBoxLayout;
     auto *ivaSettingsButton = new QPushButton(QStringLiteral("Open IVA Setup"), mappingGroup);
-    auto *parkingRoiButton = new QPushButton(QStringLiteral("Open Parking ROI"), mappingGroup);
     ivaSettingsButton->setObjectName(QStringLiteral("parkingOpenIvaButton"));
-    parkingRoiButton->setObjectName(QStringLiteral("parkingOpenRoiButton"));
     mappingActions->addWidget(ivaSettingsButton);
-    mappingActions->addWidget(parkingRoiButton);
     mappingLayout->addLayout(mappingActions);
     rightLayout->addWidget(mappingGroup, 2);
     mappingGroup->setVisible(false);
@@ -1389,8 +1386,6 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
             this, &ParkingMapPage::applyZoneFilters);
     connect(ivaSettingsButton, &QPushButton::clicked,
             this, &ParkingMapPage::ivaSettingsRequested);
-    connect(parkingRoiButton, &QPushButton::clicked,
-            this, &ParkingMapPage::parkingRoiRequested);
     connect(m_editToggleButton, &QPushButton::toggled,
             this, &ParkingMapPage::setEditMode);
     connect(m_editToggleButton, &QPushButton::toggled, this,

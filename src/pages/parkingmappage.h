@@ -58,7 +58,6 @@ signals:
     void evidenceRequested(const QString &zoneId, const QString &eventId);
     void cameraRequested(const QString &channel);
     void ivaSettingsRequested();
-    void parkingRoiRequested();
 
 protected:
     void showEvent(QShowEvent *event) override;

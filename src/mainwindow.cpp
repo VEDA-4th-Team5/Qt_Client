@@ -8,10 +8,8 @@
 #include "pages/debugpage.h"
 #include "pages/evidencepage.h"
 #include "pages/eventspage.h"
-#include "pages/imagecomparepage.h"
 #include "pages/ivasettingspage.h"
 #include "pages/parkingmappage.h"
-#include "pages/parkingroisettingspage.h"
 #include "pages/settingspage.h"
 #include "services/camerasettings.h"
 #include "services/notificationcenter.h"
@@ -203,14 +201,10 @@ void MainWindow::buildUi()
                     ? QStringLiteral(":/resources/icons/events.svg")
                     : index == 3
                         ? QStringLiteral(":/resources/icons/evidence.svg")
-                        : index == 4
-                            ? QStringLiteral(":/resources/icons/image-compare.svg")
-                            : index == 5
-                                ? QStringLiteral(":/resources/icons/settings.svg")
-                                : index == 6
-                                    ? QStringLiteral(":/resources/icons/iva-setup.svg")
-                                    : index == 7
-                                        ? QStringLiteral(":/resources/icons/parking-roi.svg")
+                                : index == 4
+                                    ? QStringLiteral(":/resources/icons/settings.svg")
+                                    : index == 5
+                                        ? QStringLiteral(":/resources/icons/iva-setup.svg")
                                         : QStringLiteral(":/resources/icons/debug.svg");
         button->setIcon(QIcon(iconPath));
         button->setIconSize(QSize(20, 20));
@@ -228,20 +222,12 @@ void MainWindow::buildUi()
     addNavButton(QStringLiteral("Parking Map"), 1);
     m_eventsNavButton = addNavButton(QStringLiteral("Events"), 2);
     m_evidenceNavButton = addNavButton(QStringLiteral("Evidence"), 3);
-    m_imageCompareNavButton = addNavButton(
-        QStringLiteral("Image Compare"), 4);
-    addNavButton(QStringLiteral("Settings"), 5);
-    m_ivaNavButton = addNavButton(QStringLiteral("IVA Setup"), 6);
-    m_parkingRoiNavButton = addNavButton(QStringLiteral("Parking ROI"), 7);
-    addNavButton(QStringLiteral("Debug"), 8);
+    addNavButton(QStringLiteral("Settings"), 4);
+    m_ivaNavButton = addNavButton(QStringLiteral("IVA Setup"), 5);
+    addNavButton(QStringLiteral("Debug"), 6);
     connect(m_evidenceNavButton, &QPushButton::clicked, this, [this]() {
         if (m_evidencePage) {
             m_evidencePage->requestCurrentEvidence();
-        }
-    });
-    connect(m_imageCompareNavButton, &QPushButton::clicked, this, [this]() {
-        if (m_imageComparePage) {
-            m_imageComparePage->requestCurrentComparison();
         }
     });
     sideLayout->addStretch();
@@ -332,23 +318,19 @@ void MainWindow::buildUi()
     m_parkingMapPage = new ParkingMapPage(parkingMapLayoutPath(), m_pages);
     m_eventsPage = new EventsPage(m_pages);
     m_evidencePage = new EvidencePage(m_pages);
-    m_imageComparePage = new ImageComparePage(m_pages);
     m_settingsPage = new SettingsPage(m_cameraSettings.configPath(),
                                       m_cameraSettings.cameraIp(),
                                       m_pages,
                                       m_cameraSettings.cameraUsername(),
                                       m_cameraSettings.cameraPassword());
     m_ivaSettingsPage = new IvaSettingsPage(m_cameraSettings.cameraIp(), m_pages);
-    m_parkingRoiSettingsPage = new ParkingRoiSettingsPage(m_pages);
     m_debugPage = new DebugPage(m_pages);
     m_pages->addWidget(m_dashboardPage);
     m_pages->addWidget(m_parkingMapPage);
     m_pages->addWidget(m_eventsPage);
     m_pages->addWidget(m_evidencePage);
-    m_pages->addWidget(m_imageComparePage);
     m_pages->addWidget(m_settingsPage);
     m_pages->addWidget(m_ivaSettingsPage);
-    m_pages->addWidget(m_parkingRoiSettingsPage);
     m_pages->addWidget(m_debugPage);
     installPageHelpButtons();
     contentLayout->addWidget(m_pages, 1);
@@ -385,10 +367,8 @@ void MainWindow::installPageHelpButtons()
         m_parkingMapPage,
         m_eventsPage,
         m_evidencePage,
-        m_imageComparePage,
         m_settingsPage,
         m_ivaSettingsPage,
-        m_parkingRoiSettingsPage,
         m_debugPage,
     };
     const QStringList buttonNames = {
@@ -396,10 +376,8 @@ void MainWindow::installPageHelpButtons()
         QStringLiteral("parkingMapHelpButton"),
         QStringLiteral("eventsHelpButton"),
         QStringLiteral("evidenceHelpButton"),
-        QStringLiteral("imageCompareHelpButton"),
         QStringLiteral("settingsHelpButton"),
         QStringLiteral("ivaHelpButton"),
-        QStringLiteral("parkingRoiHelpButton"),
         QStringLiteral("debugHelpButton"),
     };
 
@@ -428,7 +406,6 @@ void MainWindow::installPageHelpButtons()
 void MainWindow::connectPages()
 {
     m_evidencePage->setImageLoader(m_parkingController->imageLoader());
-    m_imageComparePage->setImageLoader(m_parkingController->imageLoader());
     connect(m_parkingController, &ParkingController::authenticationExpired,
             this, &MainWindow::reauthenticationRequested);
     m_parkingMapPage->setImageLoader(m_parkingController->imageLoader());
@@ -512,21 +489,12 @@ void MainWindow::connectPages()
                         slotId, m_parkingController->slotState(slotId),
                         m_parkingController->plateNumber(slotId),
                         m_parkingController->images(slotId));
-                } else if (m_pages->currentWidget() == m_imageComparePage) {
-                    m_imageComparePage->setImageLoader(
-                        m_parkingController->imageLoader());
-                    m_imageComparePage->showComparison(
-                        slotId, m_parkingController->slotState(slotId),
-                        m_parkingController->plateNumber(slotId),
-                        m_parkingController->images(slotId));
                 }
             });
     connect(m_parkingController, &ParkingController::slotDetailFailed,
             this, [this](const QString &slotId, const QString &message) {
                 if (m_pages->currentWidget() == m_evidencePage) {
                     m_evidencePage->showError(slotId, message);
-                } else if (m_pages->currentWidget() == m_imageComparePage) {
-                    m_imageComparePage->showError(slotId, message);
                 }
             });
     connect(m_parkingController, &ParkingController::eventEvidenceReady,
@@ -571,17 +539,10 @@ void MainWindow::connectPages()
                 m_pages->setCurrentWidget(m_ivaSettingsPage);
                 if (m_ivaNavButton) m_ivaNavButton->setChecked(true);
             });
-    connect(m_parkingMapPage, &ParkingMapPage::parkingRoiRequested, this,
-            [this]() {
-                m_pages->setCurrentWidget(m_parkingRoiSettingsPage);
-                if (m_parkingRoiNavButton) m_parkingRoiNavButton->setChecked(true);
-            });
     connect(m_parkingController, &ParkingController::detailError, this,
             [this](const QString &message) {
                 if (m_pages->currentWidget() == m_evidencePage) {
                     m_evidencePage->showError(QString(), message);
-                } else if (m_pages->currentWidget() == m_imageComparePage) {
-                    m_imageComparePage->showError(QString(), message);
                 }
             });
     connect(m_evidencePage, &EvidencePage::slotEvidenceRequested, this,
@@ -591,12 +552,6 @@ void MainWindow::connectPages()
             });
     connect(m_evidencePage, &EvidencePage::eventEvidenceRequested,
             m_parkingController, &ParkingController::requestEventEvidence);
-    connect(m_imageComparePage, &ImageComparePage::comparisonRequested, this,
-            [this](const QString &slotId) {
-                m_imageComparePage->setImageLoader(
-                    m_parkingController->imageLoader());
-                m_parkingController->requestSlotDetail(slotId);
-            });
     connect(m_debugPage, &DebugPage::clearAlarmsRequested,
             m_parkingController, &ParkingController::clearAlarms);
     connect(m_debugPage, &DebugPage::reconnectApiRequested,
@@ -692,28 +647,6 @@ void MainWindow::connectPages()
             m_ivaSettingsPage, &IvaSettingsPage::setPiRoiResult);
     connect(m_parkingController, &ParkingController::parkingRoiRequestFailed,
             m_ivaSettingsPage, &IvaSettingsPage::setPiRoiError);
-    connect(m_parkingRoiSettingsPage,
-            &ParkingRoiSettingsPage::roiListRequested,
-            m_parkingController, &ParkingController::requestParkingRois);
-    connect(m_parkingRoiSettingsPage,
-            &ParkingRoiSettingsPage::roiRequested,
-            m_parkingController, &ParkingController::requestParkingRoi);
-    connect(m_parkingRoiSettingsPage,
-            &ParkingRoiSettingsPage::roiSaveRequested,
-            m_parkingController, &ParkingController::updateParkingRoi);
-    connect(m_parkingController, &ParkingController::parkingRoiListReceived,
-            m_parkingRoiSettingsPage, &ParkingRoiSettingsPage::setRoiList);
-    connect(m_parkingController, &ParkingController::parkingRoiReceived,
-            m_parkingRoiSettingsPage, &ParkingRoiSettingsPage::setRoi);
-    connect(m_parkingController, &ParkingController::parkingRoiRequestFailed,
-            m_parkingRoiSettingsPage, &ParkingRoiSettingsPage::setRequestError);
-    connect(m_parkingRoiSettingsPage,
-            &ParkingRoiSettingsPage::previewFrameRequested,
-            this, [this]() {
-        if (!m_dashboardPage || !m_parkingRoiSettingsPage) return;
-        m_parkingRoiSettingsPage->setPreviewFrame(
-            m_dashboardPage->currentRtspFrame(0));
-    });
 }
 
 void MainWindow::showFireAlarmPopup(const QString &channelId,
@@ -757,7 +690,6 @@ void MainWindow::renderParkingState()
     const ParkingViewState &state = m_parkingController->state();
     m_parkingMapPage->render(state);
     m_evidencePage->render(state);
-    m_imageComparePage->render(state);
     int occupied = 0;
     int vacant = 0;
     int sensorErrors = 0;
