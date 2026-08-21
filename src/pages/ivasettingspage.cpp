@@ -21,6 +21,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMap>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QPolygonF>
@@ -36,6 +37,35 @@
 #include <QVBoxLayout>
 
 #include <cmath>
+
+namespace {
+
+// Each camera channel maps its Parking Area combo to a distinct set of
+// camera IVA rule names/indexes so that reusing name1~4 across channels
+// (disambiguated on the Pi server side by video_source_token) doesn't read
+// as ambiguous in the Qt UI. Channels without an explicit entry fall back
+// to the original EV-01~04 / offset-0 behavior.
+struct ParkingAreaZone
+{
+    QStringList labels;
+    int ruleNameOffset;
+};
+
+ParkingAreaZone parkingAreaZoneForChannel(int channel)
+{
+    static const QMap<int, ParkingAreaZone> zones{
+        {0, {{QStringLiteral("EV-01"), QStringLiteral("EV-02"),
+              QStringLiteral("EV-03"), QStringLiteral("EV-04")}, 0}},
+        {2, {{QStringLiteral("P-01"), QStringLiteral("P-02"),
+              QStringLiteral("P-03"), QStringLiteral("P-04")}, 4}},
+    };
+    static const ParkingAreaZone fallback{
+        {QStringLiteral("EV-01"), QStringLiteral("EV-02"),
+         QStringLiteral("EV-03"), QStringLiteral("EV-04")}, 0};
+    return zones.value(channel, fallback);
+}
+
+} // namespace
 
 IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     : QWidget(parent)
@@ -103,11 +133,10 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     parkingAreaLabel->setStyleSheet(QStringLiteral("font-weight:700;"));
     m_piSlotCombo = new QComboBox(videoPanel);
     m_piSlotCombo->setObjectName(QStringLiteral("ivaPiParkingSlotCombo"));
-    m_piSlotCombo->addItems({QStringLiteral("EV-01"), QStringLiteral("EV-02"),
-                             QStringLiteral("EV-03"), QStringLiteral("EV-04")});
+    m_piSlotCombo->addItems(parkingAreaZoneForChannel(m_selectedChannel).labels);
     m_piSlotCombo->setMinimumWidth(90);
     m_piSlotCombo->setToolTip(QStringLiteral(
-        "EV-01-EV-04 map to camera IVA rules name1-name4 and indexes 1-4."));
+        "Parking Area maps to the selected channel's camera IVA rule names and indexes."));
     channelRow->addWidget(parkingAreaLabel);
     channelRow->addWidget(m_piSlotCombo);
     m_discardDraftButton = new QPushButton(QStringLiteral("Discard draft"), videoPanel);
@@ -272,8 +301,7 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     m_sendPiRoiButton->setToolTip(QStringLiteral(
         "Send the selected IVA polygon's normalized bounding rectangle to the Pi server. No image is uploaded."));
     m_piRoiStatusLabel = new QLabel(
-        QStringLiteral("Select EV-01-EV-04, then drag directly on the video. "
-                       "EV-01-EV-04 map to name1-name4."),
+        QStringLiteral("Select a Parking Area, then drag directly on the video."),
         piRoiGroup);
     m_piRoiStatusLabel->setObjectName(QStringLiteral("ivaPiRoiStatusLabel"));
     m_piRoiStatusLabel->setWordWrap(true);
@@ -625,7 +653,7 @@ void IvaSettingsPage::showHelpDialog()
     const QList<QPair<QString, QString>> setupSteps{
         {QStringLiteral("① Refresh"), QStringLiteral("Options · Capability · 현재 Configuration 조회")},
         {QStringLiteral("② CH 선택"), QStringLiteral("CH1~CH4 중 편집할 카메라 채널 선택")},
-        {QStringLiteral("③ Parking Area"), QStringLiteral("EV-01~EV-04 중 매핑 대상 선택")},
+        {QStringLiteral("③ Parking Area"), QStringLiteral("선택한 채널의 Parking Area(CH1: EV-01~04, CH3: P-01~04) 중 매핑 대상 선택")},
         {QStringLiteral("④ 영상 드래그"), QStringLiteral("호환되는 공유 RTSP 프레임에서 사각형 작성")}
     };
     for (int index = 0; index < setupSteps.size(); ++index) {
@@ -689,6 +717,11 @@ void IvaSettingsPage::showHelpDialog()
             QString::number(row + 1)));
     }
     mappingLayout->addWidget(mappingTable);
+    auto *mappingNote = new QLabel(
+        QStringLiteral("표는 CH1 기준입니다. CH3(P-01~P-04)는 name5~name8 / index 5~8에 매핑됩니다."),
+        mappingGroup);
+    mappingNote->setWordWrap(true);
+    mappingLayout->addWidget(mappingNote);
     layout->addWidget(mappingGroup);
 
     auto *canvasGroup = new QGroupBox(
@@ -809,7 +842,7 @@ void IvaSettingsPage::showHelpDialog()
             "• 카메라가 다른 곳에서 변경되어 preflight 충돌이 나면 새로 읽힌 값을 검토한 뒤 다시 적용합니다.\n"
             "• TLS 인증서는 최초 연결 시 SHA-256 지문으로 고정되며 이후 지문이 다르면 연결을 중단합니다. 평문으로 자동 전환하지 않습니다.\n"
             "• 카메라 설정 삭제는 Camera Web Viewer에도 반영되므로 채널과 Area index/name을 확인한 후 승인합니다.\n"
-            "• 이 화면의 EV-01~04는 Pi ROI 선택 이름이며 실제 서버 slot_id 매핑을 자동으로 의미하지 않습니다."),
+            "• 이 화면의 Parking Area 이름(EV-01~04 / P-01~04)은 Pi ROI 선택 이름이며 실제 서버 slot_id 매핑을 자동으로 의미하지 않습니다."),
         content);
     safetyNotes->setObjectName(QStringLiteral("ivaHelpSafetyNotes"));
     safetyNotes->setWordWrap(true);
@@ -1234,6 +1267,14 @@ void IvaSettingsPage::selectChannel(int channel)
     for (int index = 0; index < m_channelButtons.size(); ++index) {
         m_channelButtons.at(index)->setChecked(index == channel);
     }
+    if (m_piSlotCombo) {
+        const QSignalBlocker blocker(m_piSlotCombo);
+        const int previousIndex = qMax(0, m_piSlotCombo->currentIndex());
+        m_piSlotCombo->clear();
+        m_piSlotCombo->addItems(parkingAreaZoneForChannel(channel).labels);
+        m_piSlotCombo->setCurrentIndex(
+            qMin(previousIndex, m_piSlotCombo->count() - 1));
+    }
     const IvaChannelCapability *capability = m_capabilities.forChannel(channel);
     const QSize coordinateResolution = capability && capability->ivaAreaSupported
         ? capability->maxResolution : QSize();
@@ -1247,7 +1288,9 @@ void IvaSettingsPage::selectChannel(int channel)
 
 int IvaSettingsPage::mappedParkingAreaIndex() const
 {
-    return m_piSlotCombo ? m_piSlotCombo->currentIndex() + 1 : -1;
+    if (!m_piSlotCombo) return -1;
+    return m_piSlotCombo->currentIndex() + 1
+        + parkingAreaZoneForChannel(m_selectedChannel).ruleNameOffset;
 }
 
 QString IvaSettingsPage::mappedParkingAreaName() const

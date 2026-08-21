@@ -287,6 +287,22 @@ int main(int argc, char *argv[])
     if (!require(deletedChannel == 1 && deletedAreaIndex == 2,
                  "the same delete control must preserve CH2 and its selected Area index")) return 1;
 
+    auto *channel3Button = page.findChild<QPushButton *>(
+        QStringLiteral("ivaPreviewChannel3Button"));
+    channel3Button->click();
+    if (!require(piSlot->count() == 4 && piSlot->itemText(0) == QStringLiteral("P-01")
+                     && piSlot->itemText(3) == QStringLiteral("P-04"),
+                 "CH3 must relabel the Parking Area combo to P-01~P-04")) return 1;
+    piSlot->setCurrentText(QStringLiteral("P-03"));
+    if (!require(piStatus->text().contains(QStringLiteral("name7")),
+                 "CH3's P-03 must map to camera rule name7 (offset by CH1's name1~4)")) return 1;
+
+    auto *channel1Button = page.findChild<QPushButton *>(
+        QStringLiteral("ivaPreviewChannel1Button"));
+    channel1Button->click();
+    if (!require(piSlot->count() == 4 && piSlot->itemText(0) == QStringLiteral("EV-01"),
+                 "switching back to CH1 must restore EV-01~EV-04")) return 1;
+
     page.setCameraIp(QStringLiteral("192.0.2.11"));
     if (!require(table->rowCount() == 0 && !apply->isEnabled(),
                  "changing camera IP must clear values from the previous device")) return 1;

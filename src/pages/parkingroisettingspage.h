@@ -3,6 +3,7 @@
 #include "api/parkingroi.h"
 
 #include <QImage>
+#include <QList>
 #include <QWidget>
 
 class IvaVideoCanvas;
@@ -26,14 +27,14 @@ public:
                 bool appliedImmediately);
     void setRequestError(const QString &slotId, const QString &message,
                          quint64 generation, bool saveRequest);
-    void setPreviewFrame(const QImage &frame);
+    void setPreviewFrame(int channel, const QImage &frame);
 
 signals:
     void roiListRequested(quint64 generation);
     void roiRequested(const QString &slotId, quint64 generation);
     void roiSaveRequested(const QString &slotId, const ParkingRoi &roi,
                           quint64 generation);
-    void previewFrameRequested();
+    void previewFrameRequested(int channel);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -45,6 +46,7 @@ private:
     void requestAllRois();
     void requestSelectedRoi();
     void handleSlotChanged();
+    void selectChannel(int channel);
     void freezeCurrentFrame();
     void refreshFrame();
     void resetSelection(const QString &statusMessage);
@@ -57,6 +59,9 @@ private:
     static QString pixelText(const ParkingRoi &roi, const QSize &frameSize);
     static QString friendlyError(const QString &message);
 
+    QList<QPushButton *> m_channelButtons;
+    QLabel *m_channelLabel = nullptr;
+    int m_selectedChannel = 0;
     QComboBox *m_slotCombo = nullptr;
     QLabel *m_currentRoiLabel = nullptr;
     QLabel *m_selectedRoiLabel = nullptr;

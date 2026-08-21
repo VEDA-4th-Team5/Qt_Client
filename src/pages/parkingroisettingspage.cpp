@@ -3,6 +3,7 @@
 #include "iva/ivavideocanvas.h"
 #include "widgets/pagehelp.h"
 
+#include <QButtonGroup>
 #include <QComboBox>
 #include <QFormLayout>
 #include <QGridLayout>
@@ -10,11 +11,32 @@
 #include <QHBoxLayout>
 #include <QHideEvent>
 #include <QLabel>
+#include <QMap>
 #include <QPushButton>
 #include <QShowEvent>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <QTimer>
 #include <QVBoxLayout>
+
+#include <utility>
+
+namespace {
+
+// Only channels with a known Parking Area naming convention are selectable
+// here. Channels without an entry are not exposed as a channel button.
+const QMap<int, QStringList> &parkingRoiChannelSlotLabels()
+{
+    static const QMap<int, QStringList> labels{
+        {0, {QStringLiteral("EV-01"), QStringLiteral("EV-02"),
+             QStringLiteral("EV-03"), QStringLiteral("EV-04")}},
+        {2, {QStringLiteral("P-01"), QStringLiteral("P-02"),
+             QStringLiteral("P-03"), QStringLiteral("P-04")}},
+    };
+    return labels;
+}
+
+} // namespace
 
 ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
     : QWidget(parent)
@@ -25,14 +47,14 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
 
     layout->addLayout(createPageHeader(
         this, QStringLiteral("Parking ROI"),
-        QStringLiteral("Configure CH1 parking-slot crop regions")));
+        QStringLiteral("Configure parking-slot crop regions")));
     createPageHelpButton(
         this, this,
         {QStringLiteral("parkingRoi"), QStringLiteral("Parking ROI"),
          QStringLiteral("Parking ROI 사용 안내"),
-         QStringLiteral("CH1 영상에서 EV-01~EV-04의 Pi 서버 crop 영역을 설정합니다."),
+         QStringLiteral("선택한 채널 영상에서 Parking Area의 Pi 서버 crop 영역을 설정합니다."),
          QStringLiteral(
-             "<b>1. 슬롯 선택</b><br>EV-01~EV-04 중 하나를 선택합니다. 페이지를 열면 서버의 전체 ROI를 불러오며 <i>Reload from Server</i>로 선택 슬롯만 다시 읽을 수 있습니다.<br><br>"
+             "<b>1. 채널·슬롯 선택</b><br>CH1(EV-01~04) 또는 CH3(P-01~04) 채널과 슬롯을 선택합니다. 페이지를 열면 서버의 전체 ROI를 불러오며 <i>Reload from Server</i>로 선택 슬롯만 다시 읽을 수 있습니다.<br><br>"
              "<b>2. 프레임 고정</b><br><i>Freeze Current Frame</i>을 누른 뒤 영상 위에서 사각형을 드래그합니다. 새 화면이 필요하면 <i>Refresh Frame</i>을 사용합니다.<br><br>"
              "<b>3. 좌표 검토</b><br>선택 영역의 pixel 좌표와 0~1 normalized 좌표를 확인합니다. 최소 크기는 원본 프레임 기준 8×8픽셀입니다.<br><br>"
              "<b>4. 저장·검증</b><br><i>Save and Apply</i>는 normalized ROI를 Pi에 PUT하고 GET 결과가 요청값과 같은지 검증합니다. <i>Reset Selection</i>과 <i>Cancel</i>은 저장하지 않은 선택을 버립니다."),
@@ -40,7 +62,7 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
              "※ 이 화면은 Pi crop ROI만 변경하며 카메라 WiseAI 규칙은 변경하지 않습니다. 이미지 자체도 Pi로 업로드하지 않습니다.\n"
              "   프레임 해상도가 없거나 서버의 검증 결과가 다르면 저장 성공으로 처리하지 않습니다.")});
     auto *description = new QLabel(
-        QStringLiteral("Edit EV-01–EV-04 parking regions on the shared CH1 RTSP "
+        QStringLiteral("Edit parking regions on the selected channel's shared RTSP "
                        "frame. Only normalized coordinates are sent to the Pi server."),
         this);
     description->setWordWrap(true);
@@ -51,7 +73,24 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
     auto *videoLayout = new QVBoxLayout(videoPanel);
     videoLayout->setContentsMargins(0, 0, 0, 0);
     auto *frameButtons = new QHBoxLayout;
-    frameButtons->addWidget(new QLabel(QStringLiteral("Camera Channel: CH1"), videoPanel));
+    m_channelLabel = new QLabel(QStringLiteral("Camera Channel: CH1"), videoPanel);
+    frameButtons->addWidget(m_channelLabel);
+    auto *channelGroup = new QButtonGroup(this);
+    channelGroup->setExclusive(true);
+    const QList<int> availableChannels = parkingRoiChannelSlotLabels().keys();
+    for (int channel : availableChannels) {
+        auto *button = new QPushButton(
+            QStringLiteral("CH%1").arg(channel + 1), videoPanel);
+        button->setObjectName(
+            QStringLiteral("parkingRoiChannel%1Button").arg(channel + 1));
+        button->setCheckable(true);
+        button->setChecked(channel == m_selectedChannel);
+        channelGroup->addButton(button, channel);
+        frameButtons->addWidget(button);
+        m_channelButtons.append(button);
+        connect(button, &QPushButton::clicked, this,
+                [this, channel]() { selectChannel(channel); });
+    }
     frameButtons->addStretch(1);
     m_freezeButton = new QPushButton(QStringLiteral("Freeze Current Frame"), videoPanel);
     m_freezeButton->setObjectName(QStringLiteral("freezeParkingRoiFrameButton"));
@@ -63,7 +102,7 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
 
     m_videoCanvas = new IvaVideoCanvas(videoPanel);
     m_videoCanvas->setObjectName(QStringLiteral("parkingRoiVideoCanvas"));
-    m_videoCanvas->setChannel(0, QSize());
+    m_videoCanvas->setChannel(m_selectedChannel, QSize());
     videoLayout->addWidget(m_videoCanvas, 1);
     m_frameStatusLabel = new QLabel(
         QStringLiteral("Waiting for the shared CH1 RTSP frame."), videoPanel);
@@ -77,11 +116,8 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
     auto *form = new QFormLayout;
     m_slotCombo = new QComboBox(controlGroup);
     m_slotCombo->setObjectName(QStringLiteral("parkingRoiSlotCombo"));
-    m_slotCombo->addItems({QStringLiteral("EV-01"), QStringLiteral("EV-02"),
-                           QStringLiteral("EV-03"), QStringLiteral("EV-04")});
+    m_slotCombo->addItems(parkingRoiChannelSlotLabels().value(m_selectedChannel));
     form->addRow(QStringLiteral("Parking Slot"), m_slotCombo);
-    form->addRow(QStringLiteral("Camera Channel"),
-                 new QLabel(QStringLiteral("CH1"), controlGroup));
     m_currentRoiLabel = new QLabel(QStringLiteral("Not loaded"), controlGroup);
     m_currentRoiLabel->setObjectName(QStringLiteral("currentParkingRoiLabel"));
     m_currentRoiLabel->setWordWrap(true);
@@ -145,7 +181,8 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
         m_frozen = false;
         m_videoCanvas->setDrawMode(false);
         m_frameStatusLabel->setText(
-            QStringLiteral("Live shared CH1 frame preview."));
+            QStringLiteral("Live shared CH%1 frame preview.")
+                .arg(m_selectedChannel + 1));
         updateButtons();
     });
     connect(m_saveButton, &QPushButton::clicked, this, [this]() {
@@ -212,7 +249,7 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
     m_previewTimer = new QTimer(this);
     m_previewTimer->setInterval(100);
     connect(m_previewTimer, &QTimer::timeout, this, [this]() {
-        if (isVisible() && !m_frozen) emit previewFrameRequested();
+        if (isVisible() && !m_frozen) emit previewFrameRequested(m_selectedChannel);
     });
     updateButtons();
 }
@@ -274,13 +311,16 @@ void ParkingRoiSettingsPage::setRequestError(const QString &slotId,
     updateButtons();
 }
 
-void ParkingRoiSettingsPage::setPreviewFrame(const QImage &frame)
+void ParkingRoiSettingsPage::setPreviewFrame(int channel, const QImage &frame)
 {
-    if (frame.isNull() || (m_frozen && !m_refreshPending)) return;
+    if (channel != m_selectedChannel || frame.isNull()
+        || (m_frozen && !m_refreshPending)) {
+        return;
+    }
     const bool resolutionChanged = frame.size() != m_videoCanvas->sourceResolution();
     m_currentFrame = frame;
     if (resolutionChanged) {
-        m_videoCanvas->setChannel(0, frame.size());
+        m_videoCanvas->setChannel(channel, frame.size());
     }
     m_videoCanvas->setFrame(frame);
     updateCanvasOverlays();
@@ -298,7 +338,7 @@ void ParkingRoiSettingsPage::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
     m_previewTimer->start();
-    emit previewFrameRequested();
+    emit previewFrameRequested(m_selectedChannel);
     if (!m_loadInFlight && !m_saveInFlight) requestAllRois();
 }
 
@@ -352,7 +392,8 @@ void ParkingRoiSettingsPage::handleSlotChanged()
 void ParkingRoiSettingsPage::freezeCurrentFrame()
 {
     if (m_currentFrame.isNull()) {
-        setStatus(QStringLiteral("No CH1 frame is available."), true);
+        setStatus(QStringLiteral("No CH%1 frame is available.")
+                      .arg(m_selectedChannel + 1), true);
         return;
     }
     m_frozen = true;
@@ -367,9 +408,43 @@ void ParkingRoiSettingsPage::refreshFrame()
     m_refreshPending = true;
     m_frozen = false;
     m_videoCanvas->setDrawMode(false);
-    m_frameStatusLabel->setText(QStringLiteral("Refreshing the shared CH1 frame..."));
-    emit previewFrameRequested();
+    m_frameStatusLabel->setText(
+        QStringLiteral("Refreshing the shared CH%1 frame...")
+            .arg(m_selectedChannel + 1));
+    emit previewFrameRequested(m_selectedChannel);
     updateButtons();
+}
+
+void ParkingRoiSettingsPage::selectChannel(int channel)
+{
+    if (channel < 0 || channel == m_selectedChannel
+        || !parkingRoiChannelSlotLabels().contains(channel)) {
+        return;
+    }
+    m_selectedChannel = channel;
+    for (QPushButton *button : std::as_const(m_channelButtons)) {
+        button->setChecked(button->objectName()
+                            == QStringLiteral("parkingRoiChannel%1Button")
+                                   .arg(channel + 1));
+    }
+    m_channelLabel->setText(
+        QStringLiteral("Camera Channel: CH%1").arg(channel + 1));
+    if (m_slotCombo) {
+        const QSignalBlocker blocker(m_slotCombo);
+        m_slotCombo->clear();
+        m_slotCombo->addItems(parkingRoiChannelSlotLabels().value(channel));
+    }
+    m_currentFrame = QImage();
+    m_frozen = false;
+    m_refreshPending = false;
+    m_videoCanvas->setDrawMode(false);
+    m_videoCanvas->setChannel(channel, QSize());
+    m_frameStatusLabel->setText(
+        QStringLiteral("Waiting for the shared CH%1 RTSP frame.")
+            .arg(channel + 1));
+    resetSelection(QStringLiteral("Switched to CH%1.").arg(channel + 1));
+    if (isVisible()) emit previewFrameRequested(m_selectedChannel);
+    requestSelectedRoi();
 }
 
 void ParkingRoiSettingsPage::resetSelection(const QString &statusMessage)
@@ -423,6 +498,9 @@ void ParkingRoiSettingsPage::updateButtons()
                              && m_rois.contains(selectedSlotId()));
     m_cancelButton->setEnabled((m_hasSelection || m_frozen) && !m_saveInFlight);
     m_slotCombo->setEnabled(!m_saveInFlight);
+    for (QPushButton *button : std::as_const(m_channelButtons)) {
+        button->setEnabled(!m_saveInFlight);
+    }
 }
 
 void ParkingRoiSettingsPage::setStatus(const QString &message,

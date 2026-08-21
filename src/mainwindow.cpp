@@ -709,10 +709,10 @@ void MainWindow::connectPages()
             m_parkingRoiSettingsPage, &ParkingRoiSettingsPage::setRequestError);
     connect(m_parkingRoiSettingsPage,
             &ParkingRoiSettingsPage::previewFrameRequested,
-            this, [this]() {
+            this, [this](int channel) {
         if (!m_dashboardPage || !m_parkingRoiSettingsPage) return;
         m_parkingRoiSettingsPage->setPreviewFrame(
-            m_dashboardPage->currentRtspFrame(0));
+            channel, m_dashboardPage->currentRtspFrame(channel));
     });
 }
 

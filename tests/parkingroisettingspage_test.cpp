@@ -69,7 +69,7 @@ int main(int argc, char **argv)
     QApplication::processEvents();
     if (!require(listGeneration == 1,
                  "opening the page must request the server ROI list")) return 1;
-    page.setPreviewFrame(QImage(1920, 1080, QImage::Format_RGB32));
+    page.setPreviewFrame(0, QImage(1920, 1080, QImage::Format_RGB32));
     ParkingRoiMap rois;
     rois.insert(QStringLiteral("EV-01"), ParkingRoi{0.1, 0.1, 0.2, 0.3});
     rois.insert(QStringLiteral("EV-02"), ParkingRoi{0.5, 0.2, 0.1, 0.2});
@@ -148,7 +148,7 @@ int main(int argc, char **argv)
                 slotGeneration, false, false);
 
     refresh->click();
-    page.setPreviewFrame(QImage(1280, 720, QImage::Format_RGB32));
+    page.setPreviewFrame(0, QImage(1280, 720, QImage::Format_RGB32));
     drag(canvas, QPointF(128, 72), QPointF(640, 360));
     save->click();
     const quint64 failedSaveGeneration = saveGeneration;
@@ -158,6 +158,25 @@ int main(int argc, char **argv)
                      && selected->text() == QStringLiteral("No selection")
                      && status->text().contains(QStringLiteral("rejected")),
                  "failed PUT must restore the last saved ROI")) return 13;
+
+    auto *channel1Button = page.findChild<QPushButton *>(
+        QStringLiteral("parkingRoiChannel1Button"));
+    auto *channel3Button = page.findChild<QPushButton *>(
+        QStringLiteral("parkingRoiChannel3Button"));
+    if (!require(channel1Button && channel1Button->isChecked() && channel3Button,
+                 "CH1 and CH3 channel buttons must be available, defaulting to CH1")) return 14;
+    channel3Button->click();
+    QApplication::processEvents();
+    if (!require(channel3Button->isChecked() && !channel1Button->isChecked()
+                     && combo->count() == 4
+                     && combo->itemText(0) == QStringLiteral("P-01")
+                     && requestedSlot == QStringLiteral("P-01"),
+                 "selecting CH3 must swap the Parking Area combo to P-01~P-04")) return 15;
+    channel1Button->click();
+    QApplication::processEvents();
+    if (!require(channel1Button->isChecked() && !channel3Button->isChecked()
+                     && combo->itemText(0) == QStringLiteral("EV-01"),
+                 "switching back to CH1 must restore EV-01~EV-04")) return 16;
 
     QPushButton *helpButton = page.findChild<QPushButton *>(
         QStringLiteral("parkingRoiHelpButton"));
@@ -170,7 +189,7 @@ int main(int argc, char **argv)
         : nullptr;
     if (!require(helpButton && helpDialog && helpSteps
                      && helpSteps->text().contains(QStringLiteral("Save and Apply")),
-                 "parking ROI help must explain the save flow")) return 14;
+                 "parking ROI help must explain the save flow")) return 17;
     helpDialog->close();
 
     std::cout << "PASS: parking ROI page handles letterbox, resize, stale responses, and rollback\n";
