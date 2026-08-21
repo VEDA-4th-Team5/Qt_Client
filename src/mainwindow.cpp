@@ -159,7 +159,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::buildUi()
 {
-    setWindowTitle(QStringLiteral("Smart Parking Integrated Monitoring System"));
+    setWindowTitle(QStringLiteral("Smart Parking"));
     resize(1360, 860);
     auto *central = new QWidget(this);
     auto *rootLayout = new QHBoxLayout(central);
@@ -273,10 +273,6 @@ void MainWindow::buildUi()
     auto *headerLayout = new QHBoxLayout;
     headerLayout->setContentsMargins(0, 0, 0, 0);
     headerLayout->setSpacing(10);
-    auto *title = new QLabel(QStringLiteral("Smart Parking Integrated Monitoring System"), contentWidget);
-    title->setObjectName(QStringLiteral("titleLabel"));
-    headerLayout->addWidget(title);
-
     m_monitorStatusButton = new QToolButton(contentWidget);
     m_monitorStatusButton->setObjectName(QStringLiteral("monitorStatusIndicator"));
     m_monitorStatusButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
@@ -368,7 +364,6 @@ void MainWindow::buildUi()
         "QLabel#brandLabel { color: white; font-size: 18px; font-weight: 800; }"
         "QToolButton#sidebarToggle { background: #263640; color: #dce5ea; border: 1px solid #455a64; border-radius: 5px; font-weight: 800; }"
         "QToolButton#sidebarToggle:hover { background: #37474f; color: white; }"
-        "QLabel#titleLabel { font-size: 22px; font-weight: 700; color: #202124; }"
         "QGroupBox { font-weight: 700; border: 1px solid #c7cdd4; border-radius: 6px; margin-top: 8px; padding-top: 10px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }"
         "QTableWidget { background: white; gridline-color: #d8dde3; }"

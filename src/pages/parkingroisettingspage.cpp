@@ -23,12 +23,10 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
 
-    auto *titleRow = new QHBoxLayout;
-    auto *title = new QLabel(QStringLiteral("Parking ROI Settings"), this);
-    title->setStyleSheet(
-        QStringLiteral("font-size:20px;font-weight:800;color:#202124;"));
-    titleRow->addWidget(title, 1);
-    titleRow->addWidget(createPageHelpButton(
+    layout->addLayout(createPageHeader(
+        this, QStringLiteral("Parking ROI"),
+        QStringLiteral("Configure CH1 parking-slot crop regions")));
+    createPageHelpButton(
         this, this,
         {QStringLiteral("parkingRoi"), QStringLiteral("Parking ROI"),
          QStringLiteral("Parking ROI 사용 안내"),
@@ -40,8 +38,7 @@ ParkingRoiSettingsPage::ParkingRoiSettingsPage(QWidget *parent)
              "<b>4. 저장·검증</b><br><i>Save and Apply</i>는 normalized ROI를 Pi에 PUT하고 GET 결과가 요청값과 같은지 검증합니다. <i>Reset Selection</i>과 <i>Cancel</i>은 저장하지 않은 선택을 버립니다."),
          QStringLiteral(
              "※ 이 화면은 Pi crop ROI만 변경하며 카메라 WiseAI 규칙은 변경하지 않습니다. 이미지 자체도 Pi로 업로드하지 않습니다.\n"
-             "   프레임 해상도가 없거나 서버의 검증 결과가 다르면 저장 성공으로 처리하지 않습니다.")}));
-    layout->addLayout(titleRow);
+             "   프레임 해상도가 없거나 서버의 검증 결과가 다르면 저장 성공으로 처리하지 않습니다.")});
     auto *description = new QLabel(
         QStringLiteral("Edit EV-01–EV-04 parking regions on the shared CH1 RTSP "
                        "frame. Only normalized coordinates are sent to the Pi server."),

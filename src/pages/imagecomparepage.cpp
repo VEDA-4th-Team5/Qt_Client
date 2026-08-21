@@ -104,9 +104,15 @@ int slotNumber(const QString &slotId)
 ImageComparePage::ImageComparePage(QWidget *parent)
     : QWidget(parent)
 {
-    auto *rootLayout = new QHBoxLayout(this);
+    auto *rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(12);
+    rootLayout->addLayout(createPageHeader(
+        this, QStringLiteral("Image Compare"),
+        QStringLiteral("Compare original and enhanced captures")));
+
+    auto *bodyLayout = new QHBoxLayout;
+    bodyLayout->setSpacing(12);
 
     auto *slotPanel = new QFrame(this);
     slotPanel->setObjectName(QStringLiteral("imageCompareSlotPanel"));
@@ -133,7 +139,7 @@ ImageComparePage::ImageComparePage(QWidget *parent)
         QStringLiteral("Refresh images"), slotPanel);
     refreshButton->setObjectName(QStringLiteral("imageCompareRefreshButton"));
     slotLayout->addWidget(refreshButton);
-    rootLayout->addWidget(slotPanel);
+    bodyLayout->addWidget(slotPanel);
 
     auto *content = new QWidget(this);
     auto *contentLayout = new QVBoxLayout(content);
@@ -160,7 +166,7 @@ ImageComparePage::ImageComparePage(QWidget *parent)
     summaryTextLayout->addWidget(m_summaryLabel);
     summaryTextLayout->addWidget(m_statusLabel);
     summaryLayout->addLayout(summaryTextLayout, 1);
-    summaryLayout->addWidget(createPageHelpButton(
+    auto *helpButton = createPageHelpButton(
         this, summaryFrame,
         {QStringLiteral("imageCompare"), QStringLiteral("Image Compare"),
          QStringLiteral("Image Compare 사용 안내"),
@@ -172,7 +178,8 @@ ImageComparePage::ImageComparePage(QWidget *parent)
              "<b>4. 전체 크기 확인</b><br><i>Open full image</i>로 각 이미지를 원본 크기로 확인합니다."),
          QStringLiteral(
              "※ 이 화면은 서로 다른 시간의 First/Latest 비교가 아니라 동일 image_id의 가공 전후 비교입니다.\n"
-             "   OCR 뒤의 (session)은 해당 사진에서 직접 읽은 값이 아니라 세션에 확정된 번호판입니다. 개선본은 원본을 대체하지 않습니다.")}));
+             "   OCR 뒤의 (session)은 해당 사진에서 직접 읽은 값이 아니라 세션에 확정된 번호판입니다. 개선본은 원본을 대체하지 않습니다.")});
+    Q_UNUSED(helpButton);
     contentLayout->addWidget(summaryFrame);
 
     auto *comparisonLayout = new QHBoxLayout;
@@ -253,7 +260,8 @@ ImageComparePage::ImageComparePage(QWidget *parent)
     m_captureTable->setMaximumHeight(190);
     captureLayout->addWidget(m_captureTable);
     contentLayout->addWidget(captureGroup);
-    rootLayout->addWidget(content, 1);
+    bodyLayout->addWidget(content, 1);
+    rootLayout->addLayout(bodyLayout, 1);
 
     connect(m_slotList, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem *current, QListWidgetItem *) {

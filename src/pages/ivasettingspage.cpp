@@ -44,10 +44,9 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
 
-    auto *titleRow = new QHBoxLayout;
-    auto *title = new QLabel(QStringLiteral("Hanwha WiseAI IVA Configuration"), this);
-    title->setStyleSheet(QStringLiteral("font-size:20px;font-weight:800;color:#202124;"));
-    titleRow->addWidget(title, 1);
+    layout->addLayout(createPageHeader(
+        this, QStringLiteral("IVA Setup"),
+        QStringLiteral("Hanwha WiseAI rule configuration")));
     auto *helpButton = new QPushButton(QStringLiteral("IVA Setup 안내"), this);
     helpButton->setObjectName(QStringLiteral("ivaHelpButton"));
     helpButton->setAccessibleName(QStringLiteral("IVA Setup 카메라 및 Pi 저장 안내"));
@@ -60,8 +59,6 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
         "border-radius:6px; padding:6px 11px; font-weight:800; }"
         "QPushButton:hover { background:#37474f; border-color:#fb8c00; }"
         "QPushButton:pressed { background:#1c252a; }"));
-    titleRow->addWidget(helpButton);
-    layout->addLayout(titleRow);
 
     auto *description = new QLabel(
         QStringLiteral("Rules are read and written directly over HTTPS Digest. "
