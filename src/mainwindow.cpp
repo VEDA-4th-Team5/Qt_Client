@@ -160,7 +160,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 void MainWindow::buildUi()
 {
     setWindowTitle(QStringLiteral("Smart Parking"));
-    resize(1360, 860);
+    resize(1440, 900);
     auto *central = new QWidget(this);
     auto *rootLayout = new QHBoxLayout(central);
     rootLayout->setContentsMargins(0, 0, 0, 0);

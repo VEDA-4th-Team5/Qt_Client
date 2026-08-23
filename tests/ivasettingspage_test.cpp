@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QAbstractButton>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QFrame>
@@ -20,6 +21,7 @@
 #include <QSplitter>
 #include <QTableWidget>
 #include <QTimer>
+#include <QToolButton>
 
 #include <iostream>
 
@@ -71,8 +73,10 @@ int main(int argc, char *argv[])
     channelOptions.appearanceDuration = {1, 60};
     channelOptions.intrusionDuration = {0, 5};
     channelOptions.loiteringDuration = {1, 600};
-    channelOptions.detectionModes = {QStringLiteral("Intrusion"),
-                                     QStringLiteral("Loitering")};
+    channelOptions.detectionModes = {
+        QStringLiteral("Intrusion"), QStringLiteral("Loitering"),
+        QStringLiteral("AppearDisappear"), QStringLiteral("Entering"),
+        QStringLiteral("Exiting")};
     channelOptions.objectTypeFilters = {
         QStringLiteral("Person"), QStringLiteral("Vehicle.Bicycle"),
         QStringLiteral("Vehicle.Car"), QStringLiteral("Vehicle.Motorcycle"),
@@ -92,9 +96,20 @@ int main(int argc, char *argv[])
     auto *table = page.findChild<QTableWidget *>(QStringLiteral("ivaAreaTable"));
     if (!require(table && table->rowCount() == 1,
                  "validated IVA areas must populate the table")) return 1;
-    if (!require(table->item(0, 0)->text() == QStringLiteral("CH1")
-                     && table->item(0, 3)->text() == QStringLiteral("parking-a"),
-                 "table must show channel and rule identity")) return 1;
+    if (!require(table->columnCount() == 6
+                     && table->item(0, 0)->text() == QStringLiteral("CH1")
+                     && table->item(0, 1)->text() == QStringLiteral("1")
+                     && table->item(0, 2)->text() == QStringLiteral("parking-a")
+                     && table->item(0, 3)->text().contains(QStringLiteral("Intrusion"))
+                     && table->item(0, 4)->text().isEmpty()
+                     && !table->item(0, 4)->icon().isNull()
+                     && table->item(0, 4)->toolTip().contains(QStringLiteral("All objects"))
+                     && table->item(0, 4)->data(Qt::AccessibleTextRole).toString()
+                            == table->item(0, 4)->toolTip()
+                     && table->item(0, 5)->text() == QStringLiteral("ON")
+                     && !table->isColumnHidden(3) && !table->isColumnHidden(4)
+                     && !table->isColumnHidden(5),
+                 "table must show readable rule data and an accessible object icon strip")) return 1;
     auto *summary = page.findChild<QLabel *>(QStringLiteral("ivaChannelSummaryLabel"));
     if (!require(summary && summary->text().contains(QStringLiteral("CH2 OFF (0 areas)")),
                  "disabled empty camera channels must remain visible")) return 1;
@@ -102,9 +117,33 @@ int main(int argc, char *argv[])
         QStringLiteral("ivaCoordinateTable"));
     auto *indexSpin = page.findChild<QSpinBox *>(QStringLiteral("ivaRuleIndexSpin"));
     auto *apply = page.findChild<QPushButton *>(
-        QStringLiteral("applyIvaConfigurationButton"));
+        QStringLiteral("saveIvaChangesButton"));
+    auto *saveGroup = page.findChild<QFrame *>(
+        QStringLiteral("ivaSaveChangesGroup"));
+    auto *cameraSaveStatus = page.findChild<QLabel *>(
+        QStringLiteral("ivaCameraSaveStatusLabel"));
+    auto *areaCount = page.findChild<QLabel *>(QStringLiteral("ivaAreaCountLabel"));
+    auto *selectedTitle = page.findChild<QLabel *>(
+        QStringLiteral("ivaSelectedAreaTitleLabel"));
+    auto *selectedState = page.findChild<QLabel *>(
+        QStringLiteral("ivaSelectedAreaStateLabel"));
+    auto *geometryToggle = page.findChild<QToolButton *>(
+        QStringLiteral("ivaGeometryToggleButton"));
+    auto *geometry = page.findChild<QWidget *>(QStringLiteral("ivaAdvancedGeometry"));
+    auto *allObjects = page.findChild<QCheckBox *>(
+        QStringLiteral("ivaAllObjectFiltersCheck"));
+    auto *channel1Button = page.findChild<QPushButton *>(
+        QStringLiteral("ivaPreviewChannel1Button"));
     auto *objectFilters = page.findChild<QListWidget *>(
         QStringLiteral("ivaObjectFiltersList"));
+    auto *detectionModes = page.findChild<QListWidget *>(
+        QStringLiteral("ivaDetectionModesList"));
+    auto *appearanceDuration = page.findChild<QSpinBox *>(
+        QStringLiteral("ivaAppearanceDurationSpin"));
+    auto *intrusionDuration = page.findChild<QSpinBox *>(
+        QStringLiteral("ivaIntrusionDurationSpin"));
+    auto *loiteringDuration = page.findChild<QSpinBox *>(
+        QStringLiteral("ivaLoiteringDurationSpin"));
     bool allObjectFiltersChecked = objectFilters && objectFilters->count() == 6;
     if (objectFilters) {
         for (int row = 0; row < objectFilters->count(); ++row) {
@@ -112,16 +151,85 @@ int main(int argc, char *argv[])
                 && objectFilters->item(row)->checkState() == Qt::Checked;
         }
     }
+    const auto hasUniformGrid = [](const QListWidget *list) {
+        if (!list || list->count() == 0 || !list->gridSize().isValid()) return false;
+        for (int row = 0; row < list->count(); ++row) {
+            if (list->item(row)->sizeHint() != list->gridSize()) return false;
+        }
+        return list->spacing() == 0
+            && list->selectionMode() == QAbstractItemView::NoSelection;
+    };
     if (!require(coordinateTable && coordinateTable->rowCount() == 3
                      && indexSpin && indexSpin->minimum() == 1
-                     && indexSpin->maximum() == 4 && apply && apply->isEnabled()
-                     && allObjectFiltersChecked,
-                 "selected rules must expose editable coordinates and camera option ranges")) return 1;
+                     && indexSpin->maximum() == 4 && apply && !apply->isEnabled()
+                     && allObjectFiltersChecked && allObjects && allObjects->isChecked()
+                     && saveGroup && apply->text() == QStringLiteral("No changes")
+                     && cameraSaveStatus
+                     && cameraSaveStatus->text().contains(QStringLiteral("Loaded CH1"))
+                     && areaCount && areaCount->text() == QStringLiteral("1 area")
+                     && selectedTitle
+                     && selectedTitle->text().contains(QStringLiteral("CH1 / Area 1 / parking-a"))
+                     && selectedState && selectedState->text() == QStringLiteral("SAVED")
+                     && geometryToggle && geometry && geometry->isHidden()
+                     && channel1Button
+                     && channel1Button->text().contains(QStringLiteral("ON / 1"))
+                     && detectionModes && detectionModes->count() == 5
+                     && !detectionModes->item(0)->icon().isNull()
+                     && objectFilters && !objectFilters->item(0)->icon().isNull()
+                     && hasUniformGrid(detectionModes)
+                     && hasUniformGrid(objectFilters)
+                     && objectFilters->item(2)->text() == QStringLiteral("Car")
+                     && objectFilters->item(2)->data(Qt::UserRole).toString()
+                            == QStringLiteral("Vehicle.Car")
+                     && objectFilters->styleSheet().contains(
+                            QStringLiteral("indicator:unchecked"))
+                     && objectFilters->styleSheet().contains(
+                            QStringLiteral("check.svg"))
+                     && appearanceDuration && appearanceDuration->isEnabled()
+                     && intrusionDuration && intrusionDuration->isEnabled()
+                     && loiteringDuration && loiteringDuration->isEnabled(),
+                 "selected rules must expose a readable editor and unified save state")) return 1;
+
+    QListWidgetItem *carFilter = objectFilters->item(2);
+    carFilter->setCheckState(Qt::Unchecked);
+    if (!require(carFilter->checkState() == Qt::Unchecked
+                     && !carFilter->icon().isNull(),
+                 "unchecked object filters must retain their readable icon tile")) return 1;
+    carFilter->setCheckState(Qt::Checked);
+
+    const int appearanceValue = appearanceDuration->value();
+    const int intrusionValue = intrusionDuration->value();
+    const int loiteringValue = loiteringDuration->value();
+    QListWidgetItem *intrusionMode = nullptr;
+    QListWidgetItem *loiteringMode = nullptr;
+    for (int row = 0; row < detectionModes->count(); ++row) {
+        QListWidgetItem *item = detectionModes->item(row);
+        const QString rawValue = item->data(Qt::UserRole).toString();
+        if (rawValue == QStringLiteral("Intrusion")) intrusionMode = item;
+        if (rawValue == QStringLiteral("Loitering")) loiteringMode = item;
+    }
+    if (!require(intrusionMode && loiteringMode,
+                 "duration test requires Intrusion and Loitering modes")) return 1;
+    intrusionMode->setCheckState(Qt::Unchecked);
+    if (!require(appearanceDuration->isEnabled()
+                     && !intrusionDuration->isEnabled()
+                     && loiteringDuration->isEnabled(),
+                 "each mode must control its related duration input")) return 1;
+    loiteringMode->setCheckState(Qt::Unchecked);
+    if (!require(!appearanceDuration->isEnabled()
+                     && !intrusionDuration->isEnabled()
+                     && !loiteringDuration->isEnabled()
+                     && appearanceDuration->value() == appearanceValue
+                     && intrusionDuration->value() == intrusionValue
+                     && loiteringDuration->value() == loiteringValue,
+                 "no selected mode must disable durations without clearing values")) return 1;
+    intrusionMode->setCheckState(Qt::Checked);
+    loiteringMode->setCheckState(Qt::Checked);
 
     auto *canvas = page.findChild<IvaVideoCanvas *>(QStringLiteral("ivaVideoCanvas"));
     auto *discard = page.findChild<QPushButton *>(QStringLiteral("ivaDiscardDraftButton"));
     auto *piSlot = page.findChild<QComboBox *>(QStringLiteral("ivaPiParkingSlotCombo"));
-    auto *sendToPi = page.findChild<QPushButton *>(QStringLiteral("sendIvaRoiToPiButton"));
+    auto *includePi = page.findChild<QCheckBox *>(QStringLiteral("ivaIncludePiRoiCheck"));
     auto *piStatus = page.findChild<QLabel *>(QStringLiteral("ivaPiRoiStatusLabel"));
     QString piRequestedSlot;
     ParkingRoi piRequestedRoi;
@@ -142,27 +250,53 @@ int main(int argc, char *argv[])
         QStringLiteral("ivaWorkspaceSplitter"));
     auto *editorScrollArea = page.findChild<QScrollArea *>(
         QStringLiteral("ivaRuleEditorScrollArea"));
-    if (!require(workspaceSplitter && workspaceSplitter->sizes().size() == 2
-                     && workspaceSplitter->sizes().at(1) >= 480
-                     && detailsSplitter && editorScrollArea
+    if (!require(workspaceSplitter && workspaceSplitter->sizes().size() == 2,
+                 "IVA workspace splitter must have video and rule panes")) return 1;
+    if (!require(workspaceSplitter->sizes().at(1) >= 460,
+                 "IVA rule pane must retain a usable width")) return 1;
+    if (!require(detailsSplitter && editorScrollArea
                      && editorScrollArea->widgetResizable()
                      && !detailsSplitter->childrenCollapsible()
                      && detailsSplitter->handleWidth() == 8
                      && table->height() >= table->minimumHeight(),
                  "IVA rule table must remain readable while details use a resizable scroll viewport")) return 1;
-    const int compactTableHeight = table->height();
-    detailsSplitter->setSizes({compactTableHeight + 100,
-                               qMax(1, detailsSplitter->height()
-                                           - compactTableHeight - 100)});
+    geometryToggle->setChecked(true);
     app.processEvents();
-    if (!require(table->height() >= compactTableHeight + 80
+    const int compactListHeight = detailsSplitter->sizes().at(0);
+    detailsSplitter->setSizes({compactListHeight + 100,
+                               qMax(1, detailsSplitter->height()
+                                           - compactListHeight - 100)});
+    app.processEvents();
+    if (!require(detailsSplitter->sizes().at(0) >= compactListHeight + 80
+                     && table->height() >= table->minimumHeight()
+                     && geometry->isVisible()
                      && editorScrollArea->viewport()->height() > 0
                      && editorScrollArea->verticalScrollBar()->maximum() > 0
-                     && editorScrollArea->horizontalScrollBar()->maximum() == 0,
-                 "vertical splitter must let users enlarge the IVA rule table")) return 1;
+                     && editorScrollArea->horizontalScrollBarPolicy() == Qt::ScrollBarAsNeeded,
+                 "splitter and narrow-window scrolling must keep the IVA editor usable")) return 1;
     if (!require(canvas && canvas->frameCompatible() && canvas->drawMode(),
                  "shared matching RTSP frames must enable direct video dragging")) return 1;
-    if (!require(piSlot && sendToPi && !sendToPi->isEnabled() && piStatus,
+    const QPoint existingMoveStart = canvas->mapFromScene(QPointF(40, 20));
+    const QPoint existingMoveEnd = canvas->mapFromScene(QPointF(100, 50));
+    QMouseEvent existingPress(QEvent::MouseButtonPress, QPointF(existingMoveStart),
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(canvas->viewport(), &existingPress);
+    QMouseEvent existingMove(QEvent::MouseMove, QPointF(existingMoveEnd),
+                             Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(canvas->viewport(), &existingMove);
+    QMouseEvent existingRelease(QEvent::MouseButtonRelease, QPointF(existingMoveEnd),
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(canvas->viewport(), &existingRelease);
+    if (!require(table->item(0, 2)->text() == QStringLiteral("parking-a")
+                     && cameraSaveStatus->text().contains(
+                            QStringLiteral("unsaved Camera WiseAI draft"),
+                            Qt::CaseInsensitive)
+                     && selectedState->text() == QStringLiteral("UNSAVED"),
+                 "editing an existing IVA box must preserve its camera rule identity")) return 1;
+    discard->click();
+    page.setPreviewFrame(0, QImage(1296, 760, QImage::Format_RGB32));
+    app.processEvents();
+    if (!require(piSlot && includePi && !includePi->isEnabled() && piStatus,
                  "unmapped IVA rules must not enable Pi ROI saving")) return 1;
     piSlot->setCurrentText(QStringLiteral("EV-03"));
     if (!require(table->currentRow() < 0 && canvas->drawMode(),
@@ -180,23 +314,48 @@ int main(int argc, char *argv[])
     QApplication::sendEvent(canvas->viewport(), &release);
     app.processEvents();
     if (!require(table->rowCount() == 2
-                     && table->item(1, 2)->text() == QStringLiteral("3")
-                     && table->item(1, 3)->text() == QStringLiteral("name3")
-                     && table->item(1, 6)->text() == QStringLiteral("4")
+                     && table->item(1, 1)->text() == QStringLiteral("3")
+                     && table->item(1, 2)->text() == QStringLiteral("name3")
+                     && table->item(1, 2)->toolTip().contains(QStringLiteral("4 points"))
                      && coordinateTable->rowCount() == 4
-                     && discard && discard->isEnabled(),
+                     && discard && discard->isEnabled()
+                     && includePi->isChecked() && apply->isEnabled()
+                     && apply->text().contains(QStringLiteral("Camera + Pi")),
                  "EV03 direct dragging must create camera Area index 3 named name3")) return 1;
-    sendToPi->click();
+    if (!require(cameraSaveStatus->text().contains(
+                     QStringLiteral("unsaved Camera WiseAI draft"),
+                     Qt::CaseInsensitive),
+                 "newly dragged polygons must be visibly marked as unsaved camera drafts")) return 1;
+    int cameraApplyChannel = -1;
+    QObject::connect(&page, &IvaSettingsPage::applyRequested,
+                     [&](int channel, bool, const QList<IvaAreaDefinition> &) {
+        cameraApplyChannel = channel;
+    });
+    QTimer::singleShot(50, []() {
+        for (QWidget *widget : QApplication::topLevelWidgets()) {
+            if (auto *box = qobject_cast<QMessageBox *>(widget)) {
+                if (QAbstractButton *yesButton = box->button(QMessageBox::Yes)) {
+                    yesButton->click();
+                }
+                return;
+            }
+        }
+    });
+    apply->click();
+    if (!require(cameraApplyChannel == 0 && piGeneration == 0,
+                 "combined save must send Camera WiseAI before Pi ROI")) return 1;
+    page.setApplyStarted(0);
+    page.setApplySuccess(0, configuration);
     if (!require(piRequestedSlot == QStringLiteral("EV-03")
                      && piGeneration > (quint64(1) << 63),
-                 "Pi ROI send must use the EV area selected for direct dragging")) return 1;
+                 "verified Camera save must continue with the selected Pi ROI")) return 1;
     page.setPiRoiResult(QStringLiteral("EV-03"), piRequestedRoi,
                         piGeneration - 1, true, true);
-    if (!require(!sendToPi->isEnabled(),
+    if (!require(!apply->isEnabled(),
                  "stale Pi ROI responses must not finish the active request")) return 1;
     page.setPiRoiResult(QStringLiteral("EV-03"), piRequestedRoi,
                         piGeneration, true, true);
-    if (!require(sendToPi->isEnabled()
+    if (!require(!includePi->isChecked() && !apply->isEnabled()
                      && piStatus->text().contains(QStringLiteral("applied immediately")),
                  "verified Pi ROI responses must complete the request")) return 1;
     discard->click();
