@@ -69,6 +69,9 @@ MainWindow::MainWindow(const AuthSession &authSession, QWidget *parent)
 {
     m_diagnosticsService = new DiagnosticsService(this);
     buildUi();
+    m_settingsPage->setAuthenticationState(
+        authSession.displayName, authSession.accountId,
+        authSession.serverOrigin.toString(), authSession.isValid());
     WiseAiConnectionOptions wiseAiOptions;
     wiseAiOptions.baseUrl = QUrl(QStringLiteral("https://%1")
                                      .arg(m_cameraSettings.cameraIp()));
@@ -337,7 +340,7 @@ void MainWindow::buildUi()
                                       m_cameraSettings.cameraIp(),
                                       m_pages,
                                       m_cameraSettings.cameraUsername(),
-                                      m_cameraSettings.cameraPassword());
+                                      m_cameraSettings.hasCameraPassword());
     m_ivaSettingsPage = new IvaSettingsPage(m_cameraSettings.cameraIp(), m_pages);
     m_parkingRoiSettingsPage = new ParkingRoiSettingsPage(m_pages);
     m_debugPage = new DebugPage(m_pages);
@@ -628,16 +631,16 @@ void MainWindow::connectPages()
             });
     connect(m_settingsPage, &SettingsPage::saveCameraCredentialsRequested,
             this, &MainWindow::saveCameraCredentials);
-    connect(m_settingsPage, &SettingsPage::saveServerBaseUrlRequested,
-            m_parkingController, &ParkingController::updateServerBaseUrl);
-    connect(m_settingsPage, &SettingsPage::reconnectServerRequested,
+    connect(m_settingsPage, &SettingsPage::reloadCameraSettingsRequested,
+            this, &MainWindow::reloadCameraSettings);
+    connect(m_settingsPage, &SettingsPage::testCurrentApiRequested,
             m_parkingController, &ParkingController::reconnectNow);
+    connect(m_settingsPage, &SettingsPage::reauthenticationRequested,
+            this, &MainWindow::reauthenticationRequested);
     connect(m_settingsPage, &SettingsPage::overstayThresholdRefreshRequested,
             m_parkingController, &ParkingController::requestOverstayThreshold);
     connect(m_settingsPage, &SettingsPage::overstayThresholdUpdateRequested,
             m_parkingController, &ParkingController::updateOverstayThreshold);
-    connect(m_parkingController, &ParkingController::serverBaseUrlChanged,
-            m_settingsPage, &SettingsPage::setServerBaseUrl);
     connect(m_parkingController, &ParkingController::serverConnectionChanged,
             m_settingsPage, &SettingsPage::setServerConnectionStatus);
     connect(m_parkingController, &ParkingController::serverConnectionChanged,
@@ -652,8 +655,14 @@ void MainWindow::connectPages()
             m_settingsPage, &SettingsPage::setOverstayThresholdError);
     connect(m_parkingController, &ParkingController::serverConfigurationError, this,
             [this](const QString &message) {
-                QMessageBox::warning(this, QStringLiteral("Server API"), message);
+                m_settingsPage->setServerConnectionStatus(message, false);
             });
+    connect(m_diagnosticsService, &DiagnosticsService::parkingStateChanged,
+            m_settingsPage, [this](const ParkingDiagnosticState &state) {
+                m_settingsPage->setRuntimeDataSource(state.dataSource);
+            });
+    m_settingsPage->setRuntimeDataSource(
+        m_diagnosticsService->parkingState().dataSource);
     connect(m_ivaSettingsPage, &IvaSettingsPage::refreshRequested,
             m_wiseAiConfigClient, &WiseAiConfigClient::fetchConfiguration);
     connect(m_ivaSettingsPage, &IvaSettingsPage::applyRequested,
@@ -1107,12 +1116,17 @@ void MainWindow::saveCameraCredentials(const QString &cameraIpText,
     QString newIp;
     QString errorMessage;
     if (!m_cameraSettings.saveCameraCredentials(cameraIpText, username, password,
-                                                newIp, errorMessage)) {
-        QMessageBox::warning(this, QStringLiteral("Camera settings"), errorMessage);
+                                                 newIp, errorMessage)) {
+        m_settingsPage->setCameraOperationResult(false, errorMessage);
         return;
     }
-    m_settingsPage->setCameraIp(newIp);
-    m_settingsPage->setCameraCredentials(username.trimmed(), password);
+    m_settingsPage->setCameraConfiguration(
+        newIp, username.trimmed(), m_cameraSettings.hasCameraPassword());
+    m_settingsPage->setCameraOperationResult(
+        true,
+        QStringLiteral(
+            "Local save succeeded and the values were applied to IVA/RTSP "
+            "clients. Check Dashboard/IVA for connection health."));
     m_ivaSettingsPage->setCameraIp(newIp);
     WiseAiConnectionOptions wiseAiOptions;
     wiseAiOptions.baseUrl = QUrl(QStringLiteral("https://%1").arg(newIp));
@@ -1129,4 +1143,15 @@ void MainWindow::saveCameraCredentials(const QString &cameraIpText,
         QStringLiteral("SYSTEM"), QStringLiteral("CAMERA_SETTINGS_UPDATED"),
         QStringLiteral("Camera connection settings updated for ") + newIp,
         QStringLiteral("DONE"));
+}
+
+void MainWindow::reloadCameraSettings()
+{
+    m_settingsPage->setCameraConfiguration(
+        m_cameraSettings.cameraIp(), m_cameraSettings.cameraUsername(),
+        m_cameraSettings.hasCameraPassword());
+    m_settingsPage->setCameraOperationResult(
+        true,
+        QStringLiteral(
+            "Restored the camera values currently applied to this client."));
 }

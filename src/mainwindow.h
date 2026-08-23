@@ -55,6 +55,7 @@ private:
     void saveCameraCredentials(const QString &cameraIpText,
                                const QString &username,
                                const QString &password);
+    void reloadCameraSettings();
     void updateNotificationIndicator();
     void showNotificationPopup();
     void showFireAlarmPopup(const QString &channelId, const QString &alarmId);

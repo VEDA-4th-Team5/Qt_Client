@@ -50,6 +50,11 @@ QString CameraSettings::cameraPassword() const
     return settings.value(QStringLiteral("camera/password")).toString();
 }
 
+bool CameraSettings::hasCameraPassword() const
+{
+    return !cameraPassword().isEmpty();
+}
+
 QString CameraSettings::httpsCertificateSha256() const
 {
     const QString environmentFingerprint = qEnvironmentVariable(
@@ -67,6 +72,20 @@ bool CameraSettings::saveCameraCredentials(const QString &cameraIpText,
                                            const QString &passwordText,
                                            QString &newIp,
                                            QString &errorMessage)
+{
+    const std::optional<QString> replacementPassword = passwordText.isEmpty()
+        ? std::nullopt
+        : std::optional<QString>(passwordText);
+    return saveCameraCredentials(cameraIpText, usernameText,
+                                 replacementPassword, newIp, errorMessage);
+}
+
+bool CameraSettings::saveCameraCredentials(
+    const QString &cameraIpText,
+    const QString &usernameText,
+    const std::optional<QString> &replacementPassword,
+    QString &newIp,
+    QString &errorMessage)
 {
     static const QRegularExpression dottedDecimal(
         QStringLiteral(R"(^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$)"));
@@ -86,8 +105,17 @@ bool CameraSettings::saveCameraCredentials(const QString &cameraIpText,
         errorMessage = QStringLiteral("Enter the camera username.");
         return false;
     }
-    if (passwordText.isEmpty()) {
+    if (replacementPassword.has_value() && replacementPassword->isEmpty()) {
         errorMessage = QStringLiteral("Enter the camera password.");
+        return false;
+    }
+
+    const QString effectivePassword = replacementPassword.has_value()
+        ? *replacementPassword
+        : cameraPassword();
+    if (effectivePassword.isEmpty()) {
+        errorMessage = QStringLiteral(
+            "Enter a camera password because no existing password is configured.");
         return false;
     }
 
@@ -95,7 +123,10 @@ bool CameraSettings::saveCameraCredentials(const QString &cameraIpText,
     QSettings settings(m_configPath, QSettings::IniFormat);
     settings.setValue(QStringLiteral("camera/camera_ip"), newIp);
     settings.setValue(QStringLiteral("camera/username"), username);
-    settings.setValue(QStringLiteral("camera/password"), passwordText);
+    if (replacementPassword.has_value()) {
+        settings.setValue(QStringLiteral("camera/password"),
+                          *replacementPassword);
+    }
     settings.sync();
     if (settings.status() != QSettings::NoError) {
         errorMessage = QStringLiteral("Failed to save local camera settings.");
@@ -104,7 +135,7 @@ bool CameraSettings::saveCameraCredentials(const QString &cameraIpText,
     m_runtimeCredentialsConfigured = true;
     m_runtimeCameraIp = newIp;
     m_runtimeCameraUsername = username;
-    m_runtimeCameraPassword = passwordText;
+    m_runtimeCameraPassword = effectivePassword;
     return true;
 }
 
@@ -112,13 +143,12 @@ bool CameraSettings::saveCameraIp(const QString &cameraIpText, QString &newIp,
                                   QString &errorMessage)
 {
     const QString username = cameraUsername();
-    const QString password = cameraPassword();
-    if (username.isEmpty() || password.isEmpty()) {
+    if (username.isEmpty() || !hasCameraPassword()) {
         errorMessage = QStringLiteral(
             "Camera username and password must be configured before saving the IP.");
         return false;
     }
-    return saveCameraCredentials(cameraIpText, username, password, newIp,
+    return saveCameraCredentials(cameraIpText, username, std::nullopt, newIp,
                                  errorMessage);
 }
 

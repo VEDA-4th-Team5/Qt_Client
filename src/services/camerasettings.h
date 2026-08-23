@@ -4,6 +4,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <optional>
+
 class CameraSettings
 {
 public:
@@ -13,11 +15,19 @@ public:
     QString cameraIp() const;
     QString cameraUsername() const;
     QString cameraPassword() const;
+    bool hasCameraPassword() const;
     QString httpsCertificateSha256() const;
     QStringList rtspUrls(const QString &profileOverride = QString()) const;
+    // passwordText is a replacement value; an empty value preserves the
+    // currently configured password source without rewriting its INI key.
     bool saveCameraCredentials(const QString &cameraIpText,
                                const QString &usernameText,
                                const QString &passwordText,
+                               QString &newIp,
+                               QString &errorMessage);
+    bool saveCameraCredentials(const QString &cameraIpText,
+                               const QString &usernameText,
+                               const std::optional<QString> &replacementPassword,
                                QString &newIp,
                                QString &errorMessage);
     bool saveCameraIp(const QString &cameraIpText, QString &newIp, QString &errorMessage);
