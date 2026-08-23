@@ -115,11 +115,15 @@ int main(int argc, char **argv)
         QStringLiteral("evidenceCaptureTable"));
     if (!table || table->rowCount() != 2 || table->currentRow() != 1) return 5;
     QLabel *summary = page.findChild<QLabel *>(QStringLiteral("evidenceSummaryLabel"));
-    if (!summary || !summary->text().contains(QStringLiteral("34B7788"))) return 6;
+    if (!summary || !summary->text().contains(QStringLiteral("active parking evidence"))) return 6;
+    QLabel *plateMetric = page.findChild<QLabel *>(QStringLiteral("evidencePlateMetric"));
+    QLabel *captureMetric = page.findChild<QLabel *>(QStringLiteral("evidenceCaptureMetric"));
+    if (!plateMetric || !plateMetric->text().contains(QStringLiteral("34B7788"))) return 27;
+    if (!captureMetric || !captureMetric->text().contains(QStringLiteral("2 image groups"))) return 28;
     QLabel *firstTitle = page.findChild<QLabel *>(QStringLiteral("evidenceFirstTitle"));
     QLabel *selectedTitle = page.findChild<QLabel *>(QStringLiteral("evidenceSelectedTitle"));
     if (!firstTitle || !firstTitle->text().startsWith(QStringLiteral("First capture"))) return 7;
-    if (!selectedTitle || !selectedTitle->text().contains(QStringLiteral("OVERSTAY EVIDENCE"))) return 8;
+    if (!selectedTitle || selectedTitle->text() != QStringLiteral("Latest capture")) return 8;
     QTimer::singleShot(3000, &imageLoadLoop, &QEventLoop::quit);
     imageLoadLoop.exec();
     if (loadedImageCount != 2) return 11;
@@ -129,6 +133,16 @@ int main(int argc, char **argv)
         QStringLiteral("evidenceSelectedOpenButton"));
     if (!firstOpen || !firstOpen->isEnabled()
         || !selectedOpen || !selectedOpen->isEnabled()) return 12;
+
+    ParkingImageResource newestOriginal = latestOriginal;
+    newestOriginal.imageId = 30;
+    newestOriginal.timestamp = QDateTime::fromString(
+        QStringLiteral("2026-07-27T10:05:01+09:00"), Qt::ISODate);
+    newestOriginal.url = QUrl(imageBaseUrl + QStringLiteral("30/original"));
+    state.slotImages.insert(QStringLiteral("EV-02"),
+                            {firstOriginal, latestOriginal, newestOriginal});
+    page.render(state);
+    if (page.captureCount() != 3) return 26;
 
     int eventRequestCount = 0;
     QString requestedEventId;
@@ -149,8 +163,8 @@ int main(int argc, char **argv)
         SlotState::OvertimeAlert, QStringLiteral("34B7788"),
         {firstOriginal, latestOriginal, latestEnhanced});
     if (page.captureCount() != 2
-        || !summary->text().contains(QStringLiteral("session-8-overstay"))
-        || !summary->text().contains(QStringLiteral("Session 8"))) return 25;
+        || !summary->text().contains(QStringLiteral("event-linked evidence"))
+        || !captureMetric->text().contains(QStringLiteral("2 image groups"))) return 25;
 
     EventsPage eventsPage;
     MonitoringEvent event;

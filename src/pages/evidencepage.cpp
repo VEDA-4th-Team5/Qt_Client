@@ -9,6 +9,7 @@
 #include <QDialogButtonBox>
 #include <QFrame>
 #include <QFont>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHash>
 #include <QHeaderView>
@@ -20,6 +21,7 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QSignalBlocker>
 #include <QStringList>
 #include <QTableWidget>
@@ -35,11 +37,13 @@ public:
         : QLabel(parent)
     {
         setAlignment(Qt::AlignCenter);
-        setMinimumSize(320, 230);
+        setMinimumSize(320, 180);
+        setFixedHeight(190);
+        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         setText(QStringLiteral("Select a parking slot to load evidence"));
         setStyleSheet(QStringLiteral(
             "QLabel { background:#111820; color:#b0bec5; border:1px solid #455a64; "
-            "border-radius:5px; padding:8px; }"));
+            "border-radius:6px; padding:8px; font-weight:700; }"));
     }
 
     void setSourcePixmap(const QPixmap &pixmap)
@@ -51,6 +55,16 @@ public:
     const QPixmap &sourcePixmap() const
     {
         return m_sourcePixmap;
+    }
+
+    QSize sizeHint() const override
+    {
+        return QSize(360, 190);
+    }
+
+    QSize minimumSizeHint() const override
+    {
+        return QSize(320, 180);
     }
 
 protected:
@@ -99,6 +113,89 @@ int slotNumber(const QString &slotId)
     return ok ? number : 0;
 }
 
+QString captureCountText(int imageCount)
+{
+    if (imageCount < 0) {
+        return QStringLiteral("Not loaded");
+    }
+    return QStringLiteral("%1 image group%2")
+        .arg(imageCount)
+        .arg(imageCount == 1 ? QString() : QStringLiteral("s"));
+}
+
+QString slotStateAccent(SlotState state)
+{
+    switch (state) {
+    case SlotState::Vacant:
+        return QStringLiteral("#2e7d32");
+    case SlotState::Occupied:
+        return QStringLiteral("#ef6c00");
+    case SlotState::OvertimeAlert:
+    case SlotState::NonEvAlert:
+        return QStringLiteral("#c62828");
+    case SlotState::SensorError:
+        return QStringLiteral("#6a1b9a");
+    case SlotState::Acked:
+        return QStringLiteral("#1565c0");
+    default:
+        return QStringLiteral("#546e7a");
+    }
+}
+
+QString slotStateSurface(SlotState state)
+{
+    switch (state) {
+    case SlotState::Vacant:
+        return QStringLiteral("#e8f5e9");
+    case SlotState::Occupied:
+        return QStringLiteral("#fff3e0");
+    case SlotState::OvertimeAlert:
+    case SlotState::NonEvAlert:
+        return QStringLiteral("#ffebee");
+    case SlotState::SensorError:
+        return QStringLiteral("#f3e5f5");
+    case SlotState::Acked:
+        return QStringLiteral("#e3f2fd");
+    default:
+        return QStringLiteral("#f5f7f9");
+    }
+}
+
+QString statePillStyle(SlotState state)
+{
+    return QStringLiteral(
+               "QLabel { background:%1; color:%2; border:1px solid %2; "
+               "border-radius:6px; padding:5px 8px; font-weight:900; }")
+        .arg(slotStateSurface(state), slotStateAccent(state));
+}
+
+QFrame *createMetricCard(QWidget *parent,
+                         const QString &title,
+                         const QString &objectName,
+                         QLabel **valueLabel)
+{
+    auto *card = new QFrame(parent);
+    card->setObjectName(objectName + QStringLiteral("Card"));
+    card->setStyleSheet(QStringLiteral(
+        "QFrame { background:#f8fafb; border:1px solid #cfd8dc; border-radius:6px; }"));
+    auto *layout = new QVBoxLayout(card);
+    layout->setContentsMargins(10, 8, 10, 8);
+    layout->setSpacing(2);
+
+    auto *titleLabel = new QLabel(title, card);
+    titleLabel->setStyleSheet(QStringLiteral(
+        "border:none; color:#607d8b; font-size:11px; font-weight:800;"));
+    *valueLabel = new QLabel(QStringLiteral("-"), card);
+    (*valueLabel)->setObjectName(objectName);
+    (*valueLabel)->setMinimumWidth(112);
+    (*valueLabel)->setStyleSheet(QStringLiteral(
+        "border:none; color:#17212b; font-size:16px; font-weight:900;"));
+    (*valueLabel)->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(titleLabel);
+    layout->addWidget(*valueLabel);
+    return card;
+}
+
 } // namespace
 
 EvidencePage::EvidencePage(QWidget *parent)
@@ -109,7 +206,7 @@ EvidencePage::EvidencePage(QWidget *parent)
     rootLayout->setSpacing(12);
     rootLayout->addLayout(createPageHeader(
         this, QStringLiteral("Evidence"),
-        QStringLiteral("Review parking captures and evidence history")));
+        QStringLiteral("Operator review for session captures and event evidence")));
 
     auto *bodyLayout = new QHBoxLayout;
     bodyLayout->setSpacing(12);
@@ -118,7 +215,7 @@ EvidencePage::EvidencePage(QWidget *parent)
     slotPanel->setObjectName(QStringLiteral("evidenceSlotPanel"));
     slotPanel->setFixedWidth(245);
     slotPanel->setStyleSheet(QStringLiteral(
-        "QFrame#evidenceSlotPanel { background:white; border:1px solid #c7cdd4; "
+        "QFrame#evidenceSlotPanel { background:#f8fafb; border:1px solid #c7cdd4; "
         "border-radius:6px; }"));
     auto *slotLayout = new QVBoxLayout(slotPanel);
     slotLayout->setContentsMargins(12, 12, 12, 12);
@@ -128,14 +225,32 @@ EvidencePage::EvidencePage(QWidget *parent)
     slotLayout->addWidget(slotTitle);
     m_slotSearch = new QLineEdit(slotPanel);
     m_slotSearch->setPlaceholderText(QStringLiteral("Search slot"));
+    m_slotSearch->setFixedHeight(32);
+    m_slotSearch->setStyleSheet(QStringLiteral(
+        "QLineEdit { background:white; border:1px solid #b0bec5; border-radius:5px; "
+        "padding:5px 8px; color:#263238; }"
+        "QLineEdit:focus { border-color:#1976d2; }"));
     slotLayout->addWidget(m_slotSearch);
     m_slotList = new QListWidget(slotPanel);
     m_slotList->setObjectName(QStringLiteral("evidenceSlotList"));
     m_slotList->setSelectionMode(QAbstractItemView::SingleSelection);
     m_slotList->setSpacing(2);
+    m_slotList->setStyleSheet(QStringLiteral(
+        "QListWidget { background:transparent; border:none; outline:0; }"
+        "QListWidget::item { background:white; border:1px solid #d6dde3; "
+        "border-radius:5px; margin:2px 0; padding:6px; color:#263238; }"
+        "QListWidget::item:selected { background:#e3f2fd; border-color:#1976d2; }"
+        "QListWidget::item:hover { border-color:#90a4ae; }"));
     slotLayout->addWidget(m_slotList, 1);
     auto *refreshButton = new QPushButton(QStringLiteral("Refresh evidence"), slotPanel);
     refreshButton->setObjectName(QStringLiteral("evidenceRefreshButton"));
+    refreshButton->setCursor(Qt::PointingHandCursor);
+    refreshButton->setFixedHeight(34);
+    refreshButton->setStyleSheet(QStringLiteral(
+        "QPushButton { background:#263238; color:white; border:1px solid #455a64; "
+        "border-radius:6px; padding:6px 10px; font-weight:800; }"
+        "QPushButton:hover { background:#37474f; border-color:#fb8c00; }"
+        "QPushButton:pressed { background:#1c252a; }"));
     slotLayout->addWidget(refreshButton);
     bodyLayout->addWidget(slotPanel);
 
@@ -149,6 +264,7 @@ EvidencePage::EvidencePage(QWidget *parent)
         "QFrame { background:white; border:1px solid #c7cdd4; border-radius:6px; }"));
     auto *summaryLayout = new QHBoxLayout(summaryFrame);
     summaryLayout->setContentsMargins(14, 10, 14, 10);
+    summaryLayout->setSpacing(12);
     auto *summaryTextLayout = new QVBoxLayout;
     m_summaryLabel = new QLabel(QStringLiteral("Evidence gallery"), summaryFrame);
     m_summaryLabel->setObjectName(QStringLiteral("evidenceSummaryLabel"));
@@ -161,6 +277,22 @@ EvidencePage::EvidencePage(QWidget *parent)
     summaryTextLayout->addWidget(m_summaryLabel);
     summaryTextLayout->addWidget(m_statusLabel);
     summaryLayout->addLayout(summaryTextLayout, 1);
+
+    auto *metricGrid = new QGridLayout;
+    metricGrid->setSpacing(8);
+    metricGrid->addWidget(createMetricCard(summaryFrame, QStringLiteral("Slot"),
+                                           QStringLiteral("evidenceSlotMetric"),
+                                           &m_slotMetricLabel), 0, 0);
+    metricGrid->addWidget(createMetricCard(summaryFrame, QStringLiteral("Plate"),
+                                           QStringLiteral("evidencePlateMetric"),
+                                           &m_plateMetricLabel), 0, 1);
+    metricGrid->addWidget(createMetricCard(summaryFrame, QStringLiteral("Session"),
+                                           QStringLiteral("evidenceSessionMetric"),
+                                           &m_sessionMetricLabel), 1, 0);
+    metricGrid->addWidget(createMetricCard(summaryFrame, QStringLiteral("Captures"),
+                                           QStringLiteral("evidenceCaptureMetric"),
+                                           &m_captureMetricLabel), 1, 1);
+    summaryLayout->addLayout(metricGrid);
     auto *helpButton = createPageHelpButton(
         this, summaryFrame,
         {QStringLiteral("evidence"), QStringLiteral("Evidence"),
@@ -185,19 +317,35 @@ EvidencePage::EvidencePage(QWidget *parent)
                                     QLabel *&metadataLabel,
                                     QPushButton *&openButton) {
         auto *group = new QGroupBox(title, this);
+        group->setMinimumWidth(0);
+        group->setMaximumWidth(560);
+        group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        group->setStyleSheet(QStringLiteral(
+            "QGroupBox { background:white; border:1px solid #c7cdd4; border-radius:6px; "
+            "margin-top:12px; font-weight:800; color:#263238; }"
+            "QGroupBox::title { subcontrol-origin:margin; left:10px; padding:0 4px; }"));
         auto *layout = new QVBoxLayout(group);
+        layout->setContentsMargins(10, 12, 10, 10);
         layout->setSpacing(7);
         titleLabel = new QLabel(title, group);
-        titleLabel->setStyleSheet(QStringLiteral("font-size:15px;font-weight:800;color:#263238;"));
+        titleLabel->setVisible(false);
         imageLabel = new EvidenceImageLabel(group);
         metadataLabel = new QLabel(QStringLiteral("No capture loaded"), group);
         metadataLabel->setWordWrap(true);
-        metadataLabel->setMinimumHeight(38);
-        metadataLabel->setStyleSheet(QStringLiteral("color:#455a64;"));
-        openButton = new QPushButton(QStringLiteral("Open full image"), group);
+        metadataLabel->setFixedHeight(42);
+        metadataLabel->setStyleSheet(QStringLiteral(
+            "color:#455a64; background:#f8fafb; border:1px solid #d6dde3; "
+            "border-radius:5px; padding:6px;"));
+        openButton = new QPushButton(QStringLiteral("Open full frame"), group);
         openButton->setEnabled(false);
-        layout->addWidget(titleLabel);
-        layout->addWidget(imageLabel, 1);
+        openButton->setCursor(Qt::PointingHandCursor);
+        openButton->setStyleSheet(QStringLiteral(
+            "QPushButton { background:#f5f7f9; color:#263238; border:1px solid #b0bec5; "
+            "border-radius:5px; padding:5px 10px; font-weight:800; }"
+            "QPushButton:hover:enabled { background:#e3f2fd; border-color:#1976d2; }"
+            "QPushButton:disabled { color:#90a4ae; background:#eceff1; }"));
+        openButton->setFixedHeight(34);
+        layout->addWidget(imageLabel);
         layout->addWidget(metadataLabel);
         auto *buttonLayout = new QHBoxLayout;
         buttonLayout->addStretch();
@@ -216,12 +364,19 @@ EvidencePage::EvidencePage(QWidget *parent)
     m_selectedTitleLabel->setObjectName(QStringLiteral("evidenceSelectedTitle"));
     m_firstOpenButton->setObjectName(QStringLiteral("evidenceFirstOpenButton"));
     m_selectedOpenButton->setObjectName(QStringLiteral("evidenceSelectedOpenButton"));
+    comparisonLayout->addStretch(1);
     comparisonLayout->addWidget(firstGroup, 1);
     comparisonLayout->addWidget(selectedGroup, 1);
-    contentLayout->addLayout(comparisonLayout, 1);
+    comparisonLayout->addStretch(1);
+    contentLayout->addLayout(comparisonLayout);
 
     auto *timelineGroup = new QGroupBox(QStringLiteral("Capture timeline"), content);
+    timelineGroup->setStyleSheet(QStringLiteral(
+        "QGroupBox { background:white; border:1px solid #c7cdd4; border-radius:6px; "
+        "margin-top:12px; font-weight:800; color:#263238; }"
+        "QGroupBox::title { subcontrol-origin:margin; left:10px; padding:0 4px; }"));
     auto *timelineLayout = new QVBoxLayout(timelineGroup);
+    timelineLayout->setContentsMargins(10, 12, 10, 10);
     m_captureTable = new QTableWidget(0, 5, timelineGroup);
     m_captureTable->setObjectName(QStringLiteral("evidenceCaptureTable"));
     m_captureTable->setHorizontalHeaderLabels({
@@ -236,11 +391,21 @@ EvidencePage::EvidencePage(QWidget *parent)
     m_captureTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_captureTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_captureTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_captureTable->setMaximumHeight(190);
+    m_captureTable->setMinimumHeight(240);
+    m_captureTable->setMaximumHeight(340);
+    m_captureTable->setAlternatingRowColors(true);
+    m_captureTable->setStyleSheet(QStringLiteral(
+        "QTableWidget { background:white; alternate-background-color:#f8fafb; "
+        "border:1px solid #d6dde3; gridline-color:#e5eaee; selection-background-color:#e3f2fd; "
+        "selection-color:#17212b; }"
+        "QHeaderView::section { background:#eceff1; color:#263238; border:none; "
+        "border-right:1px solid #cfd8dc; padding:6px; font-weight:800; }"));
     timelineLayout->addWidget(m_captureTable);
     contentLayout->addWidget(timelineGroup);
     bodyLayout->addWidget(content, 1);
     rootLayout->addLayout(bodyLayout, 1);
+
+    updateSummaryMetrics(QString(), SlotState::Vacant, QString(), -1, -1, QString());
 
     connect(m_slotList, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem *current, QListWidgetItem *) {
@@ -303,17 +468,38 @@ void EvidencePage::render(const ParkingViewState &state)
     struct SlotRow {
         QString id;
         SlotState state = SlotState::Vacant;
-        int imageCount = 0;
+        int imageCount = -1;
     };
+    const QString activeSlotId = normalizeParkingSlotId(m_currentSlotId);
+    SlotState activeSlotState = SlotState::Vacant;
+    QString activePlateNumber = state.slotPlateNumbers.value(activeSlotId);
+    bool activeSlotKnown = false;
     QVector<SlotRow> rows;
     rows.reserve(state.evSlots.size() + state.parkingSlots.size());
     for (const EvSlotInfo &slot : state.evSlots) {
+        const int stateCount = state.slotImages.contains(slot.slotId)
+            ? static_cast<int>(state.slotImages.value(slot.slotId).size())
+            : -1;
         rows.append({slot.slotId, slot.state,
-                     static_cast<int>(state.slotImages.value(slot.slotId).size())});
+                     m_slotCaptureCounts.value(slot.slotId, stateCount)});
+        if (normalizeParkingSlotId(slot.slotId) == activeSlotId) {
+            activeSlotState = slot.state;
+            if (!slot.plateNumber.trimmed().isEmpty()) {
+                activePlateNumber = slot.plateNumber;
+            }
+            activeSlotKnown = true;
+        }
     }
     for (const ParkingSlotInfo &slot : state.parkingSlots) {
+        const int stateCount = state.slotImages.contains(slot.slotId)
+            ? static_cast<int>(state.slotImages.value(slot.slotId).size())
+            : -1;
         rows.append({slot.slotId, slot.state,
-                     static_cast<int>(state.slotImages.value(slot.slotId).size())});
+                     m_slotCaptureCounts.value(slot.slotId, stateCount)});
+        if (normalizeParkingSlotId(slot.slotId) == activeSlotId) {
+            activeSlotState = slot.state;
+            activeSlotKnown = true;
+        }
     }
     std::sort(rows.begin(), rows.end(), [](const SlotRow &left, const SlotRow &right) {
         const bool leftEv = left.id.startsWith(QStringLiteral("EV-"));
@@ -333,13 +519,15 @@ void EvidencePage::render(const ParkingViewState &state)
     for (int row = 0; row < rows.size(); ++row) {
         const SlotRow &slot = rows.at(row);
         auto *item = new QListWidgetItem(
-            QStringLiteral("%1\n%2  ·  %3 image%4")
+            QStringLiteral("%1\n%2  ·  %3")
                 .arg(slot.id, slotStateText(slot.state))
-                .arg(slot.imageCount)
-                .arg(slot.imageCount == 1 ? QString() : QStringLiteral("s")),
+                .arg(captureCountText(slot.imageCount)),
             m_slotList);
         item->setData(Qt::UserRole, slot.id);
         item->setSizeHint(QSize(0, 52));
+        item->setBackground(QColor(slotStateSurface(slot.state)));
+        item->setData(Qt::UserRole + 1, slotStateText(slot.state));
+        item->setData(Qt::UserRole + 2, slot.imageCount);
         if (slot.state == SlotState::OvertimeAlert
             || slot.state == SlotState::NonEvAlert) {
             item->setForeground(QColor(QStringLiteral("#b71c1c")));
@@ -370,6 +558,23 @@ void EvidencePage::render(const ParkingViewState &state)
         m_slotList->setCurrentItem(nullptr);
     }
     filterSlots(m_slotSearch->text());
+
+    const bool canUpdateActiveEvidence =
+        !eventNavigationActive && activeSlotKnown
+        && !activeSlotId.isEmpty()
+        && state.slotImages.contains(activeSlotId);
+    if (canUpdateActiveEvidence) {
+        const QList<ParkingImageResource> activeImages =
+            state.slotImages.value(activeSlotId);
+        const int activeImageCount = activeImages.size();
+        const int renderedImageCount =
+            m_slotCaptureCounts.value(activeSlotId, m_captures.size());
+        if (activeImageCount != renderedImageCount
+            || activeImageCount != m_captures.size()) {
+            showEvidence(activeSlotId, activeSlotState, activePlateNumber,
+                         activeImages);
+        }
+    }
 }
 
 void EvidencePage::showEvidence(
@@ -386,14 +591,16 @@ void EvidencePage::showEvidence(
     ++m_requestGeneration;
     m_requestTargets.clear();
     m_captures = buildParkingCaptureGroups(images);
-    m_summaryLabel->setText(QStringLiteral("%1  |  %2  |  Plate: %3")
-                                .arg(slotId, slotStateText(state), m_plateNumber));
+    updateSlotCaptureCount(slotId, m_captures.size());
+    m_summaryLabel->setText(QStringLiteral("Reviewing active parking evidence"));
+    m_summaryLabel->setStyleSheet(statePillStyle(state));
     m_statusLabel->setText(
         m_captures.isEmpty()
             ? QStringLiteral("No evidence images are available for the active parking session.")
             : QStringLiteral("%1 capture%2 loaded. Select a timeline row to compare it with the first capture.")
                   .arg(m_captures.size())
                   .arg(m_captures.size() == 1 ? QString() : QStringLiteral("s")));
+    updateSummaryMetrics(slotId, state, m_plateNumber, -1, m_captures.size(), QString());
     renderCaptureTable();
     renderFirstCapture();
     renderSelectedCapture(m_captures.size() > 1 ? m_captures.size() - 1 : -1);
@@ -410,8 +617,10 @@ void EvidencePage::showLoading(const QString &slotId)
     m_requestTargets.clear();
     m_captures.clear();
     m_captureTable->setRowCount(0);
-    m_summaryLabel->setText(QStringLiteral("%1 evidence").arg(slotId));
+    m_summaryLabel->setText(QStringLiteral("Loading parking evidence"));
+    m_summaryLabel->setStyleSheet(statePillStyle(SlotState::Vacant));
     m_statusLabel->setText(QStringLiteral("Loading active session and evidence images..."));
+    updateSummaryMetrics(slotId, SlotState::Vacant, QString(), -1, -1, QString());
     clearCaptureCard(m_firstImageLabel, m_firstTitleLabel, m_firstMetadataLabel,
                      m_firstOpenButton, QStringLiteral("First capture"),
                      QStringLiteral("Loading..."));
@@ -426,6 +635,8 @@ void EvidencePage::showError(const QString &slotId, const QString &message)
         return;
     }
     m_statusLabel->setText(QStringLiteral("Could not load evidence: %1").arg(message));
+    updateSummaryMetrics(slotId, SlotState::SensorError, m_plateNumber, -1,
+                         m_captures.size(), QString());
     clearCaptureCard(m_firstImageLabel, m_firstTitleLabel, m_firstMetadataLabel,
                      m_firstOpenButton, QStringLiteral("First capture"),
                      QStringLiteral("Evidence request failed"));
@@ -463,9 +674,12 @@ void EvidencePage::openEvent(const QString &eventId, const QString &rawSlotId)
     m_captures.clear();
     m_captureTable->setRowCount(0);
     m_summaryLabel->setText(
-        QStringLiteral("Event %1 | %2").arg(m_currentEventId, slotId));
+        QStringLiteral("Resolving event evidence"));
+    m_summaryLabel->setStyleSheet(statePillStyle(SlotState::Vacant));
     m_statusLabel->setText(
         QStringLiteral("Resolving the parking session recorded by this event..."));
+    updateSummaryMetrics(slotId, SlotState::Vacant, QString(), -1, -1,
+                         m_currentEventId);
     clearCaptureCard(m_firstImageLabel, m_firstTitleLabel,
                      m_firstMetadataLabel, m_firstOpenButton,
                      QStringLiteral("First capture"), QStringLiteral("Loading..."));
@@ -489,12 +703,8 @@ void EvidencePage::showEventEvidence(
     showEvidence(slotId, state, plateNumber, images);
     m_currentEventId = eventId;
     m_summaryLabel->setText(
-        QStringLiteral("Event %1 | %2 | Session %3 | %4 | Plate: %5")
-            .arg(eventId, slotId,
-                 sessionId > 0 ? QString::number(sessionId)
-                               : QStringLiteral("legacy"),
-                 slotStateText(state),
-                 plateNumber.isEmpty() ? QStringLiteral("-") : plateNumber));
+        QStringLiteral("Reviewing event-linked evidence"));
+    m_summaryLabel->setStyleSheet(statePillStyle(state));
     m_statusLabel->setText(
         m_captures.isEmpty()
             ? QStringLiteral("No evidence images are stored for this event session.")
@@ -503,6 +713,8 @@ void EvidencePage::showEventEvidence(
                   .arg(m_captures.size())
                   .arg(m_captures.size() == 1 ? QString()
                                               : QStringLiteral("s")));
+    updateSummaryMetrics(slotId, state, plateNumber, sessionId,
+                         m_captures.size(), eventId);
 }
 
 void EvidencePage::showEventError(const QString &eventId,
@@ -513,9 +725,12 @@ void EvidencePage::showEventError(const QString &eventId,
         return;
     }
     m_summaryLabel->setText(
-        QStringLiteral("Event %1 | %2").arg(eventId, slotId));
+        QStringLiteral("Event evidence unavailable"));
+    m_summaryLabel->setStyleSheet(statePillStyle(SlotState::SensorError));
     m_statusLabel->setText(
         QStringLiteral("Could not load event evidence: %1").arg(message));
+    updateSummaryMetrics(slotId, SlotState::SensorError, m_plateNumber,
+                         m_currentSessionId, m_captures.size(), eventId);
     clearCaptureCard(m_firstImageLabel, m_firstTitleLabel,
                      m_firstMetadataLabel, m_firstOpenButton,
                      QStringLiteral("First capture"),
@@ -665,6 +880,73 @@ void EvidencePage::renderSelectedCapture(int row)
                       m_selectedOpenButton, QStringLiteral("selected"));
 }
 
+void EvidencePage::updateSlotCaptureCount(const QString &slotId, int captureCount)
+{
+    const QString normalizedSlotId = normalizeParkingSlotId(slotId);
+    if (normalizedSlotId.isEmpty()) {
+        return;
+    }
+
+    m_slotCaptureCounts.insert(normalizedSlotId, captureCount);
+    for (int row = 0; row < m_slotList->count(); ++row) {
+        QListWidgetItem *item = m_slotList->item(row);
+        if (!item || item->data(Qt::UserRole).toString() != normalizedSlotId) {
+            continue;
+        }
+
+        const QString stateText =
+            item->data(Qt::UserRole + 1).toString().trimmed();
+        item->setData(Qt::UserRole + 2, captureCount);
+        item->setText(QStringLiteral("%1\n%2  ·  %3")
+                          .arg(normalizedSlotId,
+                               stateText.isEmpty()
+                                   ? QStringLiteral("Unknown")
+                                   : stateText,
+                               captureCountText(captureCount)));
+        break;
+    }
+}
+
+void EvidencePage::updateSummaryMetrics(const QString &slotId,
+                                        SlotState state,
+                                        const QString &plateNumber,
+                                        qint64 sessionId,
+                                        int captureCount,
+                                        const QString &eventId)
+{
+    if (m_slotMetricLabel) {
+        m_slotMetricLabel->setText(
+            slotId.isEmpty()
+                ? QStringLiteral("-")
+                : QStringLiteral("%1 · %2").arg(slotId, slotStateText(state)));
+        m_slotMetricLabel->setStyleSheet(QStringLiteral(
+            "border:none; color:%1; font-size:16px; font-weight:900;")
+                                             .arg(slotStateAccent(state)));
+    }
+    if (m_plateMetricLabel) {
+        const QString cleanPlate = plateNumber.trimmed();
+        m_plateMetricLabel->setText(
+            cleanPlate.isEmpty() || cleanPlate == QStringLiteral("-")
+                ? QStringLiteral("Unconfirmed")
+                : cleanPlate);
+    }
+    if (m_sessionMetricLabel) {
+        QString sessionText;
+        if (sessionId > 0) {
+            sessionText = QStringLiteral("Session %1").arg(sessionId);
+        } else if (!eventId.trimmed().isEmpty()) {
+            sessionText = QStringLiteral("Event linked");
+        } else {
+            sessionText = QStringLiteral("Active slot");
+        }
+        m_sessionMetricLabel->setText(sessionText);
+    }
+    if (m_captureMetricLabel) {
+        m_captureMetricLabel->setText(
+            captureCount < 0 ? QStringLiteral("Loading") : captureCountText(captureCount));
+    }
+}
+
 void EvidencePage::renderCaptureCard(
     const ParkingCaptureGroup *capture,
     const QString &heading,
@@ -681,8 +963,7 @@ void EvidencePage::renderCaptureCard(
     }
     const ParkingImageResource *variant =
         preferredParkingCaptureVariant(*capture);
-    const QString reason = captureReasonText(capture->reason);
-    titleLabel->setText(QStringLiteral("%1 · %2").arg(heading, reason));
+    titleLabel->setText(heading);
     // OCR 은 HALL_30S 캡처 한 장에만 돌아서 다른 증거 이미지 행에는
     // ocr_result 가 없다. 그 경우 세션에서 확정된 번호판으로 폴백하되,
     // 이 이미지에서 직접 읽은 값이 아님을 (session) 으로 구분한다.
@@ -692,10 +973,13 @@ void EvidencePage::renderCaptureCard(
             ? QStringLiteral("-")
             : QStringLiteral("%1 (session)").arg(m_plateNumber);
     }
-    QString metadata = QStringLiteral("%1  |  OCR: %2")
-        .arg(captureTimeText(capture->timestamp), ocrText);
+    QString metadata = QStringLiteral("%1")
+        .arg(captureTimeText(capture->timestamp));
     if (variant && !variant->processing.isEmpty()) {
         metadata += QStringLiteral("  |  %1").arg(variant->processing);
+    }
+    if (ocrText != QStringLiteral("-")) {
+        metadata += QStringLiteral("  |  OCR available");
     }
     metadataLabel->setText(metadata);
     imageLabel->setSourcePixmap(QPixmap());
