@@ -128,6 +128,19 @@ bool MainWindow::prepareForReauthentication()
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    if (!m_closeAfterIvaSave && m_ivaSettingsPage
+        && m_ivaSettingsPage->hasPendingChanges()) {
+        event->ignore();
+        const IvaSettingsPage::PendingChangesDecision decision =
+            m_ivaSettingsPage->confirmPendingChanges();
+        if (decision == IvaSettingsPage::PendingChangesDecision::Waiting) {
+            m_closeAfterIvaSave = true;
+        } else if (decision == IvaSettingsPage::PendingChangesDecision::Proceed) {
+            closeEvent(event);
+        }
+        return;
+    }
+
     if (!m_parkingMapPage || !m_parkingMapPage->hasUnsavedLayoutChanges()) {
         QMainWindow::closeEvent(event);
         return;
@@ -155,6 +168,48 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
 
     QMainWindow::closeEvent(event);
+}
+
+void MainWindow::handlePageChanged(int index)
+{
+    if (m_pageTransitionGuard || !m_pages) return;
+    const int previousIndex = m_lastPageIndex;
+    m_lastPageIndex = index;
+    const int ivaIndex = m_pages->indexOf(m_ivaSettingsPage);
+    if (previousIndex != ivaIndex || index == ivaIndex
+        || !m_ivaSettingsPage || !m_ivaSettingsPage->hasPendingChanges()) {
+        return;
+    }
+
+    m_pageTransitionGuard = true;
+    m_pages->setCurrentIndex(previousIndex);
+    m_pageTransitionGuard = false;
+    m_lastPageIndex = previousIndex;
+    m_pendingPageIndex = index;
+
+    const IvaSettingsPage::PendingChangesDecision decision =
+        m_ivaSettingsPage->confirmPendingChanges();
+    if (decision == IvaSettingsPage::PendingChangesDecision::Proceed) {
+        finishPendingIvaNavigation();
+    } else if (decision == IvaSettingsPage::PendingChangesDecision::Cancel) {
+        m_pendingPageIndex = -1;
+    }
+}
+
+void MainWindow::finishPendingIvaNavigation()
+{
+    if (m_closeAfterIvaSave) {
+        m_closeAfterIvaSave = false;
+        close();
+        return;
+    }
+    if (!m_pages || m_pendingPageIndex < 0) return;
+    const int targetIndex = m_pendingPageIndex;
+    m_pendingPageIndex = -1;
+    m_pageTransitionGuard = true;
+    m_pages->setCurrentIndex(targetIndex);
+    m_pageTransitionGuard = false;
+    m_lastPageIndex = targetIndex;
 }
 
 void MainWindow::buildUi()
@@ -422,6 +477,8 @@ void MainWindow::installPageHelpButtons()
 
     connect(m_pages, &QStackedWidget::currentChanged,
             m_pageHelpStack, &QStackedWidget::setCurrentIndex);
+    connect(m_pages, &QStackedWidget::currentChanged,
+            this, &MainWindow::handlePageChanged);
     m_pageHelpStack->setCurrentIndex(m_pages->currentIndex());
 }
 
@@ -688,6 +745,8 @@ void MainWindow::connectPages()
     });
     connect(m_ivaSettingsPage, &IvaSettingsPage::piRoiSaveRequested,
             m_parkingController, &ParkingController::updateParkingRoi);
+    connect(m_ivaSettingsPage, &IvaSettingsPage::pendingChangesSaved,
+            this, &MainWindow::finishPendingIvaNavigation);
     connect(m_parkingController, &ParkingController::parkingRoiReceived,
             m_ivaSettingsPage, &IvaSettingsPage::setPiRoiResult);
     connect(m_parkingController, &ParkingController::parkingRoiRequestFailed,
