@@ -520,6 +520,10 @@ void MainWindow::connectPages()
             m_diagnosticsService, &DiagnosticsService::markSimulationApplied);
     connect(m_diagnosticsService, &DiagnosticsService::apiStateChanged,
             m_debugPage, &DebugPage::setApiDiagnostic);
+    connect(m_diagnosticsService, &DiagnosticsService::apiStateChanged,
+            m_eventsPage, [this](const ApiDiagnosticState &state) {
+                m_eventsPage->setServerState(state.status, state.lastError);
+            });
     connect(m_diagnosticsService, &DiagnosticsService::rtspChannelsChanged,
             m_debugPage, &DebugPage::setRtspDiagnostics);
     connect(m_diagnosticsService, &DiagnosticsService::parkingStateChanged,
