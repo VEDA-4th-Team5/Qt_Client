@@ -124,9 +124,15 @@ int main(int argc, char **argv)
     if (!captureMetric || !captureMetric->text().contains(QStringLiteral("2 image groups"))) return 28;
     QLabel *firstTitle = page.findChild<QLabel *>(QStringLiteral("evidenceFirstTitle"));
     QLabel *selectedTitle = page.findChild<QLabel *>(QStringLiteral("evidenceSelectedTitle"));
+    QLabel *firstImage = page.findChild<QLabel *>(QStringLiteral("evidenceFirstImage"));
+    QLabel *selectedImage = page.findChild<QLabel *>(QStringLiteral("evidenceSelectedImage"));
     if (!firstTitle || !firstTitle->text().startsWith(
             QStringLiteral("Earliest loaded capture"))) return 7;
     if (!selectedTitle || selectedTitle->text() != QStringLiteral("Selected loaded capture")) return 8;
+    if (!firstImage || !selectedImage || firstImage->minimumHeight() != 320
+        || selectedImage->minimumHeight() != 320
+        || firstImage->maximumHeight() != 320
+        || selectedImage->maximumHeight() != 320) return 35;
     QTimer::singleShot(3000, &imageLoadLoop, &QEventLoop::quit);
     imageLoadLoop.exec();
     if (loadedImageCount != 2) return 11;

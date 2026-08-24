@@ -36,8 +36,8 @@ public:
         : QLabel(parent)
     {
         setAlignment(Qt::AlignCenter);
-        setMinimumSize(320, 180);
-        setFixedHeight(190);
+        setMinimumSize(440, 280);
+        setFixedHeight(320);
         setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         setText(QStringLiteral("Select a parking slot to load evidence"));
         setStyleSheet(QStringLiteral(
@@ -58,12 +58,12 @@ public:
 
     QSize sizeHint() const override
     {
-        return QSize(360, 190);
+        return QSize(620, 320);
     }
 
     QSize minimumSizeHint() const override
     {
-        return QSize(320, 180);
+        return QSize(440, 280);
     }
 
 protected:
@@ -269,7 +269,7 @@ EvidencePage::EvidencePage(QWidget *parent)
     contentLayout->setContentsMargins(0, 0, 0, 0);
     contentLayout->setSpacing(10);
 
-    auto *summaryFrame = new QFrame(content);
+    auto *summaryFrame = new QFrame(this);
     summaryFrame->setStyleSheet(QStringLiteral(
         "QFrame { background:white; border:1px solid #c7cdd4; border-radius:6px; }"));
     auto *summaryLayout = new QHBoxLayout(summaryFrame);
@@ -317,7 +317,9 @@ EvidencePage::EvidencePage(QWidget *parent)
              "※ 사진이 표시되지 않으면 서버에 저장된 증거가 없거나 아직 이미지가 전달되지 않은 상태입니다.\n"
              "   촬영 사유는 서버 metadata가 제공될 때 표시됩니다.")});
     Q_UNUSED(helpButton);
-    contentLayout->addWidget(summaryFrame);
+    // The scope/status summary describes the entire time-ordered result, so
+    // keep it above both the filter panel and capture details.
+    rootLayout->addWidget(summaryFrame);
 
     auto *comparisonLayout = new QHBoxLayout;
     comparisonLayout->setSpacing(10);
@@ -328,7 +330,7 @@ EvidencePage::EvidencePage(QWidget *parent)
                                     QPushButton *&openButton) {
         auto *group = new QGroupBox(title, this);
         group->setMinimumWidth(0);
-        group->setMaximumWidth(560);
+        group->setMaximumWidth(700);
         group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         group->setStyleSheet(QStringLiteral(
             "QGroupBox { background:white; border:1px solid #c7cdd4; border-radius:6px; "
@@ -372,6 +374,8 @@ EvidencePage::EvidencePage(QWidget *parent)
         m_selectedMetadataLabel, m_selectedOpenButton);
     m_firstTitleLabel->setObjectName(QStringLiteral("evidenceFirstTitle"));
     m_selectedTitleLabel->setObjectName(QStringLiteral("evidenceSelectedTitle"));
+    m_firstImageLabel->setObjectName(QStringLiteral("evidenceFirstImage"));
+    m_selectedImageLabel->setObjectName(QStringLiteral("evidenceSelectedImage"));
     m_firstOpenButton->setObjectName(QStringLiteral("evidenceFirstOpenButton"));
     m_selectedOpenButton->setObjectName(QStringLiteral("evidenceSelectedOpenButton"));
     comparisonLayout->addStretch(1);
@@ -402,8 +406,8 @@ EvidencePage::EvidencePage(QWidget *parent)
     m_captureTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_captureTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_captureTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_captureTable->setMinimumHeight(240);
-    m_captureTable->setMaximumHeight(340);
+    m_captureTable->setMinimumHeight(300);
+    m_captureTable->setMaximumHeight(420);
     m_captureTable->setAlternatingRowColors(true);
     m_captureTable->setStyleSheet(QStringLiteral(
         "QTableWidget { background:white; alternate-background-color:#f8fafb; "
