@@ -6,6 +6,7 @@
 #include <QBuffer>
 #include <QDialog>
 #include <QEventLoop>
+#include <QFrame>
 #include <QImage>
 #include <QLabel>
 #include <QComboBox>
@@ -38,6 +39,19 @@ int main(int argc, char **argv)
         QStringLiteral("evidenceSlotFilter"));
     if (!slotFilter || slotFilter->count() != 3) return 1;
     if (!page.currentSlotId().isEmpty()) return 2;
+    QFrame *filterPanel = page.findChild<QFrame *>(
+        QStringLiteral("evidenceFilterPanel"));
+    QFrame *summaryFrame = page.findChild<QFrame *>(
+        QStringLiteral("evidenceSummaryFrame"));
+    QWidget *leftSidebar = page.findChild<QWidget *>(
+        QStringLiteral("evidenceLeftSidebar"));
+    QWidget *content = page.findChild<QWidget *>(
+        QStringLiteral("evidenceContent"));
+    if (!filterPanel || filterPanel->width() != 245
+        || !summaryFrame || !leftSidebar || leftSidebar->width() != 245
+        || !content || summaryFrame->parentWidget() != leftSidebar
+        || filterPanel->parentWidget() != leftSidebar
+        || content->parentWidget() == leftSidebar) return 41;
     QTimer *autoRefreshTimer = page.findChild<QTimer *>(
         QStringLiteral("evidenceAutoRefreshTimer"));
     if (!autoRefreshTimer || autoRefreshTimer->interval() != 5000

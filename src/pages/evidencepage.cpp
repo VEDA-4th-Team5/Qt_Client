@@ -213,9 +213,10 @@ QFrame *createMetricCard(QWidget *parent,
         "border:none; color:#607d8b; font-size:11px; font-weight:800;"));
     *valueLabel = new QLabel(QStringLiteral("-"), card);
     (*valueLabel)->setObjectName(objectName);
-    (*valueLabel)->setMinimumWidth(112);
+    (*valueLabel)->setMinimumWidth(80);
+    (*valueLabel)->setWordWrap(true);
     (*valueLabel)->setStyleSheet(QStringLiteral(
-        "border:none; color:#17212b; font-size:16px; font-weight:900;"));
+        "border:none; color:#17212b; font-size:13px; font-weight:900;"));
     (*valueLabel)->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(titleLabel);
     layout->addWidget(*valueLabel);
@@ -237,7 +238,14 @@ EvidencePage::EvidencePage(QWidget *parent)
     auto *bodyLayout = new QHBoxLayout;
     bodyLayout->setSpacing(12);
 
-    auto *filterPanel = new QFrame(this);
+    auto *leftSidebar = new QWidget(this);
+    leftSidebar->setObjectName(QStringLiteral("evidenceLeftSidebar"));
+    leftSidebar->setFixedWidth(245);
+    auto *leftLayout = new QVBoxLayout(leftSidebar);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(10);
+
+    auto *filterPanel = new QFrame(leftSidebar);
     filterPanel->setObjectName(QStringLiteral("evidenceFilterPanel"));
     filterPanel->setFixedWidth(245);
     filterPanel->setStyleSheet(QStringLiteral(
@@ -296,31 +304,35 @@ EvidencePage::EvidencePage(QWidget *parent)
         "QPushButton:hover { background:#37474f; border-color:#fb8c00; }"
         "QPushButton:pressed { background:#1c252a; }"));
     filterLayout->addWidget(refreshButton);
-    bodyLayout->addWidget(filterPanel);
 
     auto *content = new QWidget(this);
+    content->setObjectName(QStringLiteral("evidenceContent"));
     auto *contentLayout = new QVBoxLayout(content);
     contentLayout->setContentsMargins(0, 0, 0, 0);
     contentLayout->setSpacing(10);
 
-    auto *summaryFrame = new QFrame(this);
+    auto *summaryFrame = new QFrame(leftSidebar);
+    summaryFrame->setObjectName(QStringLiteral("evidenceSummaryFrame"));
+    summaryFrame->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     summaryFrame->setStyleSheet(QStringLiteral(
         "QFrame { background:white; border:1px solid #c7cdd4; border-radius:6px; }"));
-    auto *summaryLayout = new QHBoxLayout(summaryFrame);
+    auto *summaryLayout = new QVBoxLayout(summaryFrame);
     summaryLayout->setContentsMargins(14, 10, 14, 10);
-    summaryLayout->setSpacing(12);
+    summaryLayout->setSpacing(8);
     auto *summaryTextLayout = new QVBoxLayout;
     m_summaryLabel = new QLabel(QStringLiteral("Evidence timeline"), summaryFrame);
     m_summaryLabel->setObjectName(QStringLiteral("evidenceSummaryLabel"));
+    m_summaryLabel->setWordWrap(true);
     m_summaryLabel->setStyleSheet(QStringLiteral(
-        "border:none;font-size:17px;font-weight:800;color:#263238;"));
+        "border:none;font-size:15px;font-weight:800;color:#263238;"));
     m_statusLabel = new QLabel(
         QStringLiteral("Showing loaded evidence in capture-time order."), summaryFrame);
     m_statusLabel->setObjectName(QStringLiteral("evidenceStatusLabel"));
+    m_statusLabel->setWordWrap(true);
     m_statusLabel->setStyleSheet(QStringLiteral("border:none;color:#546e7a;"));
     summaryTextLayout->addWidget(m_summaryLabel);
     summaryTextLayout->addWidget(m_statusLabel);
-    summaryLayout->addLayout(summaryTextLayout, 1);
+    summaryLayout->addLayout(summaryTextLayout);
 
     auto *metricGrid = new QGridLayout;
     metricGrid->setSpacing(8);
@@ -350,10 +362,13 @@ EvidencePage::EvidencePage(QWidget *parent)
          QStringLiteral(
              "※ 사진이 표시되지 않으면 서버에 저장된 증거가 없거나 아직 이미지가 전달되지 않은 상태입니다.\n"
              "   촬영 사유는 서버 metadata가 제공될 때 표시됩니다.")});
-    Q_UNUSED(helpButton);
-    // The scope/status summary describes the entire time-ordered result, so
-    // keep it above both the filter panel and capture details.
-    rootLayout->addWidget(summaryFrame);
+    summaryLayout->addWidget(helpButton, 0, Qt::AlignRight);
+    // Keep the compact summary above the filters in the fixed-width sidebar.
+    // The capture content can now start at the top of the body and use the
+    // vertical space previously consumed by the full-width summary row.
+    leftLayout->addWidget(summaryFrame);
+    leftLayout->addWidget(filterPanel, 1);
+    bodyLayout->addWidget(leftSidebar);
 
     auto *comparisonLayout = new QHBoxLayout;
     comparisonLayout->setSpacing(10);
