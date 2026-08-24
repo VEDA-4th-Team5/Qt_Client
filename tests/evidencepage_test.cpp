@@ -7,6 +7,7 @@
 #include <QDialog>
 #include <QEventLoop>
 #include <QFrame>
+#include <QGroupBox>
 #include <QImage>
 #include <QLabel>
 #include <QComboBox>
@@ -145,6 +146,18 @@ int main(int argc, char **argv)
     QTableWidget *table = page.findChild<QTableWidget *>(
         QStringLiteral("evidenceCaptureTable"));
     if (!table || table->rowCount() != 2 || table->currentRow() != 0) return 5;
+    QGroupBox *timelineGroup = page.findChild<QGroupBox *>(
+        QStringLiteral("evidenceTimelineGroup"));
+    if (!timelineGroup || !timelineGroup->isCheckable()
+        || !timelineGroup->isChecked() || table->isHidden()) return 45;
+    timelineGroup->setChecked(false);
+    QApplication::processEvents();
+    if (!table->isHidden() || timelineGroup->maximumHeight() != 38
+        || !timelineGroup->title().contains(QStringLiteral("▶"))) return 46;
+    timelineGroup->setChecked(true);
+    QApplication::processEvents();
+    if (table->isHidden() || timelineGroup->maximumHeight() != QWIDGETSIZE_MAX
+        || !timelineGroup->title().contains(QStringLiteral("▼"))) return 47;
     QLabel *summary = page.findChild<QLabel *>(QStringLiteral("evidenceSummaryLabel"));
     if (!summary || !summary->text().contains(QStringLiteral("local evidence timeline"))) return 6;
     QLabel *plateMetric = page.findChild<QLabel *>(QStringLiteral("evidencePlateMetric"));

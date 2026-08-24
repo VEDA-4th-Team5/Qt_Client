@@ -27,6 +27,8 @@ not the primary navigation.
   combined into one pair.
 - Uses the authoritative event session ID when an event image item omits it;
   without any session ID, the UI refuses to guess a First/Latest pair.
+- Lets the operator collapse and expand the Capture timeline while keeping the
+  current First/Latest cards and refresh state intact.
 
 ## Deliberate boundary
 

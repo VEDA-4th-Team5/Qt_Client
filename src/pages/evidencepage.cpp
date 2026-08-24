@@ -435,7 +435,13 @@ EvidencePage::EvidencePage(QWidget *parent)
     comparisonLayout->addStretch(1);
     contentLayout->addLayout(comparisonLayout);
 
-    auto *timelineGroup = new QGroupBox(QStringLiteral("Capture timeline"), content);
+    auto *timelineGroup = new QGroupBox(
+        QStringLiteral("Capture timeline  ▼"), content);
+    timelineGroup->setObjectName(QStringLiteral("evidenceTimelineGroup"));
+    timelineGroup->setCheckable(true);
+    timelineGroup->setChecked(true);
+    timelineGroup->setToolTip(
+        QStringLiteral("Click the title to collapse or expand the capture timeline"));
     timelineGroup->setStyleSheet(QStringLiteral(
         "QGroupBox { background:white; border:1px solid #c7cdd4; border-radius:6px; "
         "margin-top:12px; font-weight:800; color:#263238; }"
@@ -468,6 +474,15 @@ EvidencePage::EvidencePage(QWidget *parent)
         "border-right:1px solid #cfd8dc; padding:6px; font-weight:800; }"));
     timelineLayout->addWidget(m_captureTable);
     contentLayout->addWidget(timelineGroup);
+    connect(timelineGroup, &QGroupBox::toggled, this,
+            [this, timelineGroup](bool expanded) {
+                m_captureTable->setVisible(expanded);
+                timelineGroup->setTitle(
+                    expanded ? QStringLiteral("Capture timeline  ▼")
+                             : QStringLiteral("Capture timeline  ▶"));
+                timelineGroup->setMaximumHeight(
+                    expanded ? QWIDGETSIZE_MAX : 38);
+            });
     bodyLayout->addWidget(content, 1);
     rootLayout->addLayout(bodyLayout, 1);
 
