@@ -30,6 +30,9 @@ public:
 
     void setImageLoader(ImageLoader *imageLoader);
     void render(const ParkingViewState &state);
+    // v0.1 client-side fallback: combine only evidence already delivered by
+    // the existing slot/session APIs; no new history endpoint is assumed.
+    void showLocalEvidenceSnapshot(const ParkingViewState &state);
     void showEvidence(const QString &slotId, SlotState state,
                       const QString &plateNumber,
                       const QList<ParkingImageResource> &images);
@@ -82,6 +85,19 @@ private:
                           const QString &message);
     void showFullImage(EvidenceImageLabel *source, const QString &title);
 
+    struct LocalTimelineEntry {
+        QString slotId;
+        QString plateNumber;
+        SlotState state = SlotState::Vacant;
+        ParkingCaptureGroup capture;
+    };
+
+    SlotState stateForSlot(const ParkingViewState &state,
+                           const QString &slotId) const;
+    QString plateForSlot(const ParkingViewState &state,
+                         const QString &slotId) const;
+    void resetLocalTimeline();
+
     QPointer<ImageLoader> m_imageLoader;
     QListWidget *m_slotList = nullptr;
     QLineEdit *m_slotSearch = nullptr;
@@ -105,6 +121,9 @@ private:
     qint64 m_currentSessionId = -1;
     QString m_plateNumber;
     QVector<ParkingCaptureGroup> m_captures;
+    QVector<LocalTimelineEntry> m_localTimelineEntries;
+    ParkingViewState m_latestState;
+    bool m_localTimelineMode = false;
     QHash<QString, int> m_slotCaptureCounts;
     QHash<QString, EvidenceImageLabel *> m_requestTargets;
     quint64 m_requestGeneration = 0;

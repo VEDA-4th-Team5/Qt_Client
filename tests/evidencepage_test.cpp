@@ -144,6 +144,20 @@ int main(int argc, char **argv)
     page.render(state);
     if (page.captureCount() != 3) return 26;
 
+    ParkingImageResource generalCapture = firstOriginal;
+    generalCapture.imageId = 40;
+    generalCapture.timestamp = QDateTime::fromString(
+        QStringLiteral("2026-07-27T10:07:01+09:00"), Qt::ISODate);
+    state.slotImages.insert(QStringLiteral("P-01"), {generalCapture});
+    page.showLocalEvidenceSnapshot(state);
+    if (page.captureCount() != 4) return 29;
+    QPushButton *localTimelineButton = page.findChild<QPushButton *>(
+        QStringLiteral("evidenceLocalTimelineButton"));
+    if (!localTimelineButton || !table || table->columnCount() != 6
+        || table->rowCount() != 4
+        || !table->item(0, 1)
+        || table->item(0, 1)->text() != QStringLiteral("P-01")) return 30;
+
     int eventRequestCount = 0;
     QString requestedEventId;
     QObject::connect(&page, &EvidencePage::eventEvidenceRequested,

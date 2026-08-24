@@ -252,6 +252,18 @@ EvidencePage::EvidencePage(QWidget *parent)
         "QPushButton:hover { background:#37474f; border-color:#fb8c00; }"
         "QPushButton:pressed { background:#1c252a; }"));
     slotLayout->addWidget(refreshButton);
+    auto *localTimelineButton = new QPushButton(
+        QStringLiteral("All loaded evidence (Qt)"), slotPanel);
+    localTimelineButton->setObjectName(QStringLiteral("evidenceLocalTimelineButton"));
+    localTimelineButton->setToolTip(QStringLiteral(
+        "Build a time-ordered view from evidence already cached by the existing slot APIs."));
+    localTimelineButton->setCursor(Qt::PointingHandCursor);
+    localTimelineButton->setFixedHeight(34);
+    localTimelineButton->setStyleSheet(QStringLiteral(
+        "QPushButton { background:#e3f2fd; color:#0d47a1; border:1px solid #90caf9; "
+        "border-radius:6px; padding:6px 10px; font-weight:800; }"
+        "QPushButton:hover { background:#bbdefb; border-color:#1976d2; }"));
+    slotLayout->addWidget(localTimelineButton);
     bodyLayout->addWidget(slotPanel);
 
     auto *content = new QWidget(this);
@@ -377,16 +389,17 @@ EvidencePage::EvidencePage(QWidget *parent)
         "QGroupBox::title { subcontrol-origin:margin; left:10px; padding:0 4px; }"));
     auto *timelineLayout = new QVBoxLayout(timelineGroup);
     timelineLayout->setContentsMargins(10, 12, 10, 10);
-    m_captureTable = new QTableWidget(0, 5, timelineGroup);
+    m_captureTable = new QTableWidget(0, 6, timelineGroup);
     m_captureTable->setObjectName(QStringLiteral("evidenceCaptureTable"));
     m_captureTable->setHorizontalHeaderLabels({
-        QStringLiteral("Capture"), QStringLiteral("Time"), QStringLiteral("Reason"),
+        QStringLiteral("Capture"), QStringLiteral("Slot"), QStringLiteral("Time"), QStringLiteral("Reason"),
         QStringLiteral("OCR"), QStringLiteral("Available")});
     m_captureTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_captureTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    m_captureTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_captureTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     m_captureTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
-    m_captureTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    m_captureTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
+    m_captureTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
     m_captureTable->verticalHeader()->setVisible(false);
     m_captureTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_captureTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -415,9 +428,14 @@ EvidencePage::EvidencePage(QWidget *parent)
             this, &EvidencePage::filterSlots);
     connect(refreshButton, &QPushButton::clicked,
             this, &EvidencePage::requestCurrentEvidence);
+    connect(localTimelineButton, &QPushButton::clicked, this,
+            [this]() { showLocalEvidenceSnapshot(m_latestState); });
     connect(m_captureTable, &QTableWidget::currentCellChanged, this,
             [this](int currentRow, int, int, int) {
-                renderSelectedCapture(currentRow);
+                const QTableWidgetItem *captureItem =
+                    m_captureTable->item(currentRow, 0);
+                renderSelectedCapture(captureItem
+                    ? captureItem->data(Qt::UserRole).toInt() : -1);
             });
     connect(m_firstOpenButton, &QPushButton::clicked, this,
             [this]() { showFullImage(m_firstImageLabel, m_firstTitleLabel->text()); });
@@ -465,6 +483,7 @@ void EvidencePage::setImageLoader(ImageLoader *imageLoader)
 
 void EvidencePage::render(const ParkingViewState &state)
 {
+    m_latestState = state;
     struct SlotRow {
         QString id;
         SlotState state = SlotState::Vacant;
@@ -559,6 +578,11 @@ void EvidencePage::render(const ParkingViewState &state)
     }
     filterSlots(m_slotSearch->text());
 
+    if (m_localTimelineMode) {
+        showLocalEvidenceSnapshot(state);
+        return;
+    }
+
     const bool canUpdateActiveEvidence =
         !eventNavigationActive && activeSlotKnown
         && !activeSlotId.isEmpty()
@@ -577,12 +601,75 @@ void EvidencePage::render(const ParkingViewState &state)
     }
 }
 
+void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
+{
+    m_latestState = state;
+    m_localTimelineMode = true;
+    m_currentEventId.clear();
+    m_currentSessionId = -1;
+    m_currentSlotId.clear();
+    m_plateNumber.clear();
+    ++m_requestGeneration;
+    m_requestTargets.clear();
+    m_captures.clear();
+    m_localTimelineEntries.clear();
+
+    for (auto it = state.slotImages.cbegin(); it != state.slotImages.cend(); ++it) {
+        const QString slotId = normalizeParkingSlotId(it.key());
+        const QVector<ParkingCaptureGroup> groups = buildParkingCaptureGroups(it.value());
+        m_slotCaptureCounts.insert(slotId, groups.size());
+        for (const ParkingCaptureGroup &capture : groups) {
+            LocalTimelineEntry entry;
+            entry.slotId = slotId;
+            entry.plateNumber = plateForSlot(state, slotId);
+            entry.state = stateForSlot(state, slotId);
+            entry.capture = capture;
+            m_localTimelineEntries.append(entry);
+        }
+    }
+
+    std::stable_sort(m_localTimelineEntries.begin(), m_localTimelineEntries.end(),
+                     [](const LocalTimelineEntry &left,
+                        const LocalTimelineEntry &right) {
+        if (left.capture.timestamp.isValid() != right.capture.timestamp.isValid()) {
+            return left.capture.timestamp.isValid();
+        }
+        if (left.capture.timestamp.isValid()
+            && left.capture.timestamp != right.capture.timestamp) {
+            return left.capture.timestamp < right.capture.timestamp;
+        }
+        if (left.slotId != right.slotId) {
+            return left.slotId < right.slotId;
+        }
+        return left.capture.imageId < right.capture.imageId;
+    });
+    m_captures.reserve(m_localTimelineEntries.size());
+    for (const LocalTimelineEntry &entry : m_localTimelineEntries) {
+        m_captures.append(entry.capture);
+    }
+
+    m_summaryLabel->setText(QStringLiteral("Qt local evidence timeline"));
+    m_summaryLabel->setStyleSheet(statePillStyle(SlotState::Acked));
+    m_statusLabel->setText(m_captures.isEmpty()
+        ? QStringLiteral("No cached evidence is available. Refresh a slot first, or use v0.2 to load current sessions.")
+        : QStringLiteral("%1 capture groups from %2 loaded slot(s), ordered locally by captured time. Historical sessions are not fetched.")
+              .arg(m_captures.size())
+              .arg(state.slotImages.size()));
+    updateSummaryMetrics(QStringLiteral("All loaded slots"), SlotState::Acked,
+                         QString(), -1, m_captures.size(),
+                         QStringLiteral("Qt local snapshot"));
+    renderCaptureTable();
+    renderFirstCapture();
+    renderSelectedCapture(m_captures.isEmpty() ? -1 : m_captures.size() - 1);
+}
+
 void EvidencePage::showEvidence(
     const QString &slotId,
     SlotState state,
     const QString &plateNumber,
     const QList<ParkingImageResource> &images)
 {
+    resetLocalTimeline();
     if (!m_currentSlotId.isEmpty() && slotId != m_currentSlotId) {
         return;
     }
@@ -611,6 +698,7 @@ void EvidencePage::showLoading(const QString &slotId)
     if (!slotId.isEmpty() && slotId != m_currentSlotId) {
         return;
     }
+    resetLocalTimeline();
     m_currentEventId.clear();
     m_currentSessionId = -1;
     ++m_requestGeneration;
@@ -648,6 +736,7 @@ void EvidencePage::showError(const QString &slotId, const QString &message)
 
 void EvidencePage::openEvent(const QString &eventId, const QString &rawSlotId)
 {
+    resetLocalTimeline();
     const QString slotId = normalizeParkingSlotId(rawSlotId);
     m_currentEventId = eventId.trimmed();
     m_currentSlotId = slotId;
@@ -756,6 +845,7 @@ bool EvidencePage::selectSlot(const QString &rawSlotId)
         }
 
         const bool selectionChanged = m_slotList->currentItem() != item;
+        resetLocalTimeline();
         m_currentEventId.clear();
         m_currentSessionId = -1;
         m_slotList->setCurrentItem(item);
@@ -804,6 +894,7 @@ void EvidencePage::handleSlotChanged(QListWidgetItem *current)
     if (!current) {
         return;
     }
+    resetLocalTimeline();
     m_currentEventId.clear();
     m_currentSessionId = -1;
     m_currentSlotId = current->data(Qt::UserRole).toString();
@@ -825,7 +916,9 @@ void EvidencePage::renderCaptureTable()
     QSignalBlocker blocker(m_captureTable);
     m_captureTable->setRowCount(m_captures.size());
     for (int row = 0; row < m_captures.size(); ++row) {
-        const ParkingCaptureGroup &capture = m_captures.at(row);
+        const int captureIndex = m_localTimelineMode
+            ? m_captures.size() - 1 - row : row;
+        const ParkingCaptureGroup &capture = m_captures.at(captureIndex);
         QStringList variants;
         for (const ParkingImageResource &variant : capture.variants) {
             const QString name = variant.processing.isEmpty()
@@ -836,20 +929,27 @@ void EvidencePage::renderCaptureTable()
         }
         const QString captureName = capture.imageId >= 0
             ? QStringLiteral("#%1").arg(capture.imageId)
-            : QStringLiteral("#%1").arg(row + 1);
+            : QStringLiteral("#%1").arg(captureIndex + 1);
+        const QString slotId = m_localTimelineMode
+            ? m_localTimelineEntries.at(captureIndex).slotId
+            : m_currentSlotId;
         const QStringList values = {
             captureName,
+            slotId.isEmpty() ? QStringLiteral("-") : slotId,
             captureTimeText(capture.timestamp),
             captureReasonText(capture.reason),
             capture.ocrResult.isEmpty() ? QStringLiteral("-") : capture.ocrResult,
             variants.join(QStringLiteral(" / "))};
         for (int column = 0; column < values.size(); ++column) {
-            m_captureTable->setItem(row, column,
-                                    new QTableWidgetItem(values.at(column)));
+            auto *item = new QTableWidgetItem(values.at(column));
+            if (column == 0) {
+                item->setData(Qt::UserRole, captureIndex);
+            }
+            m_captureTable->setItem(row, column, item);
         }
     }
     if (!m_captures.isEmpty()) {
-        m_captureTable->setCurrentCell(m_captures.size() - 1, 0);
+        m_captureTable->setCurrentCell(m_localTimelineMode ? 0 : m_captures.size() - 1, 0);
     }
 }
 
@@ -857,9 +957,17 @@ void EvidencePage::renderFirstCapture()
 {
     const ParkingCaptureGroup *capture = m_captures.isEmpty()
         ? nullptr : &m_captures.first();
-    renderCaptureCard(capture, QStringLiteral("First capture"), m_firstImageLabel,
+    const QString originalPlate = m_plateNumber;
+    if (m_localTimelineMode && !m_localTimelineEntries.isEmpty()) {
+        m_plateNumber = m_localTimelineEntries.first().plateNumber;
+    }
+    renderCaptureCard(capture,
+                      m_localTimelineMode ? QStringLiteral("Earliest loaded capture")
+                                          : QStringLiteral("First capture"),
+                      m_firstImageLabel,
                       m_firstTitleLabel, m_firstMetadataLabel,
                       m_firstOpenButton, QStringLiteral("first"));
+    m_plateNumber = originalPlate;
 }
 
 void EvidencePage::renderSelectedCapture(int row)
@@ -873,11 +981,48 @@ void EvidencePage::renderSelectedCapture(int row)
                              : QStringLiteral("Select a capture from the timeline"));
         return;
     }
-    const QString heading = row == m_captures.size() - 1
-        ? QStringLiteral("Latest capture") : QStringLiteral("Selected capture");
+    const QString heading = m_localTimelineMode
+        ? QStringLiteral("Selected loaded capture")
+        : (row == m_captures.size() - 1
+           ? QStringLiteral("Latest capture") : QStringLiteral("Selected capture"));
+    const QString originalPlate = m_plateNumber;
+    if (m_localTimelineMode && row < m_localTimelineEntries.size()) {
+        m_plateNumber = m_localTimelineEntries.at(row).plateNumber;
+    }
     renderCaptureCard(&m_captures.at(row), heading, m_selectedImageLabel,
                       m_selectedTitleLabel, m_selectedMetadataLabel,
                       m_selectedOpenButton, QStringLiteral("selected"));
+    m_plateNumber = originalPlate;
+}
+
+SlotState EvidencePage::stateForSlot(const ParkingViewState &state,
+                                     const QString &slotId) const
+{
+    if (state.evSlots.contains(slotId)) {
+        return state.evSlots.value(slotId).state;
+    }
+    if (state.parkingSlots.contains(slotId)) {
+        return state.parkingSlots.value(slotId).state;
+    }
+    return SlotState::Vacant;
+}
+
+QString EvidencePage::plateForSlot(const ParkingViewState &state,
+                                   const QString &slotId) const
+{
+    if (state.evSlots.contains(slotId)) {
+        const QString plate = state.evSlots.value(slotId).plateNumber.trimmed();
+        if (!plate.isEmpty()) {
+            return plate;
+        }
+    }
+    return state.slotPlateNumbers.value(slotId);
+}
+
+void EvidencePage::resetLocalTimeline()
+{
+    m_localTimelineMode = false;
+    m_localTimelineEntries.clear();
 }
 
 void EvidencePage::updateSlotCaptureCount(const QString &slotId, int captureCount)
