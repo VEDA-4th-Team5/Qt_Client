@@ -38,6 +38,10 @@ int main(int argc, char **argv)
         QStringLiteral("evidenceSlotFilter"));
     if (!slotFilter || slotFilter->count() != 3) return 1;
     if (!page.currentSlotId().isEmpty()) return 2;
+    QTimer *autoRefreshTimer = page.findChild<QTimer *>(
+        QStringLiteral("evidenceAutoRefreshTimer"));
+    if (!autoRefreshTimer || autoRefreshTimer->interval() != 5000
+        || autoRefreshTimer->isSingleShot()) return 39;
 
     QStringList requestedSlots;
     QObject::connect(&page, &EvidencePage::slotEvidenceRequested,
@@ -57,6 +61,11 @@ int main(int argc, char **argv)
     page.requestCurrentEvidence();
     if (requestedSlots.size() != 3
         || requestedSlots.last() != QStringLiteral("EV-02")) return 15;
+    requestedSlots.clear();
+    if (!QMetaObject::invokeMethod(autoRefreshTimer, "timeout",
+                                   Qt::DirectConnection)
+        || requestedSlots.size() != 1
+        || requestedSlots.constFirst() != QStringLiteral("EV-02")) return 40;
 
     QImage sampleImage(8, 8, QImage::Format_RGB32);
     sampleImage.fill(QColor(QStringLiteral("#1976d2")));

@@ -14,6 +14,7 @@
 #include <QGroupBox>
 #include <QHash>
 #include <QHeaderView>
+#include <QHideEvent>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -22,9 +23,11 @@
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QSignalBlocker>
+#include <QShowEvent>
 #include <QStringList>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -276,7 +279,14 @@ EvidencePage::EvidencePage(QWidget *parent)
     m_reasonFilter->setFixedHeight(32);
     filterLayout->addWidget(m_reasonFilter);
     filterLayout->addStretch(1);
-    auto *refreshButton = new QPushButton(QStringLiteral("Refresh timeline"), filterPanel);
+    auto *autoRefreshHint = new QLabel(
+        QStringLiteral("Auto refresh · every 5 seconds while open"), filterPanel);
+    autoRefreshHint->setObjectName(QStringLiteral("evidenceAutoRefreshHint"));
+    autoRefreshHint->setWordWrap(true);
+    autoRefreshHint->setStyleSheet(QStringLiteral(
+        "color:#607d8b;font-size:11px;font-weight:700;"));
+    filterLayout->addWidget(autoRefreshHint);
+    auto *refreshButton = new QPushButton(QStringLiteral("Refresh now"), filterPanel);
     refreshButton->setObjectName(QStringLiteral("evidenceRefreshButton"));
     refreshButton->setCursor(Qt::PointingHandCursor);
     refreshButton->setFixedHeight(34);
@@ -465,6 +475,29 @@ EvidencePage::EvidencePage(QWidget *parent)
             [this]() { showFullImage(m_firstImageLabel, m_firstTitleLabel->text()); });
     connect(m_selectedOpenButton, &QPushButton::clicked, this,
             [this]() { showFullImage(m_selectedImageLabel, m_selectedTitleLabel->text()); });
+
+    m_autoRefreshTimer = new QTimer(this);
+    m_autoRefreshTimer->setObjectName(QStringLiteral("evidenceAutoRefreshTimer"));
+    m_autoRefreshTimer->setInterval(5000);
+    m_autoRefreshTimer->setTimerType(Qt::CoarseTimer);
+    connect(m_autoRefreshTimer, &QTimer::timeout,
+            this, &EvidencePage::requestCurrentEvidence);
+}
+
+void EvidencePage::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    if (m_autoRefreshTimer && !m_autoRefreshTimer->isActive()) {
+        m_autoRefreshTimer->start();
+    }
+}
+
+void EvidencePage::hideEvent(QHideEvent *event)
+{
+    if (m_autoRefreshTimer) {
+        m_autoRefreshTimer->stop();
+    }
+    QWidget::hideEvent(event);
 }
 
 void EvidencePage::setImageLoader(ImageLoader *imageLoader)

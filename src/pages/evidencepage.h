@@ -16,10 +16,13 @@
 class EvidenceImageLabel;
 class ImageLoader;
 class QComboBox;
+class QHideEvent;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QShowEvent;
 class QTableWidget;
+class QTimer;
 
 class EvidencePage : public QWidget
 {
@@ -56,6 +59,10 @@ public slots:
 signals:
     void slotEvidenceRequested(const QString &slotId);
     void eventEvidenceRequested(const QString &eventId);
+
+protected:
+    void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
 
 private:
     bool mergeEvidenceCache(const ParkingViewState &state);
@@ -133,6 +140,7 @@ private:
     bool m_localTimelineInitialized = false;
     QHash<QString, int> m_slotCaptureCounts;
     QHash<QString, EvidenceImageLabel *> m_requestTargets;
+    QTimer *m_autoRefreshTimer = nullptr;
     quint64 m_requestGeneration = 0;
     quint64 m_requestSequence = 0;
 };

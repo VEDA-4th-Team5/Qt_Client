@@ -19,6 +19,8 @@ not the primary navigation.
 - On entering or refreshing the All slots view, requests each currently known
   slot's existing detail/current-session image flow. Selecting one slot asks
   for that slot only.
+- Repeats that request every five seconds while the Evidence page is visible;
+  the timer stops when the operator leaves the page.
 
 ## Deliberate boundary
 
