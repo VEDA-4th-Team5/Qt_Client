@@ -149,7 +149,14 @@ int main(int argc, char **argv)
     if (page.captureCount() != 2) return 4;
     QTableWidget *table = page.findChild<QTableWidget *>(
         QStringLiteral("evidenceCaptureTable"));
-    if (!table || table->rowCount() != 2 || table->currentRow() != 0) return 5;
+    if (!table || table->rowCount() != 1 || table->currentRow() != 0
+        || table->columnCount() != 7
+        || !table->horizontalHeaderItem(2)
+        || table->horizontalHeaderItem(2)->text()
+            != QStringLiteral("First capture")
+        || !table->horizontalHeaderItem(3)
+        || table->horizontalHeaderItem(3)->text()
+            != QStringLiteral("Latest capture")) return 5;
     QGroupBox *timelineGroup = page.findChild<QGroupBox *>(
         QStringLiteral("evidenceTimelineGroup"));
     QWidget *timelineContent = page.findChild<QWidget *>(
@@ -227,7 +234,7 @@ int main(int argc, char **argv)
         || selectedImage->pixmap().cacheKey() != latestPixmapBeforeAutoRefresh) return 44;
 
     const int imageLoadCountBeforeSelection = loadedImageCount;
-    table->setCurrentCell(1, 0);
+    table->setCurrentCell(0, 0);
     QApplication::processEvents();
     if (loadedImageCount != imageLoadCountBeforeSelection
         || firstImage->pixmap().isNull()
@@ -250,6 +257,7 @@ int main(int argc, char **argv)
                              latestOriginal, newestOriginal});
     page.render(state);
     if (page.captureCount() != 4
+        || table->rowCount() != 2
         || sessionMetric->text() != QStringLiteral("Session 7")
         || !firstMetadata->text().contains(QStringLiteral("2026-07-27 09:00:00"))
         || !selectedMetadata->text().contains(QStringLiteral("2026-07-27 10:05:01"))) return 26;
@@ -268,27 +276,38 @@ int main(int argc, char **argv)
     slotFilter->setCurrentIndex(0);
     page.showLocalEvidenceSnapshot(state);
     if (page.captureCount() != 5
+        || table->rowCount() != 3
         || sessionMetric->text() != QStringLiteral("Session 8")
         || !firstMetadata->text().contains(QStringLiteral("2026-07-27 10:07:01"))
         || !selectedMetadata->text().contains(QStringLiteral("2026-07-27 10:07:01"))) return 29;
-    if (!table || table->columnCount() != 6
-        || table->rowCount() != 5
+    if (!table || table->columnCount() != 7
+        || table->rowCount() != 3
         || !table->item(0, 1)
-        || table->item(0, 1)->text() != QStringLiteral("P-01")) return 30;
+        || table->item(0, 1)->text() != QStringLiteral("P-01")
+        || !table->item(0, 0)
+        || table->item(0, 0)->text() != QStringLiteral("Session 8")
+        || !table->item(0, 2)
+        || !table->item(0, 2)->text().contains(QStringLiteral("#40"))
+        || !table->item(0, 3)
+        || !table->item(0, 3)->text().contains(QStringLiteral("#40"))
+        || !table->item(0, 6)
+        || table->item(0, 6)->text()
+            != QStringLiteral("FIRST / LATEST")) return 30;
     QLineEdit *plateFilter = page.findChild<QLineEdit *>(
         QStringLiteral("evidencePlateFilter"));
     QLineEdit *reasonFilter = page.findChild<QLineEdit *>(
         QStringLiteral("evidenceReasonFilter"));
     if (!plateFilter || !reasonFilter) return 31;
     plateFilter->setText(QStringLiteral("34B7788"));
-    if (page.captureCount() != 4) return 32;
+    if (page.captureCount() != 4 || table->rowCount() != 2) return 32;
     reasonFilter->setText(QStringLiteral("overstay"));
     if (page.captureCount() != 2
+        || table->rowCount() != 1
         || !firstMetadata->text().contains(QStringLiteral("2026-07-27 09:00:00"))
         || !selectedMetadata->text().contains(QStringLiteral("2026-07-27 10:05:01"))) return 33;
     plateFilter->clear();
     reasonFilter->clear();
-    if (page.captureCount() != 5) return 34;
+    if (page.captureCount() != 5 || table->rowCount() != 3) return 34;
 
     QPushButton *downloadButton = page.findChild<QPushButton *>(
         QStringLiteral("evidenceDownloadSelectedButton"));
@@ -307,7 +326,7 @@ int main(int argc, char **argv)
     QApplication::processEvents();
     if (!downloadButton->isEnabled()
         || !downloadSelectionLabel->text().contains(
-            QStringLiteral("3 rows selected · 2 session pairs"))) return 49;
+            QStringLiteral("3 pairs selected"))) return 49;
 
     const QString downloadDirectory = QDir::current().filePath(
         QStringLiteral("build-evidence-pair-verification"));
@@ -336,7 +355,7 @@ int main(int argc, char **argv)
     downloadLoop.exec();
     if (!downloadFinished) return 63;
     if (!downloadSucceeded) return 64;
-    if (downloadedFiles.size() != 5) return 65;
+    if (downloadedFiles.size() != 7) return 65;
     QString metadataPath;
     int firstFileCount = 0;
     int latestFileCount = 0;
@@ -359,8 +378,8 @@ int main(int argc, char **argv)
             ++latestFileCount;
         }
     }
-    if (metadataPath.isEmpty() || firstFileCount != 2
-        || latestFileCount != 2) return 55;
+    if (metadataPath.isEmpty() || firstFileCount != 3
+        || latestFileCount != 3) return 55;
     QFile metadataFile(metadataPath);
     if (!metadataFile.open(QIODevice::ReadOnly | QIODevice::Text)) return 56;
     const QString metadata = QString::fromUtf8(metadataFile.readAll());

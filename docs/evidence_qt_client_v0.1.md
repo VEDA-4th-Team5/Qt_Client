@@ -31,6 +31,8 @@ not the primary navigation.
   current First/Latest cards and refresh state intact.
 - Supports Ctrl/Shift multi-selection in the Capture timeline and downloads
   one deduplicated First/Latest pair per selected `slot_id + session_id`.
+  The timeline itself also renders one row per session pair, with separate
+  First capture and Latest capture columns instead of one row per image.
   Image filenames include a shared export ID plus capture time, OCR, and reason;
   the selected folder also receives a matching `evidence_metadata_*.csv` with
   slot, session, capture, OCR, separately labeled session plate, source, and

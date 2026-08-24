@@ -133,6 +133,66 @@ QString captureCountText(int imageCount)
         .arg(imageCount == 1 ? QString() : QStringLiteral("s"));
 }
 
+QString localTimelinePairKey(const QString &slotId,
+                             const ParkingCaptureGroup &capture)
+{
+    if (capture.sessionId > 0) {
+        return QStringLiteral("%1|session:%2")
+            .arg(slotId)
+            .arg(capture.sessionId);
+    }
+
+    const ParkingImageResource *variant =
+        preferredParkingCaptureVariant(capture);
+    return QStringLiteral("%1|unpaired:%2|%3|%4")
+        .arg(slotId)
+        .arg(capture.imageId)
+        .arg(capture.timestamp.toString(Qt::ISODateWithMs),
+             variant ? variant->url.toString() : QString());
+}
+
+QString capturePairCellText(const ParkingCaptureGroup &capture)
+{
+    const QString captureName = capture.imageId >= 0
+        ? QStringLiteral("#%1").arg(capture.imageId)
+        : QStringLiteral("Capture");
+    return QStringLiteral("%1 · %2")
+        .arg(captureName, captureTimeText(capture.timestamp));
+}
+
+QString pairValueText(const QString &firstValue,
+                      const QString &latestValue,
+                      const QString &fallback = QStringLiteral("-"))
+{
+    const QString first = firstValue.trimmed().isEmpty()
+        ? fallback : firstValue.trimmed();
+    const QString latest = latestValue.trimmed().isEmpty()
+        ? fallback : latestValue.trimmed();
+    return first == latest ? first
+                           : QStringLiteral("%1 → %2").arg(first, latest);
+}
+
+QString pairAvailabilityText(const ParkingCaptureGroup &first,
+                             const ParkingCaptureGroup &latest)
+{
+    const ParkingImageResource *firstVariant =
+        preferredParkingCaptureVariant(first);
+    const ParkingImageResource *latestVariant =
+        preferredParkingCaptureVariant(latest);
+    const bool firstAvailable = firstVariant && !firstVariant->url.isEmpty();
+    const bool latestAvailable = latestVariant && !latestVariant->url.isEmpty();
+    if (firstAvailable && latestAvailable) {
+        return QStringLiteral("FIRST / LATEST");
+    }
+    if (firstAvailable) {
+        return QStringLiteral("FIRST only");
+    }
+    if (latestAvailable) {
+        return QStringLiteral("LATEST only");
+    }
+    return QStringLiteral("Unavailable");
+}
+
 QString safeFileToken(QString value, const QString &fallback)
 {
     value = value.trimmed();
@@ -528,7 +588,7 @@ EvidencePage::EvidencePage(QWidget *parent)
     timelineContentLayout->setSpacing(7);
     auto *downloadLayout = new QHBoxLayout;
     m_downloadSelectionLabel = new QLabel(
-        QStringLiteral("Select one or more timeline rows"), timelineContent);
+        QStringLiteral("Select one or more timeline pairs"), timelineContent);
     m_downloadSelectionLabel->setObjectName(
         QStringLiteral("evidenceDownloadSelectionLabel"));
     m_downloadSelectionLabel->setStyleSheet(QStringLiteral(
@@ -550,17 +610,20 @@ EvidencePage::EvidencePage(QWidget *parent)
     downloadLayout->addWidget(m_downloadButton);
     timelineContentLayout->addLayout(downloadLayout);
 
-    m_captureTable = new QTableWidget(0, 6, timelineContent);
+    m_captureTable = new QTableWidget(0, 7, timelineContent);
     m_captureTable->setObjectName(QStringLiteral("evidenceCaptureTable"));
     m_captureTable->setHorizontalHeaderLabels({
-        QStringLiteral("Capture"), QStringLiteral("Slot"), QStringLiteral("Time"), QStringLiteral("Reason"),
-        QStringLiteral("OCR"), QStringLiteral("Available")});
+        QStringLiteral("Session"), QStringLiteral("Slot"),
+        QStringLiteral("First capture"), QStringLiteral("Latest capture"),
+        QStringLiteral("OCR"), QStringLiteral("Reason"),
+        QStringLiteral("Available")});
     m_captureTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     m_captureTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     m_captureTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_captureTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Stretch);
+    m_captureTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_captureTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
-    m_captureTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+    m_captureTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
+    m_captureTable->horizontalHeader()->setSectionResizeMode(6, QHeaderView::ResizeToContents);
     m_captureTable->verticalHeader()->setVisible(false);
     m_captureTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_captureTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -808,6 +871,7 @@ void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
     m_captures.clear();
     m_localTimelineEntries.clear();
     m_allLocalTimelineEntries.clear();
+    m_localTimelinePairs.clear();
 
     for (auto it = state.slotImages.cbegin(); it != state.slotImages.cend(); ++it) {
         const QString slotId = normalizeParkingSlotId(it.key());
@@ -864,11 +928,70 @@ void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
         m_captures.append(entry.capture);
     }
 
+    QSet<QString> visiblePairKeys;
+    for (const LocalTimelineEntry &entry : m_localTimelineEntries) {
+        visiblePairKeys.insert(localTimelinePairKey(entry.slotId,
+                                                    entry.capture));
+    }
+    QHash<QString, int> pairIndexes;
+    for (int entryIndex = 0;
+         entryIndex < m_allLocalTimelineEntries.size(); ++entryIndex) {
+        const LocalTimelineEntry &entry =
+            m_allLocalTimelineEntries.at(entryIndex);
+        const QString key = localTimelinePairKey(entry.slotId,
+                                                 entry.capture);
+        if (!visiblePairKeys.contains(key)) {
+            continue;
+        }
+        int pairIndex = pairIndexes.value(key, -1);
+        if (pairIndex < 0) {
+            LocalTimelinePair pair;
+            pair.key = key;
+            pair.slotId = entry.slotId;
+            pair.plateNumber = entry.plateNumber;
+            pair.state = entry.state;
+            pair.sessionId = entry.capture.sessionId;
+            pair.firstEntryIndex = entryIndex;
+            pairIndex = m_localTimelinePairs.size();
+            m_localTimelinePairs.append(pair);
+            pairIndexes.insert(key, pairIndex);
+        }
+        LocalTimelinePair &pair = m_localTimelinePairs[pairIndex];
+        pair.latestEntryIndex = entryIndex;
+        ++pair.captureCount;
+    }
+    std::stable_sort(
+        m_localTimelinePairs.begin(), m_localTimelinePairs.end(),
+        [this](const LocalTimelinePair &left,
+               const LocalTimelinePair &right) {
+        const LocalTimelineEntry &leftLatest =
+            m_allLocalTimelineEntries.at(left.latestEntryIndex);
+        const LocalTimelineEntry &rightLatest =
+            m_allLocalTimelineEntries.at(right.latestEntryIndex);
+        if (leftLatest.capture.timestamp.isValid()
+            != rightLatest.capture.timestamp.isValid()) {
+            return !leftLatest.capture.timestamp.isValid();
+        }
+        if (leftLatest.capture.timestamp.isValid()
+            && leftLatest.capture.timestamp
+                != rightLatest.capture.timestamp) {
+            return leftLatest.capture.timestamp
+                < rightLatest.capture.timestamp;
+        }
+        if (left.slotId != right.slotId) {
+            return left.slotId < right.slotId;
+        }
+        return left.sessionId < right.sessionId;
+    });
+
     m_summaryLabel->setText(QStringLiteral("Qt local evidence timeline"));
     m_summaryLabel->setStyleSheet(statePillStyle(SlotState::Acked));
     m_statusLabel->setText(m_captures.isEmpty()
         ? QStringLiteral("No loaded evidence matches the current filters.")
-        : QStringLiteral("%1 cached capture groups ordered by captured time (newest first). Historical sessions are not fetched in v0.1.")
+        : QStringLiteral("%1 session pair%2 from %3 cached capture groups, ordered by latest captured time (newest first). Historical sessions are not fetched in v0.1.")
+              .arg(m_localTimelinePairs.size())
+              .arg(m_localTimelinePairs.size() == 1
+                       ? QString() : QStringLiteral("s"))
               .arg(m_captures.size()));
     updateSummaryMetrics(selectedSlotId.isEmpty()
                              ? QStringLiteral("All slots") : selectedSlotId,
@@ -880,7 +1003,8 @@ void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
                          -1, m_captures.size(),
                          QStringLiteral("qt-local-cache"));
     renderCaptureTable();
-    renderSelectedCapture(m_captures.isEmpty() ? -1 : m_captures.size() - 1);
+    renderSelectedCapture(m_localTimelinePairs.isEmpty()
+                              ? -1 : m_localTimelinePairs.size() - 1);
 }
 
 void EvidencePage::showEvidence(
@@ -942,6 +1066,7 @@ void EvidencePage::showLoading(const QString &slotId)
     ++m_requestGeneration;
     m_requestTargets.clear();
     m_captures.clear();
+    m_localTimelinePairs.clear();
     m_captureTable->setRowCount(0);
     m_summaryLabel->setText(QStringLiteral("Loading parking evidence"));
     m_summaryLabel->setStyleSheet(statePillStyle(SlotState::Vacant));
@@ -1086,64 +1211,56 @@ bool EvidencePage::downloadSelectedPairsTo(const QString &directoryPath)
         m_captureTable->selectionModel()->selectedRows(0);
     if (selectedRows.isEmpty()) {
         m_statusLabel->setText(
-            QStringLiteral("Select one or more timeline rows to download."));
+            QStringLiteral("Select one or more timeline pairs to download."));
         return false;
     }
 
-    QVector<LocalTimelineEntry> selectedSessions;
-    QSet<QString> sessionKeys;
+    QVector<LocalTimelinePair> selectedPairs;
+    QSet<QString> pairKeys;
     for (const QModelIndex &selectedRow : selectedRows) {
         const QTableWidgetItem *item = m_captureTable->item(
             selectedRow.row(), 0);
         if (!item) {
             continue;
         }
-        const int captureIndex = item->data(Qt::UserRole).toInt();
-        if (captureIndex < 0
-            || captureIndex >= m_localTimelineEntries.size()) {
+        const int pairIndex = item->data(Qt::UserRole).toInt();
+        if (pairIndex < 0
+            || pairIndex >= m_localTimelinePairs.size()) {
             continue;
         }
-        const LocalTimelineEntry &entry =
-            m_localTimelineEntries.at(captureIndex);
-        if (entry.capture.sessionId <= 0) {
+        const LocalTimelinePair &pair = m_localTimelinePairs.at(pairIndex);
+        if (pair.sessionId <= 0) {
             m_statusLabel->setText(QStringLiteral(
                 "Every selected row needs a session ID before it can be downloaded."));
             return false;
         }
-        const QString key = QStringLiteral("%1|%2")
-                                .arg(entry.slotId)
-                                .arg(entry.capture.sessionId);
-        if (!sessionKeys.contains(key)) {
-            sessionKeys.insert(key);
-            selectedSessions.append(entry);
+        if (!pairKeys.contains(pair.key)) {
+            pairKeys.insert(pair.key);
+            selectedPairs.append(pair);
         }
     }
-    if (selectedSessions.isEmpty()) {
+    if (selectedPairs.isEmpty()) {
         m_statusLabel->setText(
             QStringLiteral("No downloadable session pair was selected."));
         return false;
     }
 
     QVector<EvidenceDownloadItem> downloads;
-    for (const LocalTimelineEntry &selectedSession : selectedSessions) {
-        const LocalTimelineEntry *firstEntry = nullptr;
-        const LocalTimelineEntry *latestEntry = nullptr;
-        for (const LocalTimelineEntry &candidate : m_allLocalTimelineEntries) {
-            if (candidate.slotId != selectedSession.slotId
-                || candidate.capture.sessionId
-                    != selectedSession.capture.sessionId) {
-                continue;
-            }
-            if (!firstEntry) {
-                firstEntry = &candidate;
-            }
-            latestEntry = &candidate;
-        }
-        if (!firstEntry || !latestEntry) {
+    for (const LocalTimelinePair &selectedPair : selectedPairs) {
+        if (selectedPair.firstEntryIndex < 0
+            || selectedPair.firstEntryIndex
+                >= m_allLocalTimelineEntries.size()
+            || selectedPair.latestEntryIndex < 0
+            || selectedPair.latestEntryIndex
+                >= m_allLocalTimelineEntries.size()) {
             m_statusLabel->setText(
                 QStringLiteral("A selected session pair is no longer available."));
             return false;
         }
+        const LocalTimelineEntry &firstEntry =
+            m_allLocalTimelineEntries.at(selectedPair.firstEntryIndex);
+        const LocalTimelineEntry &latestEntry =
+            m_allLocalTimelineEntries.at(selectedPair.latestEntryIndex);
 
         const auto appendDownload =
             [&downloads](const LocalTimelineEntry &entry,
@@ -1183,8 +1300,8 @@ bool EvidencePage::downloadSelectedPairsTo(const QString &directoryPath)
             downloads.append(item);
             return true;
         };
-        if (!appendDownload(*firstEntry, QStringLiteral("FIRST"))
-            || !appendDownload(*latestEntry, QStringLiteral("LATEST"))) {
+        if (!appendDownload(firstEntry, QStringLiteral("FIRST"))
+            || !appendDownload(latestEntry, QStringLiteral("LATEST"))) {
             m_statusLabel->setText(QStringLiteral(
                 "Each selected session needs downloadable First and Latest image URLs."));
             return false;
@@ -1243,24 +1360,6 @@ void EvidencePage::updateDownloadButtonState()
             ? m_captureTable->selectionModel()->selectedRows(0)
             : QModelIndexList{};
     const int selectedCount = selectedRows.size();
-    QSet<QString> selectedSessionKeys;
-    for (const QModelIndex &selectedRow : selectedRows) {
-        const QTableWidgetItem *item = m_captureTable->item(
-            selectedRow.row(), 0);
-        const int captureIndex = item
-            ? item->data(Qt::UserRole).toInt() : -1;
-        if (captureIndex < 0
-            || captureIndex >= m_localTimelineEntries.size()) {
-            continue;
-        }
-        const LocalTimelineEntry &entry =
-            m_localTimelineEntries.at(captureIndex);
-        if (entry.capture.sessionId > 0) {
-            selectedSessionKeys.insert(QStringLiteral("%1|%2")
-                .arg(entry.slotId)
-                .arg(entry.capture.sessionId));
-        }
-    }
     if (m_downloadButton) {
         m_downloadButton->setEnabled(
             !m_downloadInProgress && selectedCount > 0);
@@ -1271,16 +1370,13 @@ void EvidencePage::updateDownloadButtonState()
                 QStringLiteral("Downloading selected First/Latest pairs..."));
         } else if (selectedCount > 0) {
             m_downloadSelectionLabel->setText(
-                QStringLiteral("%1 row%2 selected · %3 session pair%4")
+                QStringLiteral("%1 pair%2 selected")
                     .arg(selectedCount)
                     .arg(selectedCount == 1
-                             ? QString() : QStringLiteral("s"))
-                    .arg(selectedSessionKeys.size())
-                    .arg(selectedSessionKeys.size() == 1
                              ? QString() : QStringLiteral("s")));
         } else {
             m_downloadSelectionLabel->setText(
-                QStringLiteral("Select one or more timeline rows"));
+                QStringLiteral("Select one or more timeline pairs"));
         }
     }
 }
@@ -1455,119 +1551,94 @@ void EvidencePage::requestEvidenceRefresh(bool showInitialProgress)
 void EvidencePage::renderCaptureTable()
 {
     QSignalBlocker blocker(m_captureTable);
-    m_captureTable->setRowCount(m_captures.size());
-    for (int row = 0; row < m_captures.size(); ++row) {
-        const int captureIndex = m_localTimelineMode
-            ? m_captures.size() - 1 - row : row;
-        const ParkingCaptureGroup &capture = m_captures.at(captureIndex);
-        QStringList variants;
-        for (const ParkingImageResource &variant : capture.variants) {
-            const QString name = variant.processing.isEmpty()
-                ? QStringLiteral("Image") : variant.processing;
-            if (!variants.contains(name, Qt::CaseInsensitive)) {
-                variants.append(name);
-            }
+    m_captureTable->setRowCount(m_localTimelinePairs.size());
+    for (int row = 0; row < m_localTimelinePairs.size(); ++row) {
+        const int pairIndex = m_localTimelinePairs.size() - 1 - row;
+        const LocalTimelinePair &pair = m_localTimelinePairs.at(pairIndex);
+        if (pair.firstEntryIndex < 0
+            || pair.firstEntryIndex >= m_allLocalTimelineEntries.size()
+            || pair.latestEntryIndex < 0
+            || pair.latestEntryIndex >= m_allLocalTimelineEntries.size()) {
+            continue;
         }
-        const QString captureName = capture.imageId >= 0
-            ? QStringLiteral("#%1").arg(capture.imageId)
-            : QStringLiteral("#%1").arg(captureIndex + 1);
-        const QString slotId = m_localTimelineMode
-            ? m_localTimelineEntries.at(captureIndex).slotId
-            : m_currentSlotId;
+        const ParkingCaptureGroup &first =
+            m_allLocalTimelineEntries.at(pair.firstEntryIndex).capture;
+        const ParkingCaptureGroup &latest =
+            m_allLocalTimelineEntries.at(pair.latestEntryIndex).capture;
         const QStringList values = {
-            captureName,
-            slotId.isEmpty() ? QStringLiteral("-") : slotId,
-            captureTimeText(capture.timestamp),
-            captureReasonText(capture.reason),
-            capture.ocrResult.isEmpty() ? QStringLiteral("-") : capture.ocrResult,
-            variants.join(QStringLiteral(" / "))};
+            pair.sessionId > 0
+                ? QStringLiteral("Session %1").arg(pair.sessionId)
+                : QStringLiteral("Unavailable"),
+            pair.slotId.isEmpty() ? QStringLiteral("-") : pair.slotId,
+            capturePairCellText(first),
+            capturePairCellText(latest),
+            pairValueText(first.ocrResult, latest.ocrResult),
+            pairValueText(captureReasonText(first.reason),
+                          captureReasonText(latest.reason)),
+            pairAvailabilityText(first, latest)};
         for (int column = 0; column < values.size(); ++column) {
             auto *item = new QTableWidgetItem(values.at(column));
             if (column == 0) {
-                item->setData(Qt::UserRole, captureIndex);
+                item->setData(Qt::UserRole, pairIndex);
             }
             m_captureTable->setItem(row, column, item);
         }
     }
-    if (!m_captures.isEmpty()) {
-        m_captureTable->setCurrentCell(m_localTimelineMode ? 0 : m_captures.size() - 1, 0);
+    if (!m_localTimelinePairs.isEmpty()) {
+        m_captureTable->setCurrentCell(0, 0);
     }
     updateDownloadButtonState();
 }
 
-void EvidencePage::renderSelectedCapture(int row)
+void EvidencePage::renderSelectedCapture(int pairIndex)
 {
-    if (row < 0 || row >= m_captures.size()) {
+    if (pairIndex < 0 || pairIndex >= m_localTimelinePairs.size()) {
         clearCaptureCard(m_firstImageLabel, m_firstTitleLabel,
                          m_firstMetadataLabel, m_firstOpenButton,
                          QStringLiteral("First capture"),
-                         QStringLiteral("Select a capture from the timeline"));
+                         QStringLiteral("Select a pair from the timeline"));
         clearCaptureCard(m_selectedImageLabel, m_selectedTitleLabel,
                          m_selectedMetadataLabel, m_selectedOpenButton,
                          QStringLiteral("Latest capture"),
-                         m_captures.isEmpty()
-                             ? QStringLiteral("No later capture available")
-                             : QStringLiteral("Select a capture from the timeline"));
+                         m_localTimelinePairs.isEmpty()
+                              ? QStringLiteral("No capture pair available")
+                              : QStringLiteral("Select a pair from the timeline"));
         return;
     }
 
-    const ParkingCaptureGroup *firstCapture = &m_captures.first();
-    const ParkingCaptureGroup *latestCapture = &m_captures.last();
-    QString pairSlotId = m_currentSlotId;
-    QString pairPlateNumber = m_plateNumber;
-    SlotState pairState = SlotState::Vacant;
-    qint64 pairSessionId = m_currentSessionId;
-    int pairCaptureCount = m_captures.size();
-    if (m_localTimelineMode) {
-        const LocalTimelineEntry &selectedEntry = m_localTimelineEntries.at(row);
-        pairSlotId = selectedEntry.slotId;
-        pairPlateNumber = selectedEntry.plateNumber;
-        pairState = selectedEntry.state;
-        pairSessionId = selectedEntry.capture.sessionId;
-        if (pairSessionId <= 0) {
-            updateSummaryMetrics(pairSlotId, pairState, pairPlateNumber,
-                                 -1, 0, QString());
-            if (m_sessionMetricLabel) {
-                m_sessionMetricLabel->setText(QStringLiteral("Session unavailable"));
-            }
-            clearCaptureCard(m_firstImageLabel, m_firstTitleLabel,
-                             m_firstMetadataLabel, m_firstOpenButton,
-                             QStringLiteral("First capture"),
-                             QStringLiteral("Session ID is required to form a capture pair"));
-            clearCaptureCard(m_selectedImageLabel, m_selectedTitleLabel,
-                             m_selectedMetadataLabel, m_selectedOpenButton,
-                             QStringLiteral("Latest capture"),
-                             QStringLiteral("Session ID is required to form a capture pair"));
-            return;
+    const LocalTimelinePair &pair = m_localTimelinePairs.at(pairIndex);
+    if (pair.firstEntryIndex < 0
+        || pair.firstEntryIndex >= m_allLocalTimelineEntries.size()
+        || pair.latestEntryIndex < 0
+        || pair.latestEntryIndex >= m_allLocalTimelineEntries.size()) {
+        return;
+    }
+    if (pair.sessionId <= 0) {
+        updateSummaryMetrics(pair.slotId, pair.state, pair.plateNumber,
+                             -1, 0, QString());
+        if (m_sessionMetricLabel) {
+            m_sessionMetricLabel->setText(QStringLiteral("Session unavailable"));
         }
-
-        int firstIndex = -1;
-        int latestIndex = -1;
-        pairCaptureCount = 0;
-        for (int index = 0; index < m_allLocalTimelineEntries.size(); ++index) {
-            const LocalTimelineEntry &candidate = m_allLocalTimelineEntries.at(index);
-            if (candidate.slotId != pairSlotId
-                || candidate.capture.sessionId != pairSessionId) {
-                continue;
-            }
-            if (firstIndex < 0) {
-                firstIndex = index;
-            }
-            latestIndex = index;
-            ++pairCaptureCount;
-        }
-        if (firstIndex < 0 || latestIndex < 0) {
-            return;
-        }
-        firstCapture = &m_allLocalTimelineEntries.at(firstIndex).capture;
-        latestCapture = &m_allLocalTimelineEntries.at(latestIndex).capture;
+        clearCaptureCard(m_firstImageLabel, m_firstTitleLabel,
+                         m_firstMetadataLabel, m_firstOpenButton,
+                         QStringLiteral("First capture"),
+                         QStringLiteral("Session ID is required to form a capture pair"));
+        clearCaptureCard(m_selectedImageLabel, m_selectedTitleLabel,
+                         m_selectedMetadataLabel, m_selectedOpenButton,
+                         QStringLiteral("Latest capture"),
+                         QStringLiteral("Session ID is required to form a capture pair"));
+        return;
     }
 
+    const ParkingCaptureGroup *firstCapture =
+        &m_allLocalTimelineEntries.at(pair.firstEntryIndex).capture;
+    const ParkingCaptureGroup *latestCapture =
+        &m_allLocalTimelineEntries.at(pair.latestEntryIndex).capture;
     const QString originalPlate = m_plateNumber;
-    m_plateNumber = pairPlateNumber;
-    const QString pairSuffix = pairSessionId > 0
-        ? QStringLiteral(" · %1 · Session %2").arg(pairSlotId).arg(pairSessionId)
-        : QString();
+    m_plateNumber = pair.plateNumber;
+    const QString pairSuffix = QStringLiteral(" · %1 · Session %2")
+        .arg(pair.slotId)
+        .arg(pair.sessionId);
     renderCaptureCard(firstCapture,
                       QStringLiteral("First capture%1").arg(pairSuffix),
                       m_firstImageLabel,
@@ -1579,8 +1650,8 @@ void EvidencePage::renderSelectedCapture(int row)
                       m_selectedTitleLabel, m_selectedMetadataLabel,
                       m_selectedOpenButton, QStringLiteral("selected"));
     m_plateNumber = originalPlate;
-    updateSummaryMetrics(pairSlotId, pairState, pairPlateNumber,
-                         pairSessionId, pairCaptureCount, QString());
+    updateSummaryMetrics(pair.slotId, pair.state, pair.plateNumber,
+                         pair.sessionId, pair.captureCount, QString());
 }
 
 SlotState EvidencePage::stateForSlot(const ParkingViewState &state,
@@ -1612,6 +1683,7 @@ void EvidencePage::resetLocalTimeline()
     m_localTimelineMode = true;
     m_localTimelineEntries.clear();
     m_allLocalTimelineEntries.clear();
+    m_localTimelinePairs.clear();
 }
 
 void EvidencePage::updateSlotCaptureCount(const QString &slotId, int captureCount)
