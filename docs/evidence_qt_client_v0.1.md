@@ -28,7 +28,9 @@ not the primary navigation.
 - Uses the authoritative event session ID when an event image item omits it;
   without any session ID, the UI refuses to guess a First/Latest pair.
 - Lets the operator collapse and expand the Capture timeline while keeping the
-  current First/Latest cards and refresh state intact.
+  current First/Latest cards and refresh state intact. Collapsing the timeline
+  gives the released vertical space to both images instead of stretching an
+  empty capture-card area below a fixed-height image.
 - Supports Ctrl/Shift multi-selection in the Capture timeline and downloads
   one deduplicated First/Latest pair per selected `slot_id + session_id`.
   The timeline itself also renders one row per session pair, with separate

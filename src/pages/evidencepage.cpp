@@ -48,8 +48,7 @@ public:
     {
         setAlignment(Qt::AlignCenter);
         setMinimumSize(440, 280);
-        setFixedHeight(320);
-        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
         setText(QStringLiteral("Select a parking slot to load evidence"));
         setStyleSheet(QStringLiteral(
             "QLabel { background:#111820; color:#b0bec5; border:1px solid #455a64; "
@@ -513,7 +512,7 @@ EvidencePage::EvidencePage(QWidget *parent)
         auto *group = new QGroupBox(title, this);
         group->setMinimumWidth(0);
         group->setMaximumWidth(700);
-        group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         group->setStyleSheet(QStringLiteral(
             "QGroupBox { background:white; border:1px solid #c7cdd4; border-radius:6px; "
             "margin-top:12px; font-weight:800; color:#263238; }"
@@ -539,7 +538,7 @@ EvidencePage::EvidencePage(QWidget *parent)
             "QPushButton:hover:enabled { background:#e3f2fd; border-color:#1976d2; }"
             "QPushButton:disabled { color:#90a4ae; background:#eceff1; }"));
         openButton->setFixedHeight(34);
-        layout->addWidget(imageLabel);
+        layout->addWidget(imageLabel, 1);
         layout->addWidget(metadataLabel);
         auto *buttonLayout = new QHBoxLayout;
         buttonLayout->addStretch();
@@ -566,13 +565,15 @@ EvidencePage::EvidencePage(QWidget *parent)
     comparisonLayout->addWidget(firstGroup, 1);
     comparisonLayout->addWidget(selectedGroup, 1);
     comparisonLayout->addStretch(1);
-    contentLayout->addLayout(comparisonLayout);
+    contentLayout->addLayout(comparisonLayout, 1);
 
     auto *timelineGroup = new QGroupBox(
         QStringLiteral("Capture timeline  ▼"), content);
     timelineGroup->setObjectName(QStringLiteral("evidenceTimelineGroup"));
     timelineGroup->setCheckable(true);
     timelineGroup->setChecked(true);
+    timelineGroup->setSizePolicy(QSizePolicy::Expanding,
+                                 QSizePolicy::Maximum);
     timelineGroup->setToolTip(
         QStringLiteral("Click the title to collapse or expand the capture timeline"));
     timelineGroup->setStyleSheet(QStringLiteral(
@@ -638,7 +639,7 @@ EvidencePage::EvidencePage(QWidget *parent)
         "QHeaderView::section { background:#eceff1; color:#263238; border:none; "
         "border-right:1px solid #cfd8dc; padding:6px; font-weight:800; }"));
     timelineContentLayout->addWidget(m_captureTable);
-    timelineLayout->addWidget(timelineContent);
+    timelineLayout->addWidget(timelineContent, 1);
     contentLayout->addWidget(timelineGroup);
     connect(timelineGroup, &QGroupBox::toggled, this,
             [timelineGroup, timelineContent](bool expanded) {

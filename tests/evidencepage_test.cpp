@@ -63,6 +63,10 @@ int main(int argc, char **argv)
         QStringLiteral("evidenceStatusLabel"));
     if (!autoRefreshTimer || autoRefreshTimer->interval() != 5000
         || autoRefreshTimer->isSingleShot() || !statusLabel) return 39;
+    page.resize(1700, 1000);
+    page.show();
+    QApplication::processEvents();
+    autoRefreshTimer->stop();
 
     QStringList requestedSlots;
     QObject::connect(&page, &EvidencePage::slotEvidenceRequested,
@@ -161,18 +165,30 @@ int main(int argc, char **argv)
         QStringLiteral("evidenceTimelineGroup"));
     QWidget *timelineContent = page.findChild<QWidget *>(
         QStringLiteral("evidenceTimelineContent"));
+    QLabel *resizableFirstImage = page.findChild<QLabel *>(
+        QStringLiteral("evidenceFirstImage"));
     if (!timelineGroup || !timelineGroup->isCheckable()
         || !timelineGroup->isChecked() || !timelineContent
-        || timelineContent->isHidden()) return 45;
+        || timelineContent->isHidden() || !resizableFirstImage
+        || resizableFirstImage->sizePolicy().verticalPolicy()
+            != QSizePolicy::Expanding
+        || resizableFirstImage->minimumHeight() != 280
+        || resizableFirstImage->maximumHeight() != QWIDGETSIZE_MAX) return 45;
+    const int expandedTimelineImageHeight = resizableFirstImage->height();
     timelineGroup->setChecked(false);
     QApplication::processEvents();
     if (!timelineContent->isHidden() || timelineGroup->maximumHeight() != 38
-        || !timelineGroup->title().contains(QStringLiteral("▶"))) return 46;
+        || !timelineGroup->title().contains(QStringLiteral("▶"))
+        || resizableFirstImage->height()
+            <= expandedTimelineImageHeight) return 46;
+    const int collapsedTimelineImageHeight = resizableFirstImage->height();
     timelineGroup->setChecked(true);
     QApplication::processEvents();
     if (timelineContent->isHidden()
         || timelineGroup->maximumHeight() != QWIDGETSIZE_MAX
-        || !timelineGroup->title().contains(QStringLiteral("▼"))) return 47;
+        || !timelineGroup->title().contains(QStringLiteral("▼"))
+        || resizableFirstImage->height()
+            >= collapsedTimelineImageHeight) return 47;
     QLabel *summary = page.findChild<QLabel *>(QStringLiteral("evidenceSummaryLabel"));
     if (!summary || !summary->text().contains(QStringLiteral("local evidence timeline"))) return 6;
     QLabel *plateMetric = page.findChild<QLabel *>(QStringLiteral("evidencePlateMetric"));
@@ -197,10 +213,10 @@ int main(int argc, char **argv)
             QStringLiteral("2026-07-27 09:00:00"))
         || !selectedMetadata || !selectedMetadata->text().contains(
             QStringLiteral("2026-07-27 10:00:01"))) return 42;
-    if (!firstImage || !selectedImage || firstImage->minimumHeight() != 320
-        || selectedImage->minimumHeight() != 320
-        || firstImage->maximumHeight() != 320
-        || selectedImage->maximumHeight() != 320) return 35;
+    if (!firstImage || !selectedImage || firstImage->minimumHeight() != 280
+        || selectedImage->minimumHeight() != 280
+        || firstImage->maximumHeight() != QWIDGETSIZE_MAX
+        || selectedImage->maximumHeight() != QWIDGETSIZE_MAX) return 35;
     QTimer::singleShot(3000, &imageLoadLoop, &QEventLoop::quit);
     imageLoadLoop.exec();
     if (loadedImageCount != 2) return 11;
