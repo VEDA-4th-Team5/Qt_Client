@@ -508,6 +508,19 @@ void EvidencePage::setImageLoader(ImageLoader *imageLoader)
 void EvidencePage::render(const ParkingViewState &state)
 {
     const bool evidenceChanged = mergeEvidenceCache(state);
+    m_currentSnapshotSlotIds.clear();
+    for (auto it = state.evSlots.cbegin(); it != state.evSlots.cend(); ++it) {
+        const QString slotId = normalizeParkingSlotId(it.key());
+        if (!slotId.isEmpty()) {
+            m_currentSnapshotSlotIds.insert(slotId);
+        }
+    }
+    for (auto it = state.parkingSlots.cbegin(); it != state.parkingSlots.cend(); ++it) {
+        const QString slotId = normalizeParkingSlotId(it.key());
+        if (!slotId.isEmpty()) {
+            m_currentSnapshotSlotIds.insert(slotId);
+        }
+    }
     m_latestState = m_evidenceCacheState;
     rebuildTimelineFilters(m_latestState);
     // State updates arrive for slot and alarm changes too. Rebuilding the
@@ -858,6 +871,29 @@ void EvidencePage::requestCurrentEvidence()
         return;
     }
     showLocalEvidenceSnapshot(m_latestState);
+
+    const QString selectedSlotId = m_slotFilter
+        ? m_slotFilter->currentData().toString() : QString();
+    QSet<QString> requestedSlotIds;
+    if (!selectedSlotId.isEmpty()) {
+        requestedSlotIds.insert(selectedSlotId);
+    } else {
+        requestedSlotIds = m_currentSnapshotSlotIds;
+    }
+    if (requestedSlotIds.isEmpty()) {
+        return;
+    }
+
+    // The status endpoint is allowed to omit image resources. Populate this
+    // timeline from the existing per-slot detail/current-session flow instead
+    // of depending on Image Compare to have requested those images first.
+    m_statusLabel->setText(
+        QStringLiteral("Loading current-session evidence for %1 slot%2...")
+            .arg(requestedSlotIds.size())
+            .arg(requestedSlotIds.size() == 1 ? QString() : QStringLiteral("s")));
+    for (const QString &slotId : requestedSlotIds) {
+        emit slotEvidenceRequested(slotId);
+    }
 }
 
 void EvidencePage::renderCaptureTable()

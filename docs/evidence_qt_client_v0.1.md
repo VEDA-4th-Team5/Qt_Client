@@ -16,12 +16,15 @@ not the primary navigation.
 - Displays the selected image using the existing image loader.
 - Keeps already loaded images visible when a subsequent parking-status poll
   omits its `images` field.
+- On entering or refreshing the All slots view, requests each currently known
+  slot's existing detail/current-session image flow. Selecting one slot asks
+  for that slot only.
 
 ## Deliberate boundary
 
-It does **not** obtain unrequested slots or historical sessions. The local
-cache is cleared when the app restarts and is not a server-side evidence store.
-An empty timeline can therefore mean either “there is no evidence” or “this
-client has not loaded evidence for that slot yet.” v0.2 addresses the first gap
-by asking for each currently known slot's current session, but neither version
-can obtain all historical sessions without a server-side history query.
+It does **not** obtain historical sessions or use a new history endpoint. The
+local cache is cleared when the app restarts and is not a server-side evidence
+store. This v0.1 flow makes one current-session request per currently known
+slot, so it can still show no result when those sessions have no evidence.
+Neither version can obtain all historical sessions without a server-side history
+query.

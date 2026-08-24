@@ -11,6 +11,7 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QStringList>
 #include <QTableWidget>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -38,23 +39,24 @@ int main(int argc, char **argv)
     if (!slotFilter || slotFilter->count() != 3) return 1;
     if (!page.currentSlotId().isEmpty()) return 2;
 
-    int requestCount = 0;
-    QString requestedSlot;
+    QStringList requestedSlots;
     QObject::connect(&page, &EvidencePage::slotEvidenceRequested,
                      [&](const QString &slotId) {
-        ++requestCount;
-        requestedSlot = slotId;
+        requestedSlots.append(slotId);
     });
     page.requestCurrentEvidence();
-    if (requestCount != 0 || !requestedSlot.isEmpty()) return 3;
+    if (requestedSlots.size() != 2
+        || !requestedSlots.contains(QStringLiteral("EV-02"))
+        || !requestedSlots.contains(QStringLiteral("P-01"))) return 3;
     if (!page.selectSlot(QStringLiteral("P01"))
         || page.currentSlotId() != QStringLiteral("P-01")
-        || requestCount != 0) return 13;
+        || requestedSlots.size() != 2) return 13;
     if (!page.selectSlot(QStringLiteral("EV02"))
         || page.currentSlotId() != QStringLiteral("EV-02")
-        || requestCount != 0) return 14;
-    if (!page.selectSlot(QStringLiteral("EV-02"))
-        || requestCount != 0) return 15;
+        || requestedSlots.size() != 2) return 14;
+    page.requestCurrentEvidence();
+    if (requestedSlots.size() != 3
+        || requestedSlots.last() != QStringLiteral("EV-02")) return 15;
 
     QImage sampleImage(8, 8, QImage::Format_RGB32);
     sampleImage.fill(QColor(QStringLiteral("#1976d2")));

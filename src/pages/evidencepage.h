@@ -9,6 +9,7 @@
 #include <QHash>
 #include <QPixmap>
 #include <QPointer>
+#include <QSet>
 #include <QVector>
 #include <QWidget>
 
@@ -127,6 +128,7 @@ private:
     // parking status snapshot is allowed to omit images without erasing the
     // locally available Evidence timeline.
     ParkingViewState m_evidenceCacheState;
+    QSet<QString> m_currentSnapshotSlotIds;
     bool m_localTimelineMode = true;
     bool m_localTimelineInitialized = false;
     QHash<QString, int> m_slotCaptureCounts;
