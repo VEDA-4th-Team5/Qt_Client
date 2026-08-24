@@ -112,12 +112,14 @@ int main(int argc, char **argv)
 
     ParkingImageResource firstOriginal;
     firstOriginal.imageId = 10;
+    firstOriginal.sessionId = 7;
     firstOriginal.processing = QStringLiteral("ORIGINAL");
     firstOriginal.url = QUrl(imageBaseUrl + QStringLiteral("10/original"));
     firstOriginal.timestamp = QDateTime::fromString(
         QStringLiteral("2026-07-27T09:00:00+09:00"), Qt::ISODate);
     ParkingImageResource latestOriginal;
     latestOriginal.imageId = 20;
+    latestOriginal.sessionId = 7;
     latestOriginal.processing = QStringLiteral("ORIGINAL");
     latestOriginal.url = QUrl(imageBaseUrl + QStringLiteral("20/original"));
     latestOriginal.timestamp = QDateTime::fromString(
@@ -147,15 +149,24 @@ int main(int argc, char **argv)
     QLabel *sessionMetric = page.findChild<QLabel *>(QStringLiteral("evidenceSessionMetric"));
     QLabel *captureMetric = page.findChild<QLabel *>(QStringLiteral("evidenceCaptureMetric"));
     if (!plateMetric || !plateMetric->text().contains(QStringLiteral("34B7788"))) return 27;
-    if (!sessionMetric || sessionMetric->text() != QStringLiteral("Qt cache")) return 36;
+    if (!sessionMetric || sessionMetric->text() != QStringLiteral("Session 7")) return 36;
     if (!captureMetric || !captureMetric->text().contains(QStringLiteral("2 image groups"))) return 28;
     QLabel *firstTitle = page.findChild<QLabel *>(QStringLiteral("evidenceFirstTitle"));
     QLabel *selectedTitle = page.findChild<QLabel *>(QStringLiteral("evidenceSelectedTitle"));
     QLabel *firstImage = page.findChild<QLabel *>(QStringLiteral("evidenceFirstImage"));
     QLabel *selectedImage = page.findChild<QLabel *>(QStringLiteral("evidenceSelectedImage"));
-    if (!firstTitle || !firstTitle->text().startsWith(
-            QStringLiteral("Earliest loaded capture"))) return 7;
-    if (!selectedTitle || selectedTitle->text() != QStringLiteral("Selected loaded capture")) return 8;
+    QLabel *firstMetadata = page.findChild<QLabel *>(
+        QStringLiteral("evidenceFirstMetadata"));
+    QLabel *selectedMetadata = page.findChild<QLabel *>(
+        QStringLiteral("evidenceSelectedMetadata"));
+    if (!firstTitle || firstTitle->text()
+            != QStringLiteral("First capture · EV-02 · Session 7")) return 7;
+    if (!selectedTitle || selectedTitle->text()
+            != QStringLiteral("Latest capture · EV-02 · Session 7")) return 8;
+    if (!firstMetadata || !firstMetadata->text().contains(
+            QStringLiteral("2026-07-27 09:00:00"))
+        || !selectedMetadata || !selectedMetadata->text().contains(
+            QStringLiteral("2026-07-27 10:00:01"))) return 42;
     if (!firstImage || !selectedImage || firstImage->minimumHeight() != 320
         || selectedImage->minimumHeight() != 320
         || firstImage->maximumHeight() != 320
@@ -174,41 +185,56 @@ int main(int argc, char **argv)
     QEventLoop selectionLoadLoop;
     QObject::connect(&imageLoader, &ImageLoader::imageLoaded,
                      &selectionLoadLoop, [&](const QString &, const QPixmap &) {
-        if (loadedImageCount > imageLoadCountBeforeSelection) {
+        if (loadedImageCount >= imageLoadCountBeforeSelection + 2) {
             selectionLoadLoop.quit();
         }
     });
     table->setCurrentCell(1, 0);
     QTimer::singleShot(3000, &selectionLoadLoop, &QEventLoop::quit);
     selectionLoadLoop.exec();
-    if (loadedImageCount != imageLoadCountBeforeSelection + 1
+    if (loadedImageCount != imageLoadCountBeforeSelection + 2
         || selectedImage->pixmap().isNull()) return 38;
 
+    ParkingImageResource previousSessionOriginal = firstOriginal;
+    previousSessionOriginal.imageId = 5;
+    previousSessionOriginal.sessionId = 6;
+    previousSessionOriginal.timestamp = QDateTime::fromString(
+        QStringLiteral("2026-07-27T08:00:00+09:00"), Qt::ISODate);
+    previousSessionOriginal.url = QUrl(
+        imageBaseUrl + QStringLiteral("5/original"));
     ParkingImageResource newestOriginal = latestOriginal;
     newestOriginal.imageId = 30;
     newestOriginal.timestamp = QDateTime::fromString(
         QStringLiteral("2026-07-27T10:05:01+09:00"), Qt::ISODate);
     newestOriginal.url = QUrl(imageBaseUrl + QStringLiteral("30/original"));
     state.slotImages.insert(QStringLiteral("EV-02"),
-                            {firstOriginal, latestOriginal, newestOriginal});
+                            {previousSessionOriginal, firstOriginal,
+                             latestOriginal, newestOriginal});
     page.render(state);
-    if (page.captureCount() != 3) return 26;
+    if (page.captureCount() != 4
+        || sessionMetric->text() != QStringLiteral("Session 7")
+        || !firstMetadata->text().contains(QStringLiteral("2026-07-27 09:00:00"))
+        || !selectedMetadata->text().contains(QStringLiteral("2026-07-27 10:05:01"))) return 26;
 
     ParkingViewState imageOmittingSnapshot = state;
     imageOmittingSnapshot.slotImages.clear();
     page.render(imageOmittingSnapshot);
-    if (page.captureCount() != 3) return 37;
+    if (page.captureCount() != 4) return 37;
 
     ParkingImageResource generalCapture = firstOriginal;
     generalCapture.imageId = 40;
+    generalCapture.sessionId = 8;
     generalCapture.timestamp = QDateTime::fromString(
         QStringLiteral("2026-07-27T10:07:01+09:00"), Qt::ISODate);
     state.slotImages.insert(QStringLiteral("P-01"), {generalCapture});
     slotFilter->setCurrentIndex(0);
     page.showLocalEvidenceSnapshot(state);
-    if (page.captureCount() != 4) return 29;
+    if (page.captureCount() != 5
+        || sessionMetric->text() != QStringLiteral("Session 8")
+        || !firstMetadata->text().contains(QStringLiteral("2026-07-27 10:07:01"))
+        || !selectedMetadata->text().contains(QStringLiteral("2026-07-27 10:07:01"))) return 29;
     if (!table || table->columnCount() != 6
-        || table->rowCount() != 4
+        || table->rowCount() != 5
         || !table->item(0, 1)
         || table->item(0, 1)->text() != QStringLiteral("P-01")) return 30;
     QLineEdit *plateFilter = page.findChild<QLineEdit *>(
@@ -217,12 +243,14 @@ int main(int argc, char **argv)
         QStringLiteral("evidenceReasonFilter"));
     if (!plateFilter || !reasonFilter) return 31;
     plateFilter->setText(QStringLiteral("34B7788"));
-    if (page.captureCount() != 3) return 32;
+    if (page.captureCount() != 4) return 32;
     reasonFilter->setText(QStringLiteral("overstay"));
-    if (page.captureCount() != 1) return 33;
+    if (page.captureCount() != 2
+        || !firstMetadata->text().contains(QStringLiteral("2026-07-27 09:00:00"))
+        || !selectedMetadata->text().contains(QStringLiteral("2026-07-27 10:05:01"))) return 33;
     plateFilter->clear();
     reasonFilter->clear();
-    if (page.captureCount() != 4) return 34;
+    if (page.captureCount() != 5) return 34;
 
     int eventRequestCount = 0;
     QString requestedEventId;
@@ -238,12 +266,23 @@ int main(int argc, char **argv)
     page.requestCurrentEvidence();
     if (eventRequestCount != 1
         || requestedEventId != QStringLiteral("session-8-overstay")) return 24;
+    ParkingImageResource eventFirstOriginal = firstOriginal;
+    eventFirstOriginal.sessionId = -1;
+    ParkingImageResource eventLatestOriginal = latestOriginal;
+    eventLatestOriginal.sessionId = -1;
+    ParkingImageResource eventLatestEnhanced = latestEnhanced;
+    eventLatestEnhanced.sessionId = -1;
     page.showEventEvidence(
         QStringLiteral("session-8-overstay"), QStringLiteral("EV-02"), 8,
         SlotState::OvertimeAlert, QStringLiteral("34B7788"),
-        {firstOriginal, latestOriginal, latestEnhanced});
+        {eventFirstOriginal, eventLatestOriginal, eventLatestEnhanced});
     if (page.captureCount() != 2
         || !summary->text().contains(QStringLiteral("local evidence timeline"))
+        || sessionMetric->text() != QStringLiteral("Session 8")
+        || firstTitle->text()
+            != QStringLiteral("First capture · EV-02 · Session 8")
+        || selectedTitle->text()
+            != QStringLiteral("Latest capture · EV-02 · Session 8")
         || !captureMetric->text().contains(QStringLiteral("2 image groups"))) return 25;
 
     EventsPage eventsPage;

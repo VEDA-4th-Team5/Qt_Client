@@ -21,6 +21,11 @@ not the primary navigation.
   for that slot only.
 - Repeats that request every five seconds while the Evidence page is visible;
   the timer stops when the operator leaves the page.
+- Resolves the First and Latest cards only within the selected timeline row's
+  exact `slot_id + session_id`; rows from another slot or session are never
+  combined into one pair.
+- Uses the authoritative event session ID when an event image item omits it;
+  without any session ID, the UI refuses to guess a First/Latest pair.
 
 ## Deliberate boundary
 

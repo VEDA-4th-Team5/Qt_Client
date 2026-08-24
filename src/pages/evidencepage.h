@@ -68,7 +68,6 @@ private:
     bool mergeEvidenceCache(const ParkingViewState &state);
     void rebuildTimelineFilters(const ParkingViewState &state);
     void renderCaptureTable();
-    void renderFirstCapture();
     void renderSelectedCapture(int row);
     void updateSlotCaptureCount(const QString &slotId, int captureCount);
     void updateSummaryMetrics(const QString &slotId,
@@ -130,6 +129,7 @@ private:
     QString m_plateNumber;
     QVector<ParkingCaptureGroup> m_captures;
     QVector<LocalTimelineEntry> m_localTimelineEntries;
+    QVector<LocalTimelineEntry> m_allLocalTimelineEntries;
     ParkingViewState m_latestState;
     // Retains non-empty image lists observed during this application run. The
     // parking status snapshot is allowed to omit images without erasing the
