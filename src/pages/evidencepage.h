@@ -60,6 +60,13 @@ private:
     void renderCaptureTable();
     void renderFirstCapture();
     void renderSelectedCapture(int row);
+    void updateSlotCaptureCount(const QString &slotId, int captureCount);
+    void updateSummaryMetrics(const QString &slotId,
+                              SlotState state,
+                              const QString &plateNumber,
+                              qint64 sessionId,
+                              int captureCount,
+                              const QString &eventId);
     void renderCaptureCard(const ParkingCaptureGroup *capture,
                            const QString &heading,
                            EvidenceImageLabel *imageLabel,
@@ -80,6 +87,10 @@ private:
     QLineEdit *m_slotSearch = nullptr;
     QLabel *m_summaryLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
+    QLabel *m_slotMetricLabel = nullptr;
+    QLabel *m_plateMetricLabel = nullptr;
+    QLabel *m_sessionMetricLabel = nullptr;
+    QLabel *m_captureMetricLabel = nullptr;
     EvidenceImageLabel *m_firstImageLabel = nullptr;
     EvidenceImageLabel *m_selectedImageLabel = nullptr;
     QLabel *m_firstTitleLabel = nullptr;
@@ -94,6 +105,7 @@ private:
     qint64 m_currentSessionId = -1;
     QString m_plateNumber;
     QVector<ParkingCaptureGroup> m_captures;
+    QHash<QString, int> m_slotCaptureCounts;
     QHash<QString, EvidenceImageLabel *> m_requestTargets;
     quint64 m_requestGeneration = 0;
     quint64 m_requestSequence = 0;
