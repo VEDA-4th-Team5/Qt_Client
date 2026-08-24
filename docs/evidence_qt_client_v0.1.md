@@ -29,6 +29,12 @@ not the primary navigation.
   without any session ID, the UI refuses to guess a First/Latest pair.
 - Lets the operator collapse and expand the Capture timeline while keeping the
   current First/Latest cards and refresh state intact.
+- Supports Ctrl/Shift multi-selection in the Capture timeline and downloads
+  one deduplicated First/Latest pair per selected `slot_id + session_id`.
+  Image filenames include a shared export ID plus capture time, OCR, and reason;
+  the selected folder also receives a matching `evidence_metadata_*.csv` with
+  slot, session, capture, OCR, separately labeled session plate, source, and
+  result details. Missing per-image OCR is exported as `unconfirmed`.
 
 ## Deliberate boundary
 

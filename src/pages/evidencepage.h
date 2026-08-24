@@ -5,11 +5,13 @@
 #include "models/parkingcapturegroup.h"
 #include "models/parkingstate.h"
 
+#include <QByteArray>
 #include <QList>
 #include <QHash>
 #include <QPixmap>
 #include <QPointer>
 #include <QSet>
+#include <QStringList>
 #include <QVector>
 #include <QWidget>
 
@@ -52,6 +54,7 @@ public:
     QString currentSlotId() const;
     QString currentEventId() const;
     int captureCount() const;
+    bool downloadSelectedPairsTo(const QString &directoryPath);
 
 public slots:
     void requestCurrentEvidence();
@@ -59,6 +62,9 @@ public slots:
 signals:
     void slotEvidenceRequested(const QString &slotId);
     void eventEvidenceRequested(const QString &eventId);
+    void evidenceDownloadFinished(bool success,
+                                  const QString &message,
+                                  const QStringList &files);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -91,12 +97,34 @@ private:
                           const QString &title,
                           const QString &message);
     void showFullImage(EvidenceImageLabel *source, const QString &title);
+    void chooseEvidenceDownloadDirectory();
+    void updateDownloadButtonState();
+    void handleDownloadedImage(const QString &requestId,
+                               const QByteArray &data,
+                               const QString &contentType);
+    void handleDownloadFailure(const QString &requestId,
+                               const QString &message);
+    void finishEvidenceDownload();
 
     struct LocalTimelineEntry {
         QString slotId;
         QString plateNumber;
         SlotState state = SlotState::Vacant;
         ParkingCaptureGroup capture;
+    };
+
+    struct EvidenceDownloadItem {
+        QString requestId;
+        QString slotId;
+        qint64 sessionId = -1;
+        QString position;
+        qint64 captureId = -1;
+        QDateTime capturedAt;
+        QString ocr;
+        QString plateNumber;
+        QString reason;
+        QString fileStem;
+        QUrl sourceUrl;
     };
 
     SlotState stateForSlot(const ParkingViewState &state,
@@ -123,6 +151,8 @@ private:
     QLabel *m_selectedMetadataLabel = nullptr;
     QPushButton *m_firstOpenButton = nullptr;
     QPushButton *m_selectedOpenButton = nullptr;
+    QPushButton *m_downloadButton = nullptr;
+    QLabel *m_downloadSelectionLabel = nullptr;
     QTableWidget *m_captureTable = nullptr;
     QString m_currentSlotId;
     QString m_currentEventId;
@@ -141,6 +171,13 @@ private:
     bool m_localTimelineInitialized = false;
     QHash<QString, int> m_slotCaptureCounts;
     QHash<QString, EvidenceImageLabel *> m_requestTargets;
+    QHash<QString, EvidenceDownloadItem> m_pendingDownloads;
+    QString m_downloadDirectory;
+    QString m_downloadExportId;
+    QStringList m_downloadManifestRows;
+    QStringList m_downloadedFiles;
+    int m_downloadFailureCount = 0;
+    bool m_downloadInProgress = false;
     QTimer *m_autoRefreshTimer = nullptr;
     quint64 m_requestGeneration = 0;
     quint64 m_requestSequence = 0;

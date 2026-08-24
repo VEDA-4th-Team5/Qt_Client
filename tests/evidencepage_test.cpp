@@ -5,10 +5,14 @@
 #include <QApplication>
 #include <QBuffer>
 #include <QDialog>
+#include <QDir>
 #include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
 #include <QFrame>
 #include <QGroupBox>
 #include <QImage>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QComboBox>
 #include <QLineEdit>
@@ -148,15 +152,19 @@ int main(int argc, char **argv)
     if (!table || table->rowCount() != 2 || table->currentRow() != 0) return 5;
     QGroupBox *timelineGroup = page.findChild<QGroupBox *>(
         QStringLiteral("evidenceTimelineGroup"));
+    QWidget *timelineContent = page.findChild<QWidget *>(
+        QStringLiteral("evidenceTimelineContent"));
     if (!timelineGroup || !timelineGroup->isCheckable()
-        || !timelineGroup->isChecked() || table->isHidden()) return 45;
+        || !timelineGroup->isChecked() || !timelineContent
+        || timelineContent->isHidden()) return 45;
     timelineGroup->setChecked(false);
     QApplication::processEvents();
-    if (!table->isHidden() || timelineGroup->maximumHeight() != 38
+    if (!timelineContent->isHidden() || timelineGroup->maximumHeight() != 38
         || !timelineGroup->title().contains(QStringLiteral("▶"))) return 46;
     timelineGroup->setChecked(true);
     QApplication::processEvents();
-    if (table->isHidden() || timelineGroup->maximumHeight() != QWIDGETSIZE_MAX
+    if (timelineContent->isHidden()
+        || timelineGroup->maximumHeight() != QWIDGETSIZE_MAX
         || !timelineGroup->title().contains(QStringLiteral("▼"))) return 47;
     QLabel *summary = page.findChild<QLabel *>(QStringLiteral("evidenceSummaryLabel"));
     if (!summary || !summary->text().contains(QStringLiteral("local evidence timeline"))) return 6;
@@ -281,6 +289,92 @@ int main(int argc, char **argv)
     plateFilter->clear();
     reasonFilter->clear();
     if (page.captureCount() != 5) return 34;
+
+    QPushButton *downloadButton = page.findChild<QPushButton *>(
+        QStringLiteral("evidenceDownloadSelectedButton"));
+    QLabel *downloadSelectionLabel = page.findChild<QLabel *>(
+        QStringLiteral("evidenceDownloadSelectionLabel"));
+    if (!downloadButton
+        || !downloadSelectionLabel
+        || table->selectionMode() != QAbstractItemView::ExtendedSelection
+        || !table->selectionModel()) return 48;
+    table->selectionModel()->clearSelection();
+    const QItemSelectionModel::SelectionFlags rowSelection =
+        QItemSelectionModel::Select | QItemSelectionModel::Rows;
+    table->selectionModel()->select(table->model()->index(0, 0), rowSelection);
+    table->selectionModel()->select(table->model()->index(1, 0), rowSelection);
+    table->selectionModel()->select(table->model()->index(2, 0), rowSelection);
+    QApplication::processEvents();
+    if (!downloadButton->isEnabled()
+        || !downloadSelectionLabel->text().contains(
+            QStringLiteral("3 rows selected · 2 session pairs"))) return 49;
+
+    const QString downloadDirectory = QDir::current().filePath(
+        QStringLiteral("build-evidence-pair-verification"));
+    if (!QDir(downloadDirectory).exists()) return 50;
+    bool downloadFinished = false;
+    bool downloadSucceeded = false;
+    QStringList downloadedFiles;
+    QEventLoop downloadLoop;
+    QObject::connect(
+        &page, &EvidencePage::evidenceDownloadFinished, &downloadLoop,
+        [&](bool success, const QString &, const QStringList &files) {
+            downloadFinished = true;
+            downloadSucceeded = success;
+            downloadedFiles = files;
+            downloadLoop.quit();
+        });
+    if (!page.downloadSelectedPairsTo(downloadDirectory)) {
+        const QString failure = statusLabel->text();
+        if (failure.contains(QStringLiteral("session ID"))) return 58;
+        if (failure.contains(QStringLiteral("no longer available"))) return 59;
+        if (failure.contains(QStringLiteral("image URLs"))) return 60;
+        if (failure.contains(QStringLiteral("does not exist"))) return 61;
+        return 51;
+    }
+    QTimer::singleShot(5000, &downloadLoop, &QEventLoop::quit);
+    downloadLoop.exec();
+    if (!downloadFinished) return 63;
+    if (!downloadSucceeded) return 64;
+    if (downloadedFiles.size() != 5) return 65;
+    QString metadataPath;
+    int firstFileCount = 0;
+    int latestFileCount = 0;
+    for (const QString &downloadedFile : downloadedFiles) {
+        const QFileInfo info(downloadedFile);
+        if (!info.exists()) return 53;
+        if (info.fileName().startsWith(
+                QStringLiteral("evidence_metadata_"))
+            && info.suffix() == QStringLiteral("csv")) {
+            metadataPath = downloadedFile;
+            continue;
+        }
+        if (!info.fileName().contains(QStringLiteral("_time-"))
+            || !info.fileName().contains(QStringLiteral("_ocr-"))
+            || !info.fileName().contains(QStringLiteral("_reason-"))) return 54;
+        if (info.fileName().contains(QStringLiteral("_first_"))) {
+            ++firstFileCount;
+        }
+        if (info.fileName().contains(QStringLiteral("_latest_"))) {
+            ++latestFileCount;
+        }
+    }
+    if (metadataPath.isEmpty() || firstFileCount != 2
+        || latestFileCount != 2) return 55;
+    QFile metadataFile(metadataPath);
+    if (!metadataFile.open(QIODevice::ReadOnly | QIODevice::Text)) return 56;
+    const QString metadata = QString::fromUtf8(metadataFile.readAll());
+    metadataFile.close();
+    if (!metadata.contains(
+            QStringLiteral("captured_at,ocr,plate_number,reason"))
+        || !metadata.contains(QStringLiteral("\"FIRST\""))
+        || !metadata.contains(QStringLiteral("\"LATEST\""))
+        || !metadata.contains(QStringLiteral("\"EV-02\""))
+        || !metadata.contains(QStringLiteral("\"P-01\""))
+        || !metadata.contains(QStringLiteral("34B7788"))) return 57;
+    for (const QString &downloadedFile : downloadedFiles) {
+        QFile::remove(downloadedFile);
+    }
 
     int eventRequestCount = 0;
     QString requestedEventId;

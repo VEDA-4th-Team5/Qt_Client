@@ -4,10 +4,14 @@
 #include "widgets/pagehelp.h"
 
 #include <QAbstractItemView>
+#include <QBuffer>
 #include <QColor>
 #include <QComboBox>
+#include <QDir>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QFile>
+#include <QFileDialog>
 #include <QFrame>
 #include <QFont>
 #include <QGridLayout>
@@ -16,10 +20,14 @@
 #include <QHeaderView>
 #include <QHideEvent>
 #include <QHBoxLayout>
+#include <QImage>
+#include <QImageReader>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QSignalBlocker>
@@ -123,6 +131,71 @@ QString captureCountText(int imageCount)
     return QStringLiteral("%1 image group%2")
         .arg(imageCount)
         .arg(imageCount == 1 ? QString() : QStringLiteral("s"));
+}
+
+QString safeFileToken(QString value, const QString &fallback)
+{
+    value = value.trimmed();
+    value.replace(QRegularExpression(
+                      QStringLiteral("[^\\p{L}\\p{N}._-]+")),
+                  QStringLiteral("_"));
+    value.replace(QRegularExpression(QStringLiteral("_+")),
+                  QStringLiteral("_"));
+    value = value.trimmed();
+    while (value.startsWith(QLatin1Char('.'))
+           || value.startsWith(QLatin1Char('_'))) {
+        value.remove(0, 1);
+    }
+    while (value.endsWith(QLatin1Char('.'))
+           || value.endsWith(QLatin1Char('_'))) {
+        value.chop(1);
+    }
+    if (value.isEmpty()) {
+        value = fallback;
+    }
+    return value.left(48);
+}
+
+QString csvField(QString value)
+{
+    value.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QStringLiteral("\"") + value + QStringLiteral("\"");
+}
+
+QString downloadedImageExtension(const QByteArray &data,
+                                  const QString &contentType)
+{
+    QImage image;
+    if (!image.loadFromData(data)) {
+        return {};
+    }
+
+    QBuffer buffer;
+    buffer.setData(data);
+    buffer.open(QIODevice::ReadOnly);
+    QString format = QString::fromLatin1(
+        QImageReader::imageFormat(&buffer)).toLower();
+    if (format == QStringLiteral("jpeg")) {
+        return QStringLiteral("jpg");
+    }
+    if (format == QStringLiteral("png")
+        || format == QStringLiteral("webp")
+        || format == QStringLiteral("bmp")) {
+        return format;
+    }
+    const QString normalizedType = contentType.section(QLatin1Char(';'), 0, 0)
+                                       .trimmed().toLower();
+    if (normalizedType == QStringLiteral("image/jpeg")) {
+        return QStringLiteral("jpg");
+    }
+    if (normalizedType.startsWith(QStringLiteral("image/"))) {
+        const QString subtype = safeFileToken(
+            normalizedType.mid(6), QStringLiteral("img"));
+        if (subtype != QStringLiteral("img")) {
+            return subtype;
+        }
+    }
+    return QStringLiteral("img");
 }
 
 bool sameImageResources(const QList<ParkingImageResource> &left,
@@ -448,7 +521,36 @@ EvidencePage::EvidencePage(QWidget *parent)
         "QGroupBox::title { subcontrol-origin:margin; left:10px; padding:0 4px; }"));
     auto *timelineLayout = new QVBoxLayout(timelineGroup);
     timelineLayout->setContentsMargins(10, 12, 10, 10);
-    m_captureTable = new QTableWidget(0, 6, timelineGroup);
+    auto *timelineContent = new QWidget(timelineGroup);
+    timelineContent->setObjectName(QStringLiteral("evidenceTimelineContent"));
+    auto *timelineContentLayout = new QVBoxLayout(timelineContent);
+    timelineContentLayout->setContentsMargins(0, 0, 0, 0);
+    timelineContentLayout->setSpacing(7);
+    auto *downloadLayout = new QHBoxLayout;
+    m_downloadSelectionLabel = new QLabel(
+        QStringLiteral("Select one or more timeline rows"), timelineContent);
+    m_downloadSelectionLabel->setObjectName(
+        QStringLiteral("evidenceDownloadSelectionLabel"));
+    m_downloadSelectionLabel->setStyleSheet(QStringLiteral(
+        "color:#607d8b;font-size:11px;font-weight:700;"));
+    m_downloadButton = new QPushButton(
+        QStringLiteral("Download selected pairs"), timelineContent);
+    m_downloadButton->setObjectName(
+        QStringLiteral("evidenceDownloadSelectedButton"));
+    m_downloadButton->setEnabled(false);
+    m_downloadButton->setCursor(Qt::PointingHandCursor);
+    m_downloadButton->setFixedHeight(32);
+    m_downloadButton->setStyleSheet(QStringLiteral(
+        "QPushButton { background:#263238;color:white;border:none;border-radius:5px;"
+        "padding:5px 12px;font-weight:800; }"
+        "QPushButton:hover:enabled { background:#1565c0; }"
+        "QPushButton:disabled { background:#cfd8dc;color:#78909c; }"));
+    downloadLayout->addWidget(m_downloadSelectionLabel);
+    downloadLayout->addStretch(1);
+    downloadLayout->addWidget(m_downloadButton);
+    timelineContentLayout->addLayout(downloadLayout);
+
+    m_captureTable = new QTableWidget(0, 6, timelineContent);
     m_captureTable->setObjectName(QStringLiteral("evidenceCaptureTable"));
     m_captureTable->setHorizontalHeaderLabels({
         QStringLiteral("Capture"), QStringLiteral("Slot"), QStringLiteral("Time"), QStringLiteral("Reason"),
@@ -462,7 +564,7 @@ EvidencePage::EvidencePage(QWidget *parent)
     m_captureTable->verticalHeader()->setVisible(false);
     m_captureTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_captureTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_captureTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_captureTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_captureTable->setMinimumHeight(300);
     m_captureTable->setMaximumHeight(420);
     m_captureTable->setAlternatingRowColors(true);
@@ -472,11 +574,12 @@ EvidencePage::EvidencePage(QWidget *parent)
         "selection-color:#17212b; }"
         "QHeaderView::section { background:#eceff1; color:#263238; border:none; "
         "border-right:1px solid #cfd8dc; padding:6px; font-weight:800; }"));
-    timelineLayout->addWidget(m_captureTable);
+    timelineContentLayout->addWidget(m_captureTable);
+    timelineLayout->addWidget(timelineContent);
     contentLayout->addWidget(timelineGroup);
     connect(timelineGroup, &QGroupBox::toggled, this,
-            [this, timelineGroup](bool expanded) {
-                m_captureTable->setVisible(expanded);
+            [timelineGroup, timelineContent](bool expanded) {
+                timelineContent->setVisible(expanded);
                 timelineGroup->setTitle(
                     expanded ? QStringLiteral("Capture timeline  ▼")
                              : QStringLiteral("Capture timeline  ▶"));
@@ -503,6 +606,10 @@ EvidencePage::EvidencePage(QWidget *parent)
                 renderSelectedCapture(captureItem
                     ? captureItem->data(Qt::UserRole).toInt() : -1);
             });
+    connect(m_captureTable, &QTableWidget::itemSelectionChanged,
+            this, &EvidencePage::updateDownloadButtonState);
+    connect(m_downloadButton, &QPushButton::clicked,
+            this, &EvidencePage::chooseEvidenceDownloadDirectory);
     connect(m_firstOpenButton, &QPushButton::clicked, this,
             [this]() { showFullImage(m_firstImageLabel, m_firstTitleLabel->text()); });
     connect(m_selectedOpenButton, &QPushButton::clicked, this,
@@ -568,6 +675,10 @@ void EvidencePage::setImageLoader(ImageLoader *imageLoader)
                 target->setSourcePixmap(QPixmap());
                 target->setText(QStringLiteral("Image load failed\n%1").arg(message));
             });
+    connect(m_imageLoader, &ImageLoader::imageDataLoaded,
+            this, &EvidencePage::handleDownloadedImage);
+    connect(m_imageLoader, &ImageLoader::imageDataFailed,
+            this, &EvidencePage::handleDownloadFailure);
 }
 
 void EvidencePage::render(const ParkingViewState &state)
@@ -957,6 +1068,343 @@ int EvidencePage::captureCount() const
     return m_captures.size();
 }
 
+bool EvidencePage::downloadSelectedPairsTo(const QString &directoryPath)
+{
+    if (m_downloadInProgress) {
+        m_statusLabel->setText(
+            QStringLiteral("An evidence download is already in progress."));
+        return false;
+    }
+    if (!m_imageLoader || !m_captureTable
+        || !m_captureTable->selectionModel()) {
+        m_statusLabel->setText(
+            QStringLiteral("Image download is not available."));
+        return false;
+    }
+
+    const QModelIndexList selectedRows =
+        m_captureTable->selectionModel()->selectedRows(0);
+    if (selectedRows.isEmpty()) {
+        m_statusLabel->setText(
+            QStringLiteral("Select one or more timeline rows to download."));
+        return false;
+    }
+
+    QVector<LocalTimelineEntry> selectedSessions;
+    QSet<QString> sessionKeys;
+    for (const QModelIndex &selectedRow : selectedRows) {
+        const QTableWidgetItem *item = m_captureTable->item(
+            selectedRow.row(), 0);
+        if (!item) {
+            continue;
+        }
+        const int captureIndex = item->data(Qt::UserRole).toInt();
+        if (captureIndex < 0
+            || captureIndex >= m_localTimelineEntries.size()) {
+            continue;
+        }
+        const LocalTimelineEntry &entry =
+            m_localTimelineEntries.at(captureIndex);
+        if (entry.capture.sessionId <= 0) {
+            m_statusLabel->setText(QStringLiteral(
+                "Every selected row needs a session ID before it can be downloaded."));
+            return false;
+        }
+        const QString key = QStringLiteral("%1|%2")
+                                .arg(entry.slotId)
+                                .arg(entry.capture.sessionId);
+        if (!sessionKeys.contains(key)) {
+            sessionKeys.insert(key);
+            selectedSessions.append(entry);
+        }
+    }
+    if (selectedSessions.isEmpty()) {
+        m_statusLabel->setText(
+            QStringLiteral("No downloadable session pair was selected."));
+        return false;
+    }
+
+    QVector<EvidenceDownloadItem> downloads;
+    for (const LocalTimelineEntry &selectedSession : selectedSessions) {
+        const LocalTimelineEntry *firstEntry = nullptr;
+        const LocalTimelineEntry *latestEntry = nullptr;
+        for (const LocalTimelineEntry &candidate : m_allLocalTimelineEntries) {
+            if (candidate.slotId != selectedSession.slotId
+                || candidate.capture.sessionId
+                    != selectedSession.capture.sessionId) {
+                continue;
+            }
+            if (!firstEntry) {
+                firstEntry = &candidate;
+            }
+            latestEntry = &candidate;
+        }
+        if (!firstEntry || !latestEntry) {
+            m_statusLabel->setText(
+                QStringLiteral("A selected session pair is no longer available."));
+            return false;
+        }
+
+        const auto appendDownload =
+            [&downloads](const LocalTimelineEntry &entry,
+                         const QString &position) -> bool {
+            const ParkingImageResource *variant =
+                preferredParkingCaptureVariant(entry.capture);
+            if (!variant || variant->url.isEmpty()) {
+                return false;
+            }
+            EvidenceDownloadItem item;
+            item.slotId = entry.slotId;
+            item.sessionId = entry.capture.sessionId;
+            item.position = position;
+            item.captureId = entry.capture.imageId;
+            item.capturedAt = entry.capture.timestamp;
+            item.ocr = entry.capture.ocrResult.trimmed();
+            item.plateNumber = entry.plateNumber.trimmed();
+            if (item.ocr.isEmpty()) {
+                item.ocr = QStringLiteral("unconfirmed");
+            }
+            item.reason = captureReasonText(entry.capture.reason);
+            item.sourceUrl = variant->url;
+            const QString timeToken = item.capturedAt.isValid()
+                ? item.capturedAt.toLocalTime().toString(
+                      QStringLiteral("yyyyMMdd_HHmmss"))
+                : QStringLiteral("time-unknown");
+            item.fileStem = QStringLiteral(
+                "%1_session-%2_%3_time-%4_ocr-%5_reason-%6")
+                    .arg(safeFileToken(item.slotId, QStringLiteral("slot")))
+                    .arg(item.sessionId)
+                    .arg(position.toLower())
+                    .arg(timeToken)
+                    .arg(safeFileToken(item.ocr,
+                                       QStringLiteral("unconfirmed")))
+                    .arg(safeFileToken(item.reason,
+                                       QStringLiteral("reason-unknown")));
+            downloads.append(item);
+            return true;
+        };
+        if (!appendDownload(*firstEntry, QStringLiteral("FIRST"))
+            || !appendDownload(*latestEntry, QStringLiteral("LATEST"))) {
+            m_statusLabel->setText(QStringLiteral(
+                "Each selected session needs downloadable First and Latest image URLs."));
+            return false;
+        }
+    }
+
+    QDir parentDirectory(directoryPath);
+    if (!parentDirectory.exists()) {
+        m_statusLabel->setText(
+            QStringLiteral("The selected download directory does not exist."));
+        return false;
+    }
+    m_downloadDirectory = parentDirectory.absolutePath();
+    m_downloadExportId = QDateTime::currentDateTime().toString(
+        QStringLiteral("yyyyMMdd_HHmmss_zzz"));
+    m_downloadManifestRows = {QStringLiteral(
+        "slot_id,session_id,position,capture_id,captured_at,ocr,plate_number,reason,"
+        "image_file,source_url,status,error")};
+    m_downloadedFiles.clear();
+    m_downloadFailureCount = 0;
+    m_pendingDownloads.clear();
+    for (EvidenceDownloadItem &download : downloads) {
+        download.requestId = QStringLiteral("evidence-download:%1:%2")
+            .arg(reinterpret_cast<quintptr>(this))
+            .arg(++m_requestSequence);
+        m_pendingDownloads.insert(download.requestId, download);
+    }
+
+    m_downloadInProgress = true;
+    updateDownloadButtonState();
+    m_statusLabel->setText(
+        QStringLiteral("Downloading %1 First/Latest evidence image%2...")
+            .arg(downloads.size())
+            .arg(downloads.size() == 1
+                     ? QString() : QStringLiteral("s")));
+    for (const EvidenceDownloadItem &download : downloads) {
+        m_imageLoader->download(download.requestId, download.sourceUrl);
+    }
+    return true;
+}
+
+void EvidencePage::chooseEvidenceDownloadDirectory()
+{
+    const QString directoryPath = QFileDialog::getExistingDirectory(
+        this, QStringLiteral("Download selected evidence pairs"),
+        QDir::homePath(), QFileDialog::ShowDirsOnly);
+    if (!directoryPath.isEmpty()) {
+        downloadSelectedPairsTo(directoryPath);
+    }
+}
+
+void EvidencePage::updateDownloadButtonState()
+{
+    const QModelIndexList selectedRows =
+        m_captureTable && m_captureTable->selectionModel()
+            ? m_captureTable->selectionModel()->selectedRows(0)
+            : QModelIndexList{};
+    const int selectedCount = selectedRows.size();
+    QSet<QString> selectedSessionKeys;
+    for (const QModelIndex &selectedRow : selectedRows) {
+        const QTableWidgetItem *item = m_captureTable->item(
+            selectedRow.row(), 0);
+        const int captureIndex = item
+            ? item->data(Qt::UserRole).toInt() : -1;
+        if (captureIndex < 0
+            || captureIndex >= m_localTimelineEntries.size()) {
+            continue;
+        }
+        const LocalTimelineEntry &entry =
+            m_localTimelineEntries.at(captureIndex);
+        if (entry.capture.sessionId > 0) {
+            selectedSessionKeys.insert(QStringLiteral("%1|%2")
+                .arg(entry.slotId)
+                .arg(entry.capture.sessionId));
+        }
+    }
+    if (m_downloadButton) {
+        m_downloadButton->setEnabled(
+            !m_downloadInProgress && selectedCount > 0);
+    }
+    if (m_downloadSelectionLabel) {
+        if (m_downloadInProgress) {
+            m_downloadSelectionLabel->setText(
+                QStringLiteral("Downloading selected First/Latest pairs..."));
+        } else if (selectedCount > 0) {
+            m_downloadSelectionLabel->setText(
+                QStringLiteral("%1 row%2 selected · %3 session pair%4")
+                    .arg(selectedCount)
+                    .arg(selectedCount == 1
+                             ? QString() : QStringLiteral("s"))
+                    .arg(selectedSessionKeys.size())
+                    .arg(selectedSessionKeys.size() == 1
+                             ? QString() : QStringLiteral("s")));
+        } else {
+            m_downloadSelectionLabel->setText(
+                QStringLiteral("Select one or more timeline rows"));
+        }
+    }
+}
+
+void EvidencePage::handleDownloadedImage(const QString &requestId,
+                                         const QByteArray &data,
+                                         const QString &contentType)
+{
+    if (!m_pendingDownloads.contains(requestId)) {
+        return;
+    }
+    const EvidenceDownloadItem item = m_pendingDownloads.take(requestId);
+    const QString extension = downloadedImageExtension(data, contentType);
+    QString fileName;
+    QString error;
+    if (extension.isEmpty()) {
+        error = QStringLiteral("Downloaded content is not a supported image");
+    } else {
+        fileName = QStringLiteral("evidence_%1_%2.%3")
+                       .arg(m_downloadExportId, item.fileStem, extension);
+        QFile file(QDir(m_downloadDirectory).filePath(fileName));
+        if (!file.open(QIODevice::WriteOnly)
+            || file.write(data) != data.size()) {
+            error = QStringLiteral("Could not write the image file");
+            file.close();
+            QFile::remove(file.fileName());
+            fileName.clear();
+        } else {
+            file.close();
+            m_downloadedFiles.append(file.fileName());
+        }
+    }
+
+    if (!error.isEmpty()) {
+        ++m_downloadFailureCount;
+    }
+    const QString capturedAt = item.capturedAt.isValid()
+        ? item.capturedAt.toString(Qt::ISODateWithMs) : QString();
+    m_downloadManifestRows.append(QStringList{
+        csvField(item.slotId),
+        csvField(QString::number(item.sessionId)),
+        csvField(item.position),
+        csvField(item.captureId >= 0
+                     ? QString::number(item.captureId) : QString()),
+        csvField(capturedAt),
+        csvField(item.ocr),
+        csvField(item.plateNumber),
+        csvField(item.reason),
+        csvField(fileName),
+        csvField(item.sourceUrl.toString()),
+        csvField(error.isEmpty() ? QStringLiteral("OK")
+                                 : QStringLiteral("ERROR")),
+        csvField(error)}.join(QLatin1Char(',')));
+    if (m_pendingDownloads.isEmpty()) {
+        finishEvidenceDownload();
+    }
+}
+
+void EvidencePage::handleDownloadFailure(const QString &requestId,
+                                         const QString &message)
+{
+    if (!m_pendingDownloads.contains(requestId)) {
+        return;
+    }
+    const EvidenceDownloadItem item = m_pendingDownloads.take(requestId);
+    ++m_downloadFailureCount;
+    const QString capturedAt = item.capturedAt.isValid()
+        ? item.capturedAt.toString(Qt::ISODateWithMs) : QString();
+    m_downloadManifestRows.append(QStringList{
+        csvField(item.slotId),
+        csvField(QString::number(item.sessionId)),
+        csvField(item.position),
+        csvField(item.captureId >= 0
+                     ? QString::number(item.captureId) : QString()),
+        csvField(capturedAt),
+        csvField(item.ocr),
+        csvField(item.plateNumber),
+        csvField(item.reason),
+        csvField(QString()),
+        csvField(item.sourceUrl.toString()),
+        csvField(QStringLiteral("ERROR")),
+        csvField(message)}.join(QLatin1Char(',')));
+    if (m_pendingDownloads.isEmpty()) {
+        finishEvidenceDownload();
+    }
+}
+
+void EvidencePage::finishEvidenceDownload()
+{
+    const QString metadataPath = QDir(m_downloadDirectory).filePath(
+        QStringLiteral("evidence_metadata_%1.csv").arg(m_downloadExportId));
+    QFile metadataFile(metadataPath);
+    if (!metadataFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        ++m_downloadFailureCount;
+    } else {
+        const QByteArray metadata = QByteArrayLiteral("\xEF\xBB\xBF")
+            + m_downloadManifestRows.join(QStringLiteral("\r\n")).toUtf8()
+            + QByteArrayLiteral("\r\n");
+        if (metadataFile.write(metadata) != metadata.size()) {
+            ++m_downloadFailureCount;
+        } else {
+            m_downloadedFiles.append(metadataPath);
+        }
+        metadataFile.close();
+    }
+
+    const bool success = m_downloadFailureCount == 0;
+    const QString message = success
+        ? QStringLiteral("Downloaded %1 evidence images and metadata to %2")
+              .arg(qMax(0, m_downloadedFiles.size() - 1))
+              .arg(QDir::toNativeSeparators(m_downloadDirectory))
+        : QStringLiteral("Evidence download finished with %1 error%2. See the metadata CSV in %3")
+              .arg(m_downloadFailureCount)
+              .arg(m_downloadFailureCount == 1
+                       ? QString() : QStringLiteral("s"))
+              .arg(QDir::toNativeSeparators(m_downloadDirectory));
+    m_downloadInProgress = false;
+    updateDownloadButtonState();
+    m_statusLabel->setText(message);
+    emit evidenceDownloadFinished(success, message, m_downloadedFiles);
+    m_pendingDownloads.clear();
+    m_downloadManifestRows.clear();
+}
+
 void EvidencePage::requestCurrentEvidence()
 {
     requestEvidenceRefresh(true);
@@ -1044,6 +1492,7 @@ void EvidencePage::renderCaptureTable()
     if (!m_captures.isEmpty()) {
         m_captureTable->setCurrentCell(m_localTimelineMode ? 0 : m_captures.size() - 1, 0);
     }
+    updateDownloadButtonState();
 }
 
 void EvidencePage::renderSelectedCapture(int row)
