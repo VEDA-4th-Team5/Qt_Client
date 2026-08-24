@@ -199,6 +199,18 @@ if (QT_VERSION_MAJOR EQUAL 6)
             resources/icons/monitor-connected.svg
             resources/icons/monitor-connecting.svg
             resources/icons/monitor-disconnected.svg
+            resources/icons/iva/detection-enter.svg
+            resources/icons/iva/detection-generic.svg
+            resources/icons/iva/detection-intrusion.svg
+            resources/icons/iva/detection-loitering.svg
+            resources/icons/iva/check.svg
+            resources/icons/iva/object-bicycle.svg
+            resources/icons/iva/object-bus.svg
+            resources/icons/iva/object-car.svg
+            resources/icons/iva/object-generic.svg
+            resources/icons/iva/object-motorcycle.svg
+            resources/icons/iva/object-person.svg
+            resources/icons/iva/object-truck.svg
     )
 else()
     qt5_add_resources(NAV_ICON_RESOURCES resources/navicons.qrc)
@@ -851,6 +863,27 @@ if (BUILD_TESTING)
     target_link_libraries(ivasettingspage_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
     )
+    if (QT_VERSION_MAJOR EQUAL 6)
+        qt_add_resources(ivasettingspage_test iva_item_icons
+            PREFIX "/"
+            FILES
+                resources/icons/iva/detection-enter.svg
+                resources/icons/iva/detection-generic.svg
+                resources/icons/iva/detection-intrusion.svg
+                resources/icons/iva/detection-loitering.svg
+                resources/icons/iva/check.svg
+                resources/icons/iva/object-bicycle.svg
+                resources/icons/iva/object-bus.svg
+                resources/icons/iva/object-car.svg
+                resources/icons/iva/object-generic.svg
+                resources/icons/iva/object-motorcycle.svg
+                resources/icons/iva/object-person.svg
+                resources/icons/iva/object-truck.svg
+        )
+    else()
+        qt5_add_resources(IVA_ITEM_ICON_RESOURCES resources/ivaitemicons.qrc)
+        target_sources(ivasettingspage_test PRIVATE ${IVA_ITEM_ICON_RESOURCES})
+    endif()
     set_target_properties(ivasettingspage_test PROPERTIES
         AUTOMOC_COMPILER_PREDEFINES OFF
     )

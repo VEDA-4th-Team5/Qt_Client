@@ -59,6 +59,8 @@ private:
     void closeFireAlarmPopup(const QString &channelId, const QString &alarmId);
     void showEventsPage();
     bool showEventEvidencePage(const QString &eventId);
+    void handlePageChanged(int index);
+    void finishPendingIvaNavigation();
     QString cameraConfigPath() const;
     QString clientConfigPath() const;
     QString clientLocalConfigPath() const;
@@ -90,6 +92,10 @@ private:
     ParkingController *m_parkingController = nullptr;
     ParkingSimulationService *m_parkingSimulationService = nullptr;
     WiseAiConfigClient *m_wiseAiConfigClient = nullptr;
+    bool m_pageTransitionGuard = false;
+    int m_lastPageIndex = 0;
+    int m_pendingPageIndex = -1;
+    bool m_closeAfterIvaSave = false;
 };
 
 #endif
