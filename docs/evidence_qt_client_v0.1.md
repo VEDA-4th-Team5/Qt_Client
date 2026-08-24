@@ -20,7 +20,8 @@ not the primary navigation.
   slot's existing detail/current-session image flow. Selecting one slot asks
   for that slot only.
 - Repeats that request every five seconds while the Evidence page is visible;
-  the timer stops when the operator leaves the page.
+  the timer stops when the operator leaves the page. Automatic refresh keeps
+  the current cards visible and only re-renders changed evidence resources.
 - Resolves the First and Latest cards only within the selected timeline row's
   exact `slot_id + session_id`; rows from another slot or session are never
   combined into one pair.

@@ -54,8 +54,10 @@ int main(int argc, char **argv)
         || content->parentWidget() == leftSidebar) return 41;
     QTimer *autoRefreshTimer = page.findChild<QTimer *>(
         QStringLiteral("evidenceAutoRefreshTimer"));
+    QLabel *statusLabel = page.findChild<QLabel *>(
+        QStringLiteral("evidenceStatusLabel"));
     if (!autoRefreshTimer || autoRefreshTimer->interval() != 5000
-        || autoRefreshTimer->isSingleShot()) return 39;
+        || autoRefreshTimer->isSingleShot() || !statusLabel) return 39;
 
     QStringList requestedSlots;
     QObject::connect(&page, &EvidencePage::slotEvidenceRequested,
@@ -181,18 +183,33 @@ int main(int argc, char **argv)
     if (!firstOpen || !firstOpen->isEnabled()
         || !selectedOpen || !selectedOpen->isEnabled()) return 12;
 
+    requestedSlots.clear();
+    const int imageLoadCountBeforeAutoRefresh = loadedImageCount;
+    const QString statusBeforeAutoRefresh = statusLabel->text();
+    const qint64 firstPixmapBeforeAutoRefresh = firstImage->pixmap().cacheKey();
+    const qint64 latestPixmapBeforeAutoRefresh = selectedImage->pixmap().cacheKey();
+    if (!QMetaObject::invokeMethod(autoRefreshTimer, "timeout",
+                                   Qt::DirectConnection)
+        || requestedSlots.size() != 1
+        || requestedSlots.constFirst() != QStringLiteral("EV-02")
+        || statusLabel->text() != statusBeforeAutoRefresh
+        || loadedImageCount != imageLoadCountBeforeAutoRefresh
+        || firstImage->pixmap().cacheKey() != firstPixmapBeforeAutoRefresh
+        || selectedImage->pixmap().cacheKey() != latestPixmapBeforeAutoRefresh) return 43;
+
+    page.showEvidence(QStringLiteral("EV-02"), SlotState::OvertimeAlert,
+                      QStringLiteral("34B7788"),
+                      {firstOriginal, latestOriginal, latestEnhanced});
+    QApplication::processEvents();
+    if (loadedImageCount != imageLoadCountBeforeAutoRefresh
+        || firstImage->pixmap().cacheKey() != firstPixmapBeforeAutoRefresh
+        || selectedImage->pixmap().cacheKey() != latestPixmapBeforeAutoRefresh) return 44;
+
     const int imageLoadCountBeforeSelection = loadedImageCount;
-    QEventLoop selectionLoadLoop;
-    QObject::connect(&imageLoader, &ImageLoader::imageLoaded,
-                     &selectionLoadLoop, [&](const QString &, const QPixmap &) {
-        if (loadedImageCount >= imageLoadCountBeforeSelection + 2) {
-            selectionLoadLoop.quit();
-        }
-    });
     table->setCurrentCell(1, 0);
-    QTimer::singleShot(3000, &selectionLoadLoop, &QEventLoop::quit);
-    selectionLoadLoop.exec();
-    if (loadedImageCount != imageLoadCountBeforeSelection + 2
+    QApplication::processEvents();
+    if (loadedImageCount != imageLoadCountBeforeSelection
+        || firstImage->pixmap().isNull()
         || selectedImage->pixmap().isNull()) return 38;
 
     ParkingImageResource previousSessionOriginal = firstOriginal;

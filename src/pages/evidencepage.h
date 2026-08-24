@@ -65,6 +65,7 @@ protected:
     void hideEvent(QHideEvent *event) override;
 
 private:
+    void requestEvidenceRefresh(bool showInitialProgress);
     bool mergeEvidenceCache(const ParkingViewState &state);
     void rebuildTimelineFilters(const ParkingViewState &state);
     void renderCaptureTable();

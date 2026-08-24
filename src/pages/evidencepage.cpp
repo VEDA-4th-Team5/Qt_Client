@@ -497,8 +497,8 @@ EvidencePage::EvidencePage(QWidget *parent)
     m_autoRefreshTimer->setObjectName(QStringLiteral("evidenceAutoRefreshTimer"));
     m_autoRefreshTimer->setInterval(5000);
     m_autoRefreshTimer->setTimerType(Qt::CoarseTimer);
-    connect(m_autoRefreshTimer, &QTimer::timeout,
-            this, &EvidencePage::requestCurrentEvidence);
+    connect(m_autoRefreshTimer, &QTimer::timeout, this,
+            [this]() { requestEvidenceRefresh(false); });
 }
 
 void EvidencePage::showEvent(QShowEvent *event)
@@ -767,8 +767,19 @@ void EvidencePage::showEvidence(
     if (normalizedSlotId.isEmpty()) {
         return;
     }
+    const bool hadSlot = m_evidenceCacheState.evSlots.contains(normalizedSlotId)
+        || m_evidenceCacheState.parkingSlots.contains(normalizedSlotId);
+    const SlotState previousState = stateForSlot(
+        m_evidenceCacheState, normalizedSlotId);
+    const QString previousPlate = plateForSlot(
+        m_evidenceCacheState, normalizedSlotId);
+    bool evidenceChanged = false;
     if (!images.isEmpty()) {
-        m_evidenceCacheState.slotImages.insert(normalizedSlotId, images);
+        evidenceChanged = !sameImageResources(
+            m_evidenceCacheState.slotImages.value(normalizedSlotId), images);
+        if (evidenceChanged) {
+            m_evidenceCacheState.slotImages.insert(normalizedSlotId, images);
+        }
     }
     m_evidenceCacheState.slotPlateNumbers.insert(normalizedSlotId, plateNumber);
     if (normalizedSlotId.startsWith(QStringLiteral("EV-"))) {
@@ -785,7 +796,13 @@ void EvidencePage::showEvidence(
     }
     m_latestState = m_evidenceCacheState;
     rebuildTimelineFilters(m_latestState);
-    showLocalEvidenceSnapshot(m_latestState);
+    const bool slotContextChanged = !hadSlot
+        || previousState != state
+        || previousPlate != plateNumber;
+    if (evidenceChanged || slotContextChanged
+        || !m_localTimelineInitialized || m_captures.isEmpty()) {
+        showLocalEvidenceSnapshot(m_latestState);
+    }
 }
 
 void EvidencePage::showLoading(const QString &slotId)
@@ -927,12 +944,23 @@ int EvidencePage::captureCount() const
 
 void EvidencePage::requestCurrentEvidence()
 {
+    requestEvidenceRefresh(true);
+}
+
+void EvidencePage::requestEvidenceRefresh(bool showInitialProgress)
+{
     if (!m_currentEventId.isEmpty()) {
-        openEvent(m_currentEventId, m_currentSlotId);
+        if (showInitialProgress && m_captures.isEmpty()) {
+            m_statusLabel->setText(
+                QStringLiteral("Loading event evidence..."));
+        }
         emit eventEvidenceRequested(m_currentEventId);
         return;
     }
-    showLocalEvidenceSnapshot(m_latestState);
+
+    if (!m_localTimelineInitialized) {
+        showLocalEvidenceSnapshot(m_latestState);
+    }
 
     const QString selectedSlotId = m_slotFilter
         ? m_slotFilter->currentData().toString() : QString();
@@ -949,10 +977,13 @@ void EvidencePage::requestCurrentEvidence()
     // The status endpoint is allowed to omit image resources. Populate this
     // timeline from the existing per-slot detail/current-session flow instead
     // of depending on Image Compare to have requested those images first.
-    m_statusLabel->setText(
-        QStringLiteral("Loading current-session evidence for %1 slot%2...")
-            .arg(requestedSlotIds.size())
-            .arg(requestedSlotIds.size() == 1 ? QString() : QStringLiteral("s")));
+    if (showInitialProgress && m_captures.isEmpty()) {
+        m_statusLabel->setText(
+            QStringLiteral("Loading current-session evidence for %1 slot%2...")
+                .arg(requestedSlotIds.size())
+                .arg(requestedSlotIds.size() == 1
+                         ? QString() : QStringLiteral("s")));
+    }
     for (const QString &slotId : requestedSlotIds) {
         emit slotEvidenceRequested(slotId);
     }
@@ -1206,19 +1237,32 @@ void EvidencePage::renderCaptureCard(
         metadata += QStringLiteral("  |  OCR available");
     }
     metadataLabel->setText(metadata);
-    imageLabel->setSourcePixmap(QPixmap());
-    imageLabel->setProperty("evidenceRequestId", QString());
-    openButton->setEnabled(false);
 
     if (!variant || variant->url.isEmpty()) {
+        imageLabel->setSourcePixmap(QPixmap());
+        imageLabel->setProperty("evidenceRequestId", QString());
+        imageLabel->setProperty("evidenceSourceUrl", QString());
+        openButton->setEnabled(false);
         imageLabel->setText(QStringLiteral("Image URL is not available"));
         return;
     }
+
+    const QString sourceUrl = variant->url.toString();
+    if (!imageLabel->sourcePixmap().isNull()
+        && imageLabel->property("evidenceSourceUrl").toString() == sourceUrl) {
+        imageLabel->setText(QString());
+        openButton->setEnabled(true);
+        return;
+    }
+
+    imageLabel->setSourcePixmap(QPixmap());
+    imageLabel->setProperty("evidenceRequestId", QString());
+    imageLabel->setProperty("evidenceSourceUrl", sourceUrl);
+    openButton->setEnabled(false);
     if (!m_imageLoader) {
         imageLabel->setText(QStringLiteral("Image loader is not available"));
         return;
     }
-
     imageLabel->setText(QStringLiteral("Loading image..."));
     const QString requestId = QStringLiteral("evidence:%1:%2:%3")
         .arg(reinterpret_cast<quintptr>(this))
@@ -1239,6 +1283,7 @@ void EvidencePage::clearCaptureCard(
 {
     imageLabel->setSourcePixmap(QPixmap());
     imageLabel->setProperty("evidenceRequestId", QString());
+    imageLabel->setProperty("evidenceSourceUrl", QString());
     imageLabel->setText(message);
     titleLabel->setText(title);
     metadataLabel->setText(QStringLiteral("No capture metadata"));
