@@ -5,6 +5,7 @@
 
 #include <QAbstractItemView>
 #include <QColor>
+#include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFrame>
@@ -16,8 +17,6 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
-#include <QListWidgetItem>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QScrollArea>
@@ -211,38 +210,49 @@ EvidencePage::EvidencePage(QWidget *parent)
     auto *bodyLayout = new QHBoxLayout;
     bodyLayout->setSpacing(12);
 
-    auto *slotPanel = new QFrame(this);
-    slotPanel->setObjectName(QStringLiteral("evidenceSlotPanel"));
-    slotPanel->setFixedWidth(245);
-    slotPanel->setStyleSheet(QStringLiteral(
-        "QFrame#evidenceSlotPanel { background:#f8fafb; border:1px solid #c7cdd4; "
+    auto *filterPanel = new QFrame(this);
+    filterPanel->setObjectName(QStringLiteral("evidenceFilterPanel"));
+    filterPanel->setFixedWidth(245);
+    filterPanel->setStyleSheet(QStringLiteral(
+        "QFrame#evidenceFilterPanel { background:#f8fafb; border:1px solid #c7cdd4; "
         "border-radius:6px; }"));
-    auto *slotLayout = new QVBoxLayout(slotPanel);
-    slotLayout->setContentsMargins(12, 12, 12, 12);
-    slotLayout->setSpacing(8);
-    auto *slotTitle = new QLabel(QStringLiteral("Parking slots"), slotPanel);
-    slotTitle->setStyleSheet(QStringLiteral("font-size:16px;font-weight:800;color:#263238;"));
-    slotLayout->addWidget(slotTitle);
-    m_slotSearch = new QLineEdit(slotPanel);
-    m_slotSearch->setPlaceholderText(QStringLiteral("Search slot"));
-    m_slotSearch->setFixedHeight(32);
-    m_slotSearch->setStyleSheet(QStringLiteral(
-        "QLineEdit { background:white; border:1px solid #b0bec5; border-radius:5px; "
-        "padding:5px 8px; color:#263238; }"
-        "QLineEdit:focus { border-color:#1976d2; }"));
-    slotLayout->addWidget(m_slotSearch);
-    m_slotList = new QListWidget(slotPanel);
-    m_slotList->setObjectName(QStringLiteral("evidenceSlotList"));
-    m_slotList->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_slotList->setSpacing(2);
-    m_slotList->setStyleSheet(QStringLiteral(
-        "QListWidget { background:transparent; border:none; outline:0; }"
-        "QListWidget::item { background:white; border:1px solid #d6dde3; "
-        "border-radius:5px; margin:2px 0; padding:6px; color:#263238; }"
-        "QListWidget::item:selected { background:#e3f2fd; border-color:#1976d2; }"
-        "QListWidget::item:hover { border-color:#90a4ae; }"));
-    slotLayout->addWidget(m_slotList, 1);
-    auto *refreshButton = new QPushButton(QStringLiteral("Refresh evidence"), slotPanel);
+    auto *filterLayout = new QVBoxLayout(filterPanel);
+    filterLayout->setContentsMargins(12, 12, 12, 12);
+    filterLayout->setSpacing(8);
+    auto *filterTitle = new QLabel(QStringLiteral("Evidence filters"), filterPanel);
+    filterTitle->setStyleSheet(QStringLiteral("font-size:16px;font-weight:800;color:#263238;"));
+    filterLayout->addWidget(filterTitle);
+    auto *filterHint = new QLabel(
+        QStringLiteral("Timeline is ordered by capture time. Slots narrow the result; they are not the navigation."),
+        filterPanel);
+    filterHint->setWordWrap(true);
+    filterHint->setStyleSheet(QStringLiteral("color:#546e7a;font-size:12px;"));
+    filterLayout->addWidget(filterHint);
+    auto *slotLabel = new QLabel(QStringLiteral("Slot"), filterPanel);
+    slotLabel->setStyleSheet(QStringLiteral("font-weight:800;color:#455a64;"));
+    filterLayout->addWidget(slotLabel);
+    m_slotFilter = new QComboBox(filterPanel);
+    m_slotFilter->setObjectName(QStringLiteral("evidenceSlotFilter"));
+    m_slotFilter->setFixedHeight(32);
+    auto *plateLabel = new QLabel(QStringLiteral("Plate"), filterPanel);
+    plateLabel->setStyleSheet(QStringLiteral("font-weight:800;color:#455a64;"));
+    filterLayout->addWidget(m_slotFilter);
+    filterLayout->addWidget(plateLabel);
+    m_plateFilter = new QLineEdit(filterPanel);
+    m_plateFilter->setObjectName(QStringLiteral("evidencePlateFilter"));
+    m_plateFilter->setPlaceholderText(QStringLiteral("Any plate"));
+    m_plateFilter->setFixedHeight(32);
+    filterLayout->addWidget(m_plateFilter);
+    auto *reasonLabel = new QLabel(QStringLiteral("Reason"), filterPanel);
+    reasonLabel->setStyleSheet(QStringLiteral("font-weight:800;color:#455a64;"));
+    filterLayout->addWidget(reasonLabel);
+    m_reasonFilter = new QLineEdit(filterPanel);
+    m_reasonFilter->setObjectName(QStringLiteral("evidenceReasonFilter"));
+    m_reasonFilter->setPlaceholderText(QStringLiteral("Any reason"));
+    m_reasonFilter->setFixedHeight(32);
+    filterLayout->addWidget(m_reasonFilter);
+    filterLayout->addStretch(1);
+    auto *refreshButton = new QPushButton(QStringLiteral("Refresh timeline"), filterPanel);
     refreshButton->setObjectName(QStringLiteral("evidenceRefreshButton"));
     refreshButton->setCursor(Qt::PointingHandCursor);
     refreshButton->setFixedHeight(34);
@@ -251,20 +261,8 @@ EvidencePage::EvidencePage(QWidget *parent)
         "border-radius:6px; padding:6px 10px; font-weight:800; }"
         "QPushButton:hover { background:#37474f; border-color:#fb8c00; }"
         "QPushButton:pressed { background:#1c252a; }"));
-    slotLayout->addWidget(refreshButton);
-    auto *localTimelineButton = new QPushButton(
-        QStringLiteral("All loaded evidence (Qt)"), slotPanel);
-    localTimelineButton->setObjectName(QStringLiteral("evidenceLocalTimelineButton"));
-    localTimelineButton->setToolTip(QStringLiteral(
-        "Build a time-ordered view from evidence already cached by the existing slot APIs."));
-    localTimelineButton->setCursor(Qt::PointingHandCursor);
-    localTimelineButton->setFixedHeight(34);
-    localTimelineButton->setStyleSheet(QStringLiteral(
-        "QPushButton { background:#e3f2fd; color:#0d47a1; border:1px solid #90caf9; "
-        "border-radius:6px; padding:6px 10px; font-weight:800; }"
-        "QPushButton:hover { background:#bbdefb; border-color:#1976d2; }"));
-    slotLayout->addWidget(localTimelineButton);
-    bodyLayout->addWidget(slotPanel);
+    filterLayout->addWidget(refreshButton);
+    bodyLayout->addWidget(filterPanel);
 
     auto *content = new QWidget(this);
     auto *contentLayout = new QVBoxLayout(content);
@@ -278,12 +276,12 @@ EvidencePage::EvidencePage(QWidget *parent)
     summaryLayout->setContentsMargins(14, 10, 14, 10);
     summaryLayout->setSpacing(12);
     auto *summaryTextLayout = new QVBoxLayout;
-    m_summaryLabel = new QLabel(QStringLiteral("Evidence gallery"), summaryFrame);
+    m_summaryLabel = new QLabel(QStringLiteral("Evidence timeline"), summaryFrame);
     m_summaryLabel->setObjectName(QStringLiteral("evidenceSummaryLabel"));
     m_summaryLabel->setStyleSheet(QStringLiteral(
         "border:none;font-size:17px;font-weight:800;color:#263238;"));
     m_statusLabel = new QLabel(
-        QStringLiteral("Select a slot to compare its first and latest captures."), summaryFrame);
+        QStringLiteral("Showing loaded evidence in capture-time order."), summaryFrame);
     m_statusLabel->setObjectName(QStringLiteral("evidenceStatusLabel"));
     m_statusLabel->setStyleSheet(QStringLiteral("border:none;color:#546e7a;"));
     summaryTextLayout->addWidget(m_summaryLabel);
@@ -311,9 +309,9 @@ EvidencePage::EvidencePage(QWidget *parent)
          QStringLiteral("Evidence 사용 안내"),
          QStringLiteral("주정차 증거를 확인하는 기본 흐름입니다."),
          QStringLiteral(
-             "<b>1. 슬롯 선택</b><br>왼쪽 목록에서 확인할 주차 슬롯을 선택합니다.<br><br>"
-             "<b>2. 캡처 비교</b><br><i>First capture</i>와 <i>Latest capture</i>를 비교합니다.<br><br>"
-             "<b>3. 타임라인 확인</b><br>촬영 시간, 사유, OCR 결과와 이미지 종류를 확인합니다.<br><br>"
+             "<b>1. 시간순 확인</b><br>가장 최근 캡처가 타임라인 위에 표시됩니다.<br><br>"
+             "<b>2. 필터 적용</b><br>슬롯, 차량번호, 사유로 시간순 결과를 좁힙니다.<br><br>"
+             "<b>3. 캡처 선택</b><br>촬영 시간, 사유, OCR 결과와 이미지 종류를 확인합니다.<br><br>"
              "<b>4. 원본 이미지 열기</b><br><i>Open full image</i>로 원본 크기 사진을 확인합니다."),
          QStringLiteral(
              "※ 사진이 표시되지 않으면 서버에 저장된 증거가 없거나 아직 이미지가 전달되지 않은 상태입니다.\n"
@@ -420,16 +418,14 @@ EvidencePage::EvidencePage(QWidget *parent)
 
     updateSummaryMetrics(QString(), SlotState::Vacant, QString(), -1, -1, QString());
 
-    connect(m_slotList, &QListWidget::currentItemChanged, this,
-            [this](QListWidgetItem *current, QListWidgetItem *) {
-                handleSlotChanged(current);
-            });
-    connect(m_slotSearch, &QLineEdit::textChanged,
-            this, &EvidencePage::filterSlots);
     connect(refreshButton, &QPushButton::clicked,
             this, &EvidencePage::requestCurrentEvidence);
-    connect(localTimelineButton, &QPushButton::clicked, this,
-            [this]() { showLocalEvidenceSnapshot(m_latestState); });
+    connect(m_slotFilter, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int) { showLocalEvidenceSnapshot(m_latestState); });
+    connect(m_plateFilter, &QLineEdit::textChanged, this,
+            [this](const QString &) { showLocalEvidenceSnapshot(m_latestState); });
+    connect(m_reasonFilter, &QLineEdit::textChanged, this,
+            [this](const QString &) { showLocalEvidenceSnapshot(m_latestState); });
     connect(m_captureTable, &QTableWidget::currentCellChanged, this,
             [this](int currentRow, int, int, int) {
                 const QTableWidgetItem *captureItem =
@@ -484,121 +480,47 @@ void EvidencePage::setImageLoader(ImageLoader *imageLoader)
 void EvidencePage::render(const ParkingViewState &state)
 {
     m_latestState = state;
-    struct SlotRow {
-        QString id;
-        SlotState state = SlotState::Vacant;
-        int imageCount = -1;
-    };
-    const QString activeSlotId = normalizeParkingSlotId(m_currentSlotId);
-    SlotState activeSlotState = SlotState::Vacant;
-    QString activePlateNumber = state.slotPlateNumbers.value(activeSlotId);
-    bool activeSlotKnown = false;
-    QVector<SlotRow> rows;
-    rows.reserve(state.evSlots.size() + state.parkingSlots.size());
-    for (const EvSlotInfo &slot : state.evSlots) {
-        const int stateCount = state.slotImages.contains(slot.slotId)
-            ? static_cast<int>(state.slotImages.value(slot.slotId).size())
-            : -1;
-        rows.append({slot.slotId, slot.state,
-                     m_slotCaptureCounts.value(slot.slotId, stateCount)});
-        if (normalizeParkingSlotId(slot.slotId) == activeSlotId) {
-            activeSlotState = slot.state;
-            if (!slot.plateNumber.trimmed().isEmpty()) {
-                activePlateNumber = slot.plateNumber;
-            }
-            activeSlotKnown = true;
-        }
-    }
-    for (const ParkingSlotInfo &slot : state.parkingSlots) {
-        const int stateCount = state.slotImages.contains(slot.slotId)
-            ? static_cast<int>(state.slotImages.value(slot.slotId).size())
-            : -1;
-        rows.append({slot.slotId, slot.state,
-                     m_slotCaptureCounts.value(slot.slotId, stateCount)});
-        if (normalizeParkingSlotId(slot.slotId) == activeSlotId) {
-            activeSlotState = slot.state;
-            activeSlotKnown = true;
-        }
-    }
-    std::sort(rows.begin(), rows.end(), [](const SlotRow &left, const SlotRow &right) {
-        const bool leftEv = left.id.startsWith(QStringLiteral("EV-"));
-        const bool rightEv = right.id.startsWith(QStringLiteral("EV-"));
-        if (leftEv != rightEv) {
-            return leftEv;
-        }
-        return slotNumber(left.id) < slotNumber(right.id);
-    });
+    rebuildTimelineFilters(state);
+    showLocalEvidenceSnapshot(state);
+}
 
-    const QString previousSlotId = m_currentSlotId;
-    const bool eventNavigationActive = !m_currentEventId.isEmpty();
-    QSignalBlocker blocker(m_slotList);
-    m_slotList->clear();
-    int preferredRow = -1;
-    int fallbackRow = -1;
-    for (int row = 0; row < rows.size(); ++row) {
-        const SlotRow &slot = rows.at(row);
-        auto *item = new QListWidgetItem(
-            QStringLiteral("%1\n%2  ·  %3")
-                .arg(slot.id, slotStateText(slot.state))
-                .arg(captureCountText(slot.imageCount)),
-            m_slotList);
-        item->setData(Qt::UserRole, slot.id);
-        item->setSizeHint(QSize(0, 52));
-        item->setBackground(QColor(slotStateSurface(slot.state)));
-        item->setData(Qt::UserRole + 1, slotStateText(slot.state));
-        item->setData(Qt::UserRole + 2, slot.imageCount);
-        if (slot.state == SlotState::OvertimeAlert
-            || slot.state == SlotState::NonEvAlert) {
-            item->setForeground(QColor(QStringLiteral("#b71c1c")));
-            QFont font = item->font();
-            font.setBold(true);
-            item->setFont(font);
-        }
-        if (slot.id == previousSlotId) {
-            preferredRow = row;
-        }
-        if (fallbackRow < 0 && (slot.imageCount > 0
-                                || slot.state != SlotState::Vacant)) {
-            fallbackRow = row;
-        }
-    }
-    if (!eventNavigationActive && preferredRow < 0) {
-        preferredRow = fallbackRow >= 0 ? fallbackRow : (rows.isEmpty() ? -1 : 0);
-    }
-    if (preferredRow >= 0) {
-        m_slotList->setCurrentRow(preferredRow);
-        if (!eventNavigationActive) {
-            m_currentSlotId = m_slotList->item(preferredRow)
-                                  ->data(Qt::UserRole).toString();
-        }
-    } else if (!eventNavigationActive) {
-        m_currentSlotId.clear();
-    } else {
-        m_slotList->setCurrentItem(nullptr);
-    }
-    filterSlots(m_slotSearch->text());
-
-    if (m_localTimelineMode) {
-        showLocalEvidenceSnapshot(state);
+void EvidencePage::rebuildTimelineFilters(const ParkingViewState &state)
+{
+    if (!m_slotFilter) {
         return;
     }
 
-    const bool canUpdateActiveEvidence =
-        !eventNavigationActive && activeSlotKnown
-        && !activeSlotId.isEmpty()
-        && state.slotImages.contains(activeSlotId);
-    if (canUpdateActiveEvidence) {
-        const QList<ParkingImageResource> activeImages =
-            state.slotImages.value(activeSlotId);
-        const int activeImageCount = activeImages.size();
-        const int renderedImageCount =
-            m_slotCaptureCounts.value(activeSlotId, m_captures.size());
-        if (activeImageCount != renderedImageCount
-            || activeImageCount != m_captures.size()) {
-            showEvidence(activeSlotId, activeSlotState, activePlateNumber,
-                         activeImages);
-        }
+    QStringList slotIds;
+    for (auto it = state.evSlots.cbegin(); it != state.evSlots.cend(); ++it) {
+        slotIds.append(normalizeParkingSlotId(it.key()));
     }
+    for (auto it = state.parkingSlots.cbegin(); it != state.parkingSlots.cend(); ++it) {
+        slotIds.append(normalizeParkingSlotId(it.key()));
+    }
+    for (auto it = state.slotImages.cbegin(); it != state.slotImages.cend(); ++it) {
+        slotIds.append(normalizeParkingSlotId(it.key()));
+    }
+    slotIds.removeAll(QString());
+    std::sort(slotIds.begin(), slotIds.end(), [](const QString &left,
+                                                  const QString &right) {
+        const bool leftEv = left.startsWith(QStringLiteral("EV-"));
+        const bool rightEv = right.startsWith(QStringLiteral("EV-"));
+        if (leftEv != rightEv) {
+            return leftEv;
+        }
+        return slotNumber(left) < slotNumber(right);
+    });
+    slotIds.removeDuplicates();
+
+    const QString selectedSlotId = m_slotFilter->currentData().toString();
+    QSignalBlocker blocker(m_slotFilter);
+    m_slotFilter->clear();
+    m_slotFilter->addItem(QStringLiteral("All slots"), QString());
+    for (const QString &slotId : slotIds) {
+        m_slotFilter->addItem(slotId, slotId);
+    }
+    const int selectedIndex = m_slotFilter->findData(selectedSlotId);
+    m_slotFilter->setCurrentIndex(selectedIndex >= 0 ? selectedIndex : 0);
 }
 
 void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
@@ -607,7 +529,13 @@ void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
     m_localTimelineMode = true;
     m_currentEventId.clear();
     m_currentSessionId = -1;
-    m_currentSlotId.clear();
+    const QString selectedSlotId = m_slotFilter
+        ? m_slotFilter->currentData().toString() : QString();
+    const QString plateNeedle = m_plateFilter
+        ? m_plateFilter->text().trimmed() : QString();
+    const QString reasonNeedle = m_reasonFilter
+        ? m_reasonFilter->text().trimmed() : QString();
+    m_currentSlotId = selectedSlotId;
     m_plateNumber.clear();
     ++m_requestGeneration;
     m_requestTargets.clear();
@@ -624,6 +552,20 @@ void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
             entry.plateNumber = plateForSlot(state, slotId);
             entry.state = stateForSlot(state, slotId);
             entry.capture = capture;
+            if (!selectedSlotId.isEmpty() && entry.slotId != selectedSlotId) {
+                continue;
+            }
+            if (!plateNeedle.isEmpty()
+                && !entry.plateNumber.contains(plateNeedle, Qt::CaseInsensitive)
+                && !entry.capture.ocrResult.contains(plateNeedle,
+                                                     Qt::CaseInsensitive)) {
+                continue;
+            }
+            if (!reasonNeedle.isEmpty()
+                && !captureReasonText(entry.capture.reason).contains(
+                    reasonNeedle, Qt::CaseInsensitive)) {
+                continue;
+            }
             m_localTimelineEntries.append(entry);
         }
     }
@@ -632,7 +574,10 @@ void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
                      [](const LocalTimelineEntry &left,
                         const LocalTimelineEntry &right) {
         if (left.capture.timestamp.isValid() != right.capture.timestamp.isValid()) {
-            return left.capture.timestamp.isValid();
+            // The table is rendered in reverse order (newest first), so keep
+            // timestamp-less legacy records at the beginning of this backing
+            // list and therefore at the bottom of the visible timeline.
+            return !left.capture.timestamp.isValid();
         }
         if (left.capture.timestamp.isValid()
             && left.capture.timestamp != right.capture.timestamp) {
@@ -651,12 +596,17 @@ void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
     m_summaryLabel->setText(QStringLiteral("Qt local evidence timeline"));
     m_summaryLabel->setStyleSheet(statePillStyle(SlotState::Acked));
     m_statusLabel->setText(m_captures.isEmpty()
-        ? QStringLiteral("No cached evidence is available. Refresh a slot first, or use v0.2 to load current sessions.")
-        : QStringLiteral("%1 capture groups from %2 loaded slot(s), ordered locally by captured time. Historical sessions are not fetched.")
-              .arg(m_captures.size())
-              .arg(state.slotImages.size()));
-    updateSummaryMetrics(QStringLiteral("All loaded slots"), SlotState::Acked,
-                         QString(), -1, m_captures.size(),
+        ? QStringLiteral("No loaded evidence matches the current filters.")
+        : QStringLiteral("%1 capture groups ordered by captured time (newest first). Historical sessions are not fetched in v0.1.")
+              .arg(m_captures.size()));
+    updateSummaryMetrics(selectedSlotId.isEmpty()
+                             ? QStringLiteral("All slots") : selectedSlotId,
+                         selectedSlotId.isEmpty()
+                             ? SlotState::Acked
+                             : stateForSlot(state, selectedSlotId),
+                         selectedSlotId.isEmpty()
+                             ? QString() : plateForSlot(state, selectedSlotId),
+                         -1, m_captures.size(),
                          QStringLiteral("Qt local snapshot"));
     renderCaptureTable();
     renderFirstCapture();
@@ -669,28 +619,25 @@ void EvidencePage::showEvidence(
     const QString &plateNumber,
     const QList<ParkingImageResource> &images)
 {
-    resetLocalTimeline();
-    if (!m_currentSlotId.isEmpty() && slotId != m_currentSlotId) {
+    const QString normalizedSlotId = normalizeParkingSlotId(slotId);
+    if (normalizedSlotId.isEmpty()) {
         return;
     }
-    m_currentSlotId = slotId;
-    m_plateNumber = plateNumber.isEmpty() ? QStringLiteral("-") : plateNumber;
-    ++m_requestGeneration;
-    m_requestTargets.clear();
-    m_captures = buildParkingCaptureGroups(images);
-    updateSlotCaptureCount(slotId, m_captures.size());
-    m_summaryLabel->setText(QStringLiteral("Reviewing active parking evidence"));
-    m_summaryLabel->setStyleSheet(statePillStyle(state));
-    m_statusLabel->setText(
-        m_captures.isEmpty()
-            ? QStringLiteral("No evidence images are available for the active parking session.")
-            : QStringLiteral("%1 capture%2 loaded. Select a timeline row to compare it with the first capture.")
-                  .arg(m_captures.size())
-                  .arg(m_captures.size() == 1 ? QString() : QStringLiteral("s")));
-    updateSummaryMetrics(slotId, state, m_plateNumber, -1, m_captures.size(), QString());
-    renderCaptureTable();
-    renderFirstCapture();
-    renderSelectedCapture(m_captures.size() > 1 ? m_captures.size() - 1 : -1);
+    m_latestState.slotImages.insert(normalizedSlotId, images);
+    m_latestState.slotPlateNumbers.insert(normalizedSlotId, plateNumber);
+    if (normalizedSlotId.startsWith(QStringLiteral("EV-"))) {
+        EvSlotInfo slot = m_latestState.evSlots.value(normalizedSlotId);
+        slot.slotId = normalizedSlotId;
+        slot.state = state;
+        slot.plateNumber = plateNumber;
+        m_latestState.evSlots.insert(normalizedSlotId, slot);
+    } else {
+        ParkingSlotInfo slot = m_latestState.parkingSlots.value(normalizedSlotId);
+        slot.slotId = normalizedSlotId;
+        slot.state = state;
+        m_latestState.parkingSlots.insert(normalizedSlotId, slot);
+    }
+    showLocalEvidenceSnapshot(m_latestState);
 }
 
 void EvidencePage::showLoading(const QString &slotId)
@@ -736,45 +683,18 @@ void EvidencePage::showError(const QString &slotId, const QString &message)
 
 void EvidencePage::openEvent(const QString &eventId, const QString &rawSlotId)
 {
-    resetLocalTimeline();
     const QString slotId = normalizeParkingSlotId(rawSlotId);
+    if (m_slotFilter) {
+        const int index = m_slotFilter->findData(slotId);
+        if (index >= 0) {
+            m_slotFilter->setCurrentIndex(index);
+        }
+    }
     m_currentEventId = eventId.trimmed();
     m_currentSlotId = slotId;
     m_currentSessionId = -1;
-
-    QSignalBlocker blocker(m_slotList);
-    m_slotSearch->clear();
-    QListWidgetItem *matchingItem = nullptr;
-    for (int row = 0; row < m_slotList->count(); ++row) {
-        QListWidgetItem *item = m_slotList->item(row);
-        if (item->data(Qt::UserRole).toString() == slotId) {
-            matchingItem = item;
-            break;
-        }
-    }
-    m_slotList->setCurrentItem(matchingItem);
-    if (matchingItem) {
-        m_slotList->scrollToItem(
-            matchingItem, QAbstractItemView::PositionAtCenter);
-    }
-
-    ++m_requestGeneration;
-    m_requestTargets.clear();
-    m_captures.clear();
-    m_captureTable->setRowCount(0);
-    m_summaryLabel->setText(
-        QStringLiteral("Resolving event evidence"));
-    m_summaryLabel->setStyleSheet(statePillStyle(SlotState::Vacant));
     m_statusLabel->setText(
-        QStringLiteral("Resolving the parking session recorded by this event..."));
-    updateSummaryMetrics(slotId, SlotState::Vacant, QString(), -1, -1,
-                         m_currentEventId);
-    clearCaptureCard(m_firstImageLabel, m_firstTitleLabel,
-                     m_firstMetadataLabel, m_firstOpenButton,
-                     QStringLiteral("First capture"), QStringLiteral("Loading..."));
-    clearCaptureCard(m_selectedImageLabel, m_selectedTitleLabel,
-                     m_selectedMetadataLabel, m_selectedOpenButton,
-                     QStringLiteral("Latest capture"), QStringLiteral("Loading..."));
+        QStringLiteral("Resolving event evidence into the time-ordered timeline..."));
 }
 
 void EvidencePage::showEventEvidence(
@@ -791,19 +711,6 @@ void EvidencePage::showEventEvidence(
     m_currentSessionId = sessionId;
     showEvidence(slotId, state, plateNumber, images);
     m_currentEventId = eventId;
-    m_summaryLabel->setText(
-        QStringLiteral("Reviewing event-linked evidence"));
-    m_summaryLabel->setStyleSheet(statePillStyle(state));
-    m_statusLabel->setText(
-        m_captures.isEmpty()
-            ? QStringLiteral("No evidence images are stored for this event session.")
-            : QStringLiteral(
-                  "%1 capture%2 loaded from the event session. Select a timeline row to compare it with the first capture.")
-                  .arg(m_captures.size())
-                  .arg(m_captures.size() == 1 ? QString()
-                                              : QStringLiteral("s")));
-    updateSummaryMetrics(slotId, state, plateNumber, sessionId,
-                         m_captures.size(), eventId);
 }
 
 void EvidencePage::showEventError(const QString &eventId,
@@ -833,30 +740,18 @@ void EvidencePage::showEventError(const QString &eventId,
 bool EvidencePage::selectSlot(const QString &rawSlotId)
 {
     const QString slotId = normalizeParkingSlotId(rawSlotId);
-    if (slotId.isEmpty()) {
+    if (slotId.isEmpty() || !m_slotFilter) {
         return false;
     }
-
-    m_slotSearch->clear();
-    for (int row = 0; row < m_slotList->count(); ++row) {
-        QListWidgetItem *item = m_slotList->item(row);
-        if (item->data(Qt::UserRole).toString() != slotId) {
-            continue;
-        }
-
-        const bool selectionChanged = m_slotList->currentItem() != item;
-        resetLocalTimeline();
-        m_currentEventId.clear();
-        m_currentSessionId = -1;
-        m_slotList->setCurrentItem(item);
-        m_slotList->scrollToItem(item, QAbstractItemView::PositionAtCenter);
-        if (!selectionChanged) {
-            m_currentSlotId = slotId;
-            requestCurrentEvidence();
-        }
-        return true;
+    const int index = m_slotFilter->findData(slotId);
+    if (index < 0) {
+        return false;
     }
-    return false;
+    m_currentEventId.clear();
+    m_currentSessionId = -1;
+    m_slotFilter->setCurrentIndex(index);
+    showLocalEvidenceSnapshot(m_latestState);
+    return true;
 }
 
 QString EvidencePage::currentSlotId() const
@@ -881,34 +776,7 @@ void EvidencePage::requestCurrentEvidence()
         emit eventEvidenceRequested(m_currentEventId);
         return;
     }
-    if (m_currentSlotId.isEmpty()) {
-        m_statusLabel->setText(QStringLiteral("No parking slot is available."));
-        return;
-    }
-    showLoading(m_currentSlotId);
-    emit slotEvidenceRequested(m_currentSlotId);
-}
-
-void EvidencePage::handleSlotChanged(QListWidgetItem *current)
-{
-    if (!current) {
-        return;
-    }
-    resetLocalTimeline();
-    m_currentEventId.clear();
-    m_currentSessionId = -1;
-    m_currentSlotId = current->data(Qt::UserRole).toString();
-    requestCurrentEvidence();
-}
-
-void EvidencePage::filterSlots(const QString &text)
-{
-    const QString needle = text.trimmed();
-    for (int row = 0; row < m_slotList->count(); ++row) {
-        QListWidgetItem *item = m_slotList->item(row);
-        item->setHidden(!needle.isEmpty()
-                        && !item->text().contains(needle, Qt::CaseInsensitive));
-    }
+    showLocalEvidenceSnapshot(m_latestState);
 }
 
 void EvidencePage::renderCaptureTable()
@@ -1021,7 +889,7 @@ QString EvidencePage::plateForSlot(const ParkingViewState &state,
 
 void EvidencePage::resetLocalTimeline()
 {
-    m_localTimelineMode = false;
+    m_localTimelineMode = true;
     m_localTimelineEntries.clear();
 }
 
@@ -1033,23 +901,6 @@ void EvidencePage::updateSlotCaptureCount(const QString &slotId, int captureCoun
     }
 
     m_slotCaptureCounts.insert(normalizedSlotId, captureCount);
-    for (int row = 0; row < m_slotList->count(); ++row) {
-        QListWidgetItem *item = m_slotList->item(row);
-        if (!item || item->data(Qt::UserRole).toString() != normalizedSlotId) {
-            continue;
-        }
-
-        const QString stateText =
-            item->data(Qt::UserRole + 1).toString().trimmed();
-        item->setData(Qt::UserRole + 2, captureCount);
-        item->setText(QStringLiteral("%1\n%2  ·  %3")
-                          .arg(normalizedSlotId,
-                               stateText.isEmpty()
-                                   ? QStringLiteral("Unknown")
-                                   : stateText,
-                               captureCountText(captureCount)));
-        break;
-    }
 }
 
 void EvidencePage::updateSummaryMetrics(const QString &slotId,

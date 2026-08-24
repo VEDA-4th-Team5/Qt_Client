@@ -8,7 +8,8 @@
 #include <QEventLoop>
 #include <QImage>
 #include <QLabel>
-#include <QListWidget>
+#include <QComboBox>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTcpServer>
@@ -32,9 +33,10 @@ int main(int argc, char **argv)
     state.parkingSlots.insert(generalSlot.slotId, generalSlot);
     page.render(state);
 
-    QListWidget *slotList = page.findChild<QListWidget *>(QStringLiteral("evidenceSlotList"));
-    if (!slotList || slotList->count() != 2) return 1;
-    if (page.currentSlotId() != QStringLiteral("EV-02")) return 2;
+    QComboBox *slotFilter = page.findChild<QComboBox *>(
+        QStringLiteral("evidenceSlotFilter"));
+    if (!slotFilter || slotFilter->count() != 3) return 1;
+    if (!page.currentSlotId().isEmpty()) return 2;
 
     int requestCount = 0;
     QString requestedSlot;
@@ -44,15 +46,15 @@ int main(int argc, char **argv)
         requestedSlot = slotId;
     });
     page.requestCurrentEvidence();
-    if (requestCount != 1 || requestedSlot != QStringLiteral("EV-02")) return 3;
+    if (requestCount != 0 || !requestedSlot.isEmpty()) return 3;
     if (!page.selectSlot(QStringLiteral("P01"))
         || page.currentSlotId() != QStringLiteral("P-01")
-        || requestCount != 2 || requestedSlot != QStringLiteral("P-01")) return 13;
+        || requestCount != 0) return 13;
     if (!page.selectSlot(QStringLiteral("EV02"))
         || page.currentSlotId() != QStringLiteral("EV-02")
-        || requestCount != 3 || requestedSlot != QStringLiteral("EV-02")) return 14;
+        || requestCount != 0) return 14;
     if (!page.selectSlot(QStringLiteral("EV-02"))
-        || requestCount != 4 || requestedSlot != QStringLiteral("EV-02")) return 15;
+        || requestCount != 0) return 15;
 
     QImage sampleImage(8, 8, QImage::Format_RGB32);
     sampleImage.fill(QColor(QStringLiteral("#1976d2")));
@@ -113,17 +115,18 @@ int main(int argc, char **argv)
     if (page.captureCount() != 2) return 4;
     QTableWidget *table = page.findChild<QTableWidget *>(
         QStringLiteral("evidenceCaptureTable"));
-    if (!table || table->rowCount() != 2 || table->currentRow() != 1) return 5;
+    if (!table || table->rowCount() != 2 || table->currentRow() != 0) return 5;
     QLabel *summary = page.findChild<QLabel *>(QStringLiteral("evidenceSummaryLabel"));
-    if (!summary || !summary->text().contains(QStringLiteral("active parking evidence"))) return 6;
+    if (!summary || !summary->text().contains(QStringLiteral("local evidence timeline"))) return 6;
     QLabel *plateMetric = page.findChild<QLabel *>(QStringLiteral("evidencePlateMetric"));
     QLabel *captureMetric = page.findChild<QLabel *>(QStringLiteral("evidenceCaptureMetric"));
     if (!plateMetric || !plateMetric->text().contains(QStringLiteral("34B7788"))) return 27;
     if (!captureMetric || !captureMetric->text().contains(QStringLiteral("2 image groups"))) return 28;
     QLabel *firstTitle = page.findChild<QLabel *>(QStringLiteral("evidenceFirstTitle"));
     QLabel *selectedTitle = page.findChild<QLabel *>(QStringLiteral("evidenceSelectedTitle"));
-    if (!firstTitle || !firstTitle->text().startsWith(QStringLiteral("First capture"))) return 7;
-    if (!selectedTitle || selectedTitle->text() != QStringLiteral("Latest capture")) return 8;
+    if (!firstTitle || !firstTitle->text().startsWith(
+            QStringLiteral("Earliest loaded capture"))) return 7;
+    if (!selectedTitle || selectedTitle->text() != QStringLiteral("Selected loaded capture")) return 8;
     QTimer::singleShot(3000, &imageLoadLoop, &QEventLoop::quit);
     imageLoadLoop.exec();
     if (loadedImageCount != 2) return 11;
@@ -149,14 +152,25 @@ int main(int argc, char **argv)
     generalCapture.timestamp = QDateTime::fromString(
         QStringLiteral("2026-07-27T10:07:01+09:00"), Qt::ISODate);
     state.slotImages.insert(QStringLiteral("P-01"), {generalCapture});
+    slotFilter->setCurrentIndex(0);
     page.showLocalEvidenceSnapshot(state);
     if (page.captureCount() != 4) return 29;
-    QPushButton *localTimelineButton = page.findChild<QPushButton *>(
-        QStringLiteral("evidenceLocalTimelineButton"));
-    if (!localTimelineButton || !table || table->columnCount() != 6
+    if (!table || table->columnCount() != 6
         || table->rowCount() != 4
         || !table->item(0, 1)
         || table->item(0, 1)->text() != QStringLiteral("P-01")) return 30;
+    QLineEdit *plateFilter = page.findChild<QLineEdit *>(
+        QStringLiteral("evidencePlateFilter"));
+    QLineEdit *reasonFilter = page.findChild<QLineEdit *>(
+        QStringLiteral("evidenceReasonFilter"));
+    if (!plateFilter || !reasonFilter) return 31;
+    plateFilter->setText(QStringLiteral("34B7788"));
+    if (page.captureCount() != 3) return 32;
+    reasonFilter->setText(QStringLiteral("overstay"));
+    if (page.captureCount() != 1) return 33;
+    plateFilter->clear();
+    reasonFilter->clear();
+    if (page.captureCount() != 4) return 34;
 
     int eventRequestCount = 0;
     QString requestedEventId;
@@ -177,7 +191,7 @@ int main(int argc, char **argv)
         SlotState::OvertimeAlert, QStringLiteral("34B7788"),
         {firstOriginal, latestOriginal, latestEnhanced});
     if (page.captureCount() != 2
-        || !summary->text().contains(QStringLiteral("event-linked evidence"))
+        || !summary->text().contains(QStringLiteral("local evidence timeline"))
         || !captureMetric->text().contains(QStringLiteral("2 image groups"))) return 25;
 
     EventsPage eventsPage;
@@ -219,7 +233,7 @@ int main(int argc, char **argv)
         QStringLiteral("evidenceHelpSteps"));
     QLabel *helpNote = helpDialog->findChild<QLabel *>(
         QStringLiteral("evidenceHelpNote"));
-    if (!helpSteps || !helpSteps->text().contains(QStringLiteral("First capture"))) return 21;
+    if (!helpSteps || !helpSteps->text().contains(QStringLiteral("시간순 확인"))) return 21;
     if (!helpNote || !helpNote->text().contains(QStringLiteral("서버"))) return 22;
     helpDialog->close();
     QApplication::processEvents();

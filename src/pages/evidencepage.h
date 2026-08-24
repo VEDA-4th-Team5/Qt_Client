@@ -14,10 +14,9 @@
 
 class EvidenceImageLabel;
 class ImageLoader;
+class QComboBox;
 class QLabel;
 class QLineEdit;
-class QListWidget;
-class QListWidgetItem;
 class QPushButton;
 class QTableWidget;
 
@@ -58,8 +57,7 @@ signals:
     void eventEvidenceRequested(const QString &eventId);
 
 private:
-    void handleSlotChanged(QListWidgetItem *current);
-    void filterSlots(const QString &text);
+    void rebuildTimelineFilters(const ParkingViewState &state);
     void renderCaptureTable();
     void renderFirstCapture();
     void renderSelectedCapture(int row);
@@ -99,8 +97,9 @@ private:
     void resetLocalTimeline();
 
     QPointer<ImageLoader> m_imageLoader;
-    QListWidget *m_slotList = nullptr;
-    QLineEdit *m_slotSearch = nullptr;
+    QComboBox *m_slotFilter = nullptr;
+    QLineEdit *m_plateFilter = nullptr;
+    QLineEdit *m_reasonFilter = nullptr;
     QLabel *m_summaryLabel = nullptr;
     QLabel *m_statusLabel = nullptr;
     QLabel *m_slotMetricLabel = nullptr;
@@ -123,7 +122,7 @@ private:
     QVector<ParkingCaptureGroup> m_captures;
     QVector<LocalTimelineEntry> m_localTimelineEntries;
     ParkingViewState m_latestState;
-    bool m_localTimelineMode = false;
+    bool m_localTimelineMode = true;
     QHash<QString, int> m_slotCaptureCounts;
     QHash<QString, EvidenceImageLabel *> m_requestTargets;
     quint64 m_requestGeneration = 0;

@@ -1,15 +1,16 @@
 # Evidence Qt-local v0.1
 
 This branch deliberately avoids the proposed `GET /api/v1/parking-evidence`
-endpoint. The **All loaded evidence (Qt)** control builds one locally sorted
-timeline from `ParkingViewState::slotImages`, which has already arrived through
-the existing slot and session-image APIs.
+endpoint. The Evidence page opens as one locally sorted timeline from
+`ParkingViewState::slotImages`, which has already arrived through the existing
+slot and session-image APIs. Slots are filters, not the primary navigation.
 
 ## What is processed in Qt
 
 - Groups image variants into capture groups.
 - Attaches the known slot, slot state, and plate number.
-- Orders all loaded capture groups by `captured_at` in the UI.
+- Shows all loaded capture groups by `captured_at DESC` in the UI.
+- Narrows the time-ordered result with Slot, Plate, and Reason filters.
 - Displays the selected image using the existing image loader.
 
 ## Deliberate boundary
