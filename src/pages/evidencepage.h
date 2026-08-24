@@ -57,6 +57,7 @@ signals:
     void eventEvidenceRequested(const QString &eventId);
 
 private:
+    void mergeEvidenceCache(const ParkingViewState &state);
     void rebuildTimelineFilters(const ParkingViewState &state);
     void renderCaptureTable();
     void renderFirstCapture();
@@ -122,6 +123,10 @@ private:
     QVector<ParkingCaptureGroup> m_captures;
     QVector<LocalTimelineEntry> m_localTimelineEntries;
     ParkingViewState m_latestState;
+    // Retains non-empty image lists observed during this application run. The
+    // parking status snapshot is allowed to omit images without erasing the
+    // locally available Evidence timeline.
+    ParkingViewState m_evidenceCacheState;
     bool m_localTimelineMode = true;
     QHash<QString, int> m_slotCaptureCounts;
     QHash<QString, EvidenceImageLabel *> m_requestTargets;

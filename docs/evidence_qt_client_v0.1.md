@@ -3,7 +3,9 @@
 This branch deliberately avoids the proposed `GET /api/v1/parking-evidence`
 endpoint. The Evidence page opens as one locally sorted timeline from
 `ParkingViewState::slotImages`, which has already arrived through the existing
-slot and session-image APIs. Slots are filters, not the primary navigation.
+slot and session-image APIs. During one app run, it retains the last non-empty
+images observed for each slot in an Evidence-only Qt cache. Slots are filters,
+not the primary navigation.
 
 ## What is processed in Qt
 
@@ -12,11 +14,14 @@ slot and session-image APIs. Slots are filters, not the primary navigation.
 - Shows all loaded capture groups by `captured_at DESC` in the UI.
 - Narrows the time-ordered result with Slot, Plate, and Reason filters.
 - Displays the selected image using the existing image loader.
+- Keeps already loaded images visible when a subsequent parking-status poll
+  omits its `images` field.
 
 ## Deliberate boundary
 
-It does **not** obtain unrequested slots or historical sessions. An empty
-timeline can therefore mean either “there is no evidence” or “this client has
-not loaded evidence for that slot yet.” v0.2 addresses the first gap by asking
-for each currently known slot's current session, but neither version can obtain
-all historical sessions without a server-side history query.
+It does **not** obtain unrequested slots or historical sessions. The local
+cache is cleared when the app restarts and is not a server-side evidence store.
+An empty timeline can therefore mean either “there is no evidence” or “this
+client has not loaded evidence for that slot yet.” v0.2 addresses the first gap
+by asking for each currently known slot's current session, but neither version
+can obtain all historical sessions without a server-side history query.

@@ -483,9 +483,44 @@ void EvidencePage::setImageLoader(ImageLoader *imageLoader)
 
 void EvidencePage::render(const ParkingViewState &state)
 {
-    m_latestState = state;
-    rebuildTimelineFilters(state);
-    showLocalEvidenceSnapshot(state);
+    mergeEvidenceCache(state);
+    m_latestState = m_evidenceCacheState;
+    rebuildTimelineFilters(m_latestState);
+    showLocalEvidenceSnapshot(m_latestState);
+}
+
+void EvidencePage::mergeEvidenceCache(const ParkingViewState &state)
+{
+    // A status-poll response is a current-state view, not an evidence-history
+    // response. Keep the last non-empty image list observed for each slot
+    // while the client is running, so a later poll that omits `images` cannot
+    // make a capture disappear from this v0.1 local timeline.
+    for (auto it = state.evSlots.cbegin(); it != state.evSlots.cend(); ++it) {
+        const QString slotId = normalizeParkingSlotId(it.key());
+        if (!slotId.isEmpty()) {
+            m_evidenceCacheState.evSlots.insert(slotId, it.value());
+        }
+    }
+    for (auto it = state.parkingSlots.cbegin(); it != state.parkingSlots.cend(); ++it) {
+        const QString slotId = normalizeParkingSlotId(it.key());
+        if (!slotId.isEmpty()) {
+            m_evidenceCacheState.parkingSlots.insert(slotId, it.value());
+        }
+    }
+    for (auto it = state.slotPlateNumbers.cbegin(); it != state.slotPlateNumbers.cend(); ++it) {
+        const QString slotId = normalizeParkingSlotId(it.key());
+        if (!slotId.isEmpty()) {
+            m_evidenceCacheState.slotPlateNumbers.insert(slotId, it.value());
+        }
+    }
+    for (auto it = state.slotImages.cbegin(); it != state.slotImages.cend(); ++it) {
+        const QString slotId = normalizeParkingSlotId(it.key());
+        if (!slotId.isEmpty() && !it.value().isEmpty()) {
+            m_evidenceCacheState.slotImages.insert(slotId, it.value());
+        }
+    }
+    m_evidenceCacheState.generatedAt = state.generatedAt;
+    m_evidenceCacheState.apiEnabled = state.apiEnabled;
 }
 
 void EvidencePage::rebuildTimelineFilters(const ParkingViewState &state)
@@ -601,7 +636,7 @@ void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
     m_summaryLabel->setStyleSheet(statePillStyle(SlotState::Acked));
     m_statusLabel->setText(m_captures.isEmpty()
         ? QStringLiteral("No loaded evidence matches the current filters.")
-        : QStringLiteral("%1 capture groups ordered by captured time (newest first). Historical sessions are not fetched in v0.1.")
+        : QStringLiteral("%1 cached capture groups ordered by captured time (newest first). Historical sessions are not fetched in v0.1.")
               .arg(m_captures.size()));
     updateSummaryMetrics(selectedSlotId.isEmpty()
                              ? QStringLiteral("All slots") : selectedSlotId,
@@ -611,7 +646,7 @@ void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
                          selectedSlotId.isEmpty()
                              ? QString() : plateForSlot(state, selectedSlotId),
                          -1, m_captures.size(),
-                         QStringLiteral("Qt local snapshot"));
+                         QStringLiteral("qt-local-cache"));
     renderCaptureTable();
     renderFirstCapture();
     renderSelectedCapture(m_captures.isEmpty() ? -1 : m_captures.size() - 1);
@@ -627,20 +662,24 @@ void EvidencePage::showEvidence(
     if (normalizedSlotId.isEmpty()) {
         return;
     }
-    m_latestState.slotImages.insert(normalizedSlotId, images);
-    m_latestState.slotPlateNumbers.insert(normalizedSlotId, plateNumber);
+    if (!images.isEmpty()) {
+        m_evidenceCacheState.slotImages.insert(normalizedSlotId, images);
+    }
+    m_evidenceCacheState.slotPlateNumbers.insert(normalizedSlotId, plateNumber);
     if (normalizedSlotId.startsWith(QStringLiteral("EV-"))) {
-        EvSlotInfo slot = m_latestState.evSlots.value(normalizedSlotId);
+        EvSlotInfo slot = m_evidenceCacheState.evSlots.value(normalizedSlotId);
         slot.slotId = normalizedSlotId;
         slot.state = state;
         slot.plateNumber = plateNumber;
-        m_latestState.evSlots.insert(normalizedSlotId, slot);
+        m_evidenceCacheState.evSlots.insert(normalizedSlotId, slot);
     } else {
-        ParkingSlotInfo slot = m_latestState.parkingSlots.value(normalizedSlotId);
+        ParkingSlotInfo slot = m_evidenceCacheState.parkingSlots.value(normalizedSlotId);
         slot.slotId = normalizedSlotId;
         slot.state = state;
-        m_latestState.parkingSlots.insert(normalizedSlotId, slot);
+        m_evidenceCacheState.parkingSlots.insert(normalizedSlotId, slot);
     }
+    m_latestState = m_evidenceCacheState;
+    rebuildTimelineFilters(m_latestState);
     showLocalEvidenceSnapshot(m_latestState);
 }
 
@@ -934,6 +973,8 @@ void EvidencePage::updateSummaryMetrics(const QString &slotId,
         QString sessionText;
         if (sessionId > 0) {
             sessionText = QStringLiteral("Session %1").arg(sessionId);
+        } else if (eventId == QStringLiteral("qt-local-cache")) {
+            sessionText = QStringLiteral("Qt cache");
         } else if (!eventId.trimmed().isEmpty()) {
             sessionText = QStringLiteral("Event linked");
         } else {

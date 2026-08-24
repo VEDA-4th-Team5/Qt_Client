@@ -119,8 +119,10 @@ int main(int argc, char **argv)
     QLabel *summary = page.findChild<QLabel *>(QStringLiteral("evidenceSummaryLabel"));
     if (!summary || !summary->text().contains(QStringLiteral("local evidence timeline"))) return 6;
     QLabel *plateMetric = page.findChild<QLabel *>(QStringLiteral("evidencePlateMetric"));
+    QLabel *sessionMetric = page.findChild<QLabel *>(QStringLiteral("evidenceSessionMetric"));
     QLabel *captureMetric = page.findChild<QLabel *>(QStringLiteral("evidenceCaptureMetric"));
     if (!plateMetric || !plateMetric->text().contains(QStringLiteral("34B7788"))) return 27;
+    if (!sessionMetric || sessionMetric->text() != QStringLiteral("Qt cache")) return 36;
     if (!captureMetric || !captureMetric->text().contains(QStringLiteral("2 image groups"))) return 28;
     QLabel *firstTitle = page.findChild<QLabel *>(QStringLiteral("evidenceFirstTitle"));
     QLabel *selectedTitle = page.findChild<QLabel *>(QStringLiteral("evidenceSelectedTitle"));
@@ -152,6 +154,11 @@ int main(int argc, char **argv)
                             {firstOriginal, latestOriginal, newestOriginal});
     page.render(state);
     if (page.captureCount() != 3) return 26;
+
+    ParkingViewState imageOmittingSnapshot = state;
+    imageOmittingSnapshot.slotImages.clear();
+    page.render(imageOmittingSnapshot);
+    if (page.captureCount() != 3) return 37;
 
     ParkingImageResource generalCapture = firstOriginal;
     generalCapture.imageId = 40;
