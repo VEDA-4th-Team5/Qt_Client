@@ -145,6 +145,20 @@ int main(int argc, char **argv)
     if (!firstOpen || !firstOpen->isEnabled()
         || !selectedOpen || !selectedOpen->isEnabled()) return 12;
 
+    const int imageLoadCountBeforeSelection = loadedImageCount;
+    QEventLoop selectionLoadLoop;
+    QObject::connect(&imageLoader, &ImageLoader::imageLoaded,
+                     &selectionLoadLoop, [&](const QString &, const QPixmap &) {
+        if (loadedImageCount > imageLoadCountBeforeSelection) {
+            selectionLoadLoop.quit();
+        }
+    });
+    table->setCurrentCell(1, 0);
+    QTimer::singleShot(3000, &selectionLoadLoop, &QEventLoop::quit);
+    selectionLoadLoop.exec();
+    if (loadedImageCount != imageLoadCountBeforeSelection + 1
+        || selectedImage->pixmap().isNull()) return 38;
+
     ParkingImageResource newestOriginal = latestOriginal;
     newestOriginal.imageId = 30;
     newestOriginal.timestamp = QDateTime::fromString(

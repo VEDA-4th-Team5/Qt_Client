@@ -57,7 +57,7 @@ signals:
     void eventEvidenceRequested(const QString &eventId);
 
 private:
-    void mergeEvidenceCache(const ParkingViewState &state);
+    bool mergeEvidenceCache(const ParkingViewState &state);
     void rebuildTimelineFilters(const ParkingViewState &state);
     void renderCaptureTable();
     void renderFirstCapture();
@@ -128,6 +128,7 @@ private:
     // locally available Evidence timeline.
     ParkingViewState m_evidenceCacheState;
     bool m_localTimelineMode = true;
+    bool m_localTimelineInitialized = false;
     QHash<QString, int> m_slotCaptureCounts;
     QHash<QString, EvidenceImageLabel *> m_requestTargets;
     quint64 m_requestGeneration = 0;

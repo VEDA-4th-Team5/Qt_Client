@@ -122,6 +122,30 @@ QString captureCountText(int imageCount)
         .arg(imageCount == 1 ? QString() : QStringLiteral("s"));
 }
 
+bool sameImageResources(const QList<ParkingImageResource> &left,
+                        const QList<ParkingImageResource> &right)
+{
+    if (left.size() != right.size()) {
+        return false;
+    }
+    for (qsizetype index = 0; index < left.size(); ++index) {
+        const ParkingImageResource &leftImage = left.at(index);
+        const ParkingImageResource &rightImage = right.at(index);
+        if (leftImage.url != rightImage.url
+            || leftImage.timestamp != rightImage.timestamp
+            || leftImage.role != rightImage.role
+            || leftImage.processing != rightImage.processing
+            || leftImage.imageId != rightImage.imageId
+            || leftImage.sessionId != rightImage.sessionId
+            || leftImage.enhancementType != rightImage.enhancementType
+            || leftImage.ocrResult != rightImage.ocrResult
+            || leftImage.evidenceReason != rightImage.evidenceReason) {
+            return false;
+        }
+    }
+    return true;
+}
+
 QString slotStateAccent(SlotState state)
 {
     switch (state) {
@@ -483,18 +507,25 @@ void EvidencePage::setImageLoader(ImageLoader *imageLoader)
 
 void EvidencePage::render(const ParkingViewState &state)
 {
-    mergeEvidenceCache(state);
+    const bool evidenceChanged = mergeEvidenceCache(state);
     m_latestState = m_evidenceCacheState;
     rebuildTimelineFilters(m_latestState);
-    showLocalEvidenceSnapshot(m_latestState);
+    // State updates arrive for slot and alarm changes too. Rebuilding the
+    // capture cards for each of those updates clears the in-flight image
+    // request before it can complete. Keep the selected capture intact until
+    // the local evidence cache itself changes.
+    if (evidenceChanged || !m_localTimelineInitialized) {
+        showLocalEvidenceSnapshot(m_latestState);
+    }
 }
 
-void EvidencePage::mergeEvidenceCache(const ParkingViewState &state)
+bool EvidencePage::mergeEvidenceCache(const ParkingViewState &state)
 {
     // A status-poll response is a current-state view, not an evidence-history
     // response. Keep the last non-empty image list observed for each slot
     // while the client is running, so a later poll that omits `images` cannot
     // make a capture disappear from this v0.1 local timeline.
+    bool evidenceChanged = false;
     for (auto it = state.evSlots.cbegin(); it != state.evSlots.cend(); ++it) {
         const QString slotId = normalizeParkingSlotId(it.key());
         if (!slotId.isEmpty()) {
@@ -516,11 +547,17 @@ void EvidencePage::mergeEvidenceCache(const ParkingViewState &state)
     for (auto it = state.slotImages.cbegin(); it != state.slotImages.cend(); ++it) {
         const QString slotId = normalizeParkingSlotId(it.key());
         if (!slotId.isEmpty() && !it.value().isEmpty()) {
-            m_evidenceCacheState.slotImages.insert(slotId, it.value());
+            const QList<ParkingImageResource> cachedImages =
+                m_evidenceCacheState.slotImages.value(slotId);
+            if (!sameImageResources(cachedImages, it.value())) {
+                m_evidenceCacheState.slotImages.insert(slotId, it.value());
+                evidenceChanged = true;
+            }
         }
     }
     m_evidenceCacheState.generatedAt = state.generatedAt;
     m_evidenceCacheState.apiEnabled = state.apiEnabled;
+    return evidenceChanged;
 }
 
 void EvidencePage::rebuildTimelineFilters(const ParkingViewState &state)
@@ -565,6 +602,7 @@ void EvidencePage::rebuildTimelineFilters(const ParkingViewState &state)
 void EvidencePage::showLocalEvidenceSnapshot(const ParkingViewState &state)
 {
     m_latestState = state;
+    m_localTimelineInitialized = true;
     m_localTimelineMode = true;
     m_currentEventId.clear();
     m_currentSessionId = -1;
