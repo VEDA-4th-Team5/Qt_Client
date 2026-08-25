@@ -596,9 +596,10 @@ void MainWindow::connectPages()
                 }
             });
     connect(m_parkingMapPage, &ParkingMapPage::cameraRequested, this,
-            [this](const QString &) {
+            [this](const QString &channel) {
                 m_pages->setCurrentWidget(m_dashboardPage);
                 if (m_dashboardNavButton) m_dashboardNavButton->setChecked(true);
+                m_dashboardPage->showExpandedChannel(channel);
             });
     connect(m_parkingMapPage, &ParkingMapPage::ivaSettingsRequested, this,
             [this](const QString &zoneId,

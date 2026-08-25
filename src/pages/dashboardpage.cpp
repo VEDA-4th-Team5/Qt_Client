@@ -365,6 +365,7 @@ QWidget *DashboardPage::createVideoChannel(int channelIndex, const QString &chan
                                            const QString &highRtspUrl)
 {
     auto *frame = new QFrame(this);
+    frame->setObjectName(QStringLiteral("dashboardVideoChannel%1").arg(channel));
     frame->setMinimumSize(260, 150);
     frame->setFrameShape(QFrame::StyledPanel);
     frame->setStyleSheet(QStringLiteral("QFrame { background: #15191d; border: 1px solid #3a4148; border-radius: 4px; }"));
@@ -422,6 +423,29 @@ void DashboardPage::toggleVideoChannel(int channelIndex)
 {
     if (!m_videoGrid || channelIndex < 0 || channelIndex >= m_videoChannelWidgets.size()) return;
     m_expandedVideoChannel = m_expandedVideoChannel == channelIndex ? -1 : channelIndex;
+    applyVideoChannelLayout();
+}
+
+bool DashboardPage::showExpandedChannel(const QString &channel)
+{
+    QString normalized = channel.trimmed().toUpper();
+    if (!normalized.startsWith(QStringLiteral("CH"))) return false;
+    normalized.remove(0, 2);
+    normalized.remove(QLatin1Char(' '));
+    bool validNumber = false;
+    const int channelIndex = normalized.toInt(&validNumber) - 1;
+    if (!validNumber || channelIndex < 0
+        || channelIndex >= m_videoChannelWidgets.size()) {
+        return false;
+    }
+    m_expandedVideoChannel = channelIndex;
+    applyVideoChannelLayout();
+    return true;
+}
+
+void DashboardPage::applyVideoChannelLayout()
+{
+    if (!m_videoGrid) return;
     while (QLayoutItem *item = m_videoGrid->takeAt(0)) {
         if (item->widget()) item->widget()->setVisible(false);
         delete item;
@@ -467,12 +491,7 @@ void DashboardPage::setRtspUrls(const QStringList &lowRtspUrls, const QStringLis
             root->setProperty("streamEnabled", true);
         }
     }
-    toggleVideoChannel(-1);
-    while (QLayoutItem *item = m_videoGrid->takeAt(0)) delete item;
-    for (int i = 0; i < m_videoChannelWidgets.size(); ++i) {
-        m_videoChannelWidgets.at(i)->setVisible(true);
-        m_videoGrid->addWidget(m_videoChannelWidgets.at(i), i / 2, i % 2);
-    }
+    applyVideoChannelLayout();
 }
 
 void DashboardPage::publishRtspDiagnostics()
