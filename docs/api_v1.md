@@ -32,7 +32,7 @@ Settings 화면에서 서버 주소를 저장하면 로컬 오버라이드 파�
 | GET | `/api/v1/images/{imageId}` | 차량·번호판 증거 이미지 |
 | GET | `/api/v1/settings/overstay-threshold` | 장기 점유 판정 기준 조회 |
 | PUT | `/api/v1/settings/overstay-threshold` | 장기 점유 판정 기준 변경 |
-| GET | `/api/v1/settings/parking-slots/roi` | EV01~EV04 ROI 전체 조회 |
+| GET | `/api/v1/settings/parking-slots/roi` | EV01~EV04 및 P01~P04 ROI 전체 조회 |
 | GET | `/api/v1/settings/parking-slots/{slotId}/roi` | 선택 슬롯 ROI 조회 |
 | PUT | `/api/v1/settings/parking-slots/{slotId}/roi` | 정규화 ROI 저장 및 즉시 적용 |
 
@@ -52,6 +52,9 @@ Settings 화면은 시간·분·초 입력을 총 초로 변환하여 PUT하고,
 
 독립 `Parking ROI` 탭은 제거되었고, Qt Client는 IVA Setup의
 `Save Crop ROI to Pi` 흐름에서 다음 정규화 좌표만 PUT합니다.
+
+Parking Map의 IVA 매핑에 따라 EV 슬롯은 `EV01`~`EV04`, 일반 슬롯은
+`P01`~`P04` 경로로 저장합니다.
 
 ```json
 {"x":0.371528,"y":0.298026,"width":0.113426,"height":0.275658}

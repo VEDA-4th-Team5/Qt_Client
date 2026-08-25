@@ -11,6 +11,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QFontMetrics>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -180,6 +181,10 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     m_channelSummaryLabel->setStyleSheet(QStringLiteral(
         "border:none;color:#607d8b;font-size:11px;font-weight:700;"));
     m_channelSummaryLabel->setWordWrap(true);
+    // The channel buttons below are the single source of truth for per-channel
+    // state. Keep the label available for diagnostics/tests, but do not repeat
+    // the same ON/OFF/area counts in the connection bar.
+    m_channelSummaryLabel->setVisible(false);
     m_statusLabel = new QLabel(
         QStringLiteral("Open this page or refresh to read the camera."), connectionBar);
     m_statusLabel->setObjectName(QStringLiteral("ivaStatusLabel"));
@@ -189,11 +194,20 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     m_refreshButton->setObjectName(QStringLiteral("refreshIvaConfigurationButton"));
     m_refreshButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     m_refreshButton->setToolTip(QStringLiteral("Reload WiseAI settings from the camera"));
-    connectionLayout->addWidget(m_channelSummaryLabel, 0, 0);
-    connectionLayout->addWidget(m_statusLabel, 0, 1);
-    connectionLayout->addWidget(m_refreshButton, 0, 2, Qt::AlignRight);
+    // Configuration is refreshed automatically while this page is visible;
+    // keep the status line full width instead of spending space on a manual
+    // refresh button that can be pressed repeatedly.
+    m_refreshButton->setVisible(false);
+    connectionLayout->addWidget(m_statusLabel, 0, 0, 1, 3);
     connectionLayout->setColumnStretch(1, 1);
     layout->addWidget(connectionBar);
+
+    auto *controlRow = new QWidget(this);
+    controlRow->setObjectName(QStringLiteral("ivaTopControlRow"));
+    auto *controlLayout = new QHBoxLayout(controlRow);
+    controlLayout->setContentsMargins(0, 0, 0, 0);
+    controlLayout->setSpacing(10);
+    layout->addWidget(controlRow);
 
     auto *workspaceSplitter = new QSplitter(Qt::Horizontal, this);
     workspaceSplitter->setObjectName(QStringLiteral("ivaWorkspaceSplitter"));
@@ -203,7 +217,7 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     videoLayout->setSpacing(8);
     auto *channelRow = new QHBoxLayout;
     channelRow->setSpacing(6);
-    auto *channelLabel = new QLabel(QStringLiteral("CHANNEL"), videoPanel);
+    auto *channelLabel = new QLabel(QStringLiteral("CHANNEL"), controlRow);
     channelLabel->setStyleSheet(QStringLiteral(
         "color:#607d8b;font-size:10px;font-weight:800;"));
     channelRow->addWidget(channelLabel);
@@ -211,7 +225,7 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     channelGroup->setExclusive(true);
     for (int channel = 0; channel < 4; ++channel) {
         auto *button = new QPushButton(QStringLiteral("CH%1\n--").arg(channel + 1),
-                                       videoPanel);
+                                       controlRow);
         button->setObjectName(QStringLiteral("ivaPreviewChannel%1Button").arg(channel + 1));
         button->setCheckable(true);
         button->setProperty("channel", channel);
@@ -235,17 +249,17 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
         });
     }
     m_channelButtons.constFirst()->setChecked(true);
-    m_channelEnabledCheck = new QCheckBox(QStringLiteral("Channel enabled"), videoPanel);
+    m_channelEnabledCheck = new QCheckBox(QStringLiteral("Channel enabled"), controlRow);
     m_channelEnabledCheck->setObjectName(QStringLiteral("ivaChannelEnabledCheck"));
     m_channelEnabledCheck->setToolTip(QStringLiteral(
         "Enable or disable the selected camera channel when saving WiseAI settings"));
-    channelRow->addStretch(1);
     channelRow->addWidget(m_channelEnabledCheck);
-    m_discardDraftButton = new QPushButton(QStringLiteral("Discard draft"), videoPanel);
+    channelRow->addStretch(1);
+    m_discardDraftButton = new QPushButton(QStringLiteral("Discard draft"), controlRow);
     m_discardDraftButton->setObjectName(QStringLiteral("ivaDiscardDraftButton"));
     m_discardDraftButton->setIcon(style()->standardIcon(QStyle::SP_DialogResetButton));
     m_discardDraftButton->setToolTip(QStringLiteral("Restore the last camera-loaded Area"));
-    videoLayout->addLayout(channelRow);
+    controlLayout->addLayout(channelRow, 1);
     m_videoCanvas = new IvaVideoCanvas(videoPanel);
     videoLayout->addWidget(m_videoCanvas, 1);
     m_frameStatusLabel = new QLabel(
@@ -294,6 +308,7 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     areaListLayout->setSpacing(5);
     auto *areaListHeader = new QHBoxLayout;
     auto *areaListTitle = new QLabel(QStringLiteral("Camera WiseAI Areas"), areaListPanel);
+    areaListTitle->setObjectName(QStringLiteral("ivaCameraWiseAiAreasTitle"));
     areaListTitle->setStyleSheet(QStringLiteral(
         "color:#202124;font-size:14px;font-weight:900;"));
     m_areaCountLabel = new QLabel(QStringLiteral("0 areas"), areaListPanel);
@@ -369,9 +384,23 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     m_selectedAreaStateLabel->setObjectName(QStringLiteral("ivaSelectedAreaStateLabel"));
     m_selectedAreaStateLabel->setAlignment(Qt::AlignCenter);
     m_selectedAreaStateLabel->setMinimumSize(82, 24);
+    m_cameraSaveStatusLabel = new QLabel(QStringLiteral("Camera save: idle"), selectedHeader);
+    m_cameraSaveStatusLabel->setObjectName(QStringLiteral("ivaCameraSaveStatusLabel"));
+    m_cameraSaveStatusLabel->setWordWrap(true);
+    m_cameraSaveStatusLabel->setMinimumHeight(18);
+    m_cameraSaveStatusLabel->setStyleSheet(QStringLiteral(
+        "border:none;color:#607d8b;font-size:10px;font-weight:700;"));
+    m_piRoiStatusLabel = new QLabel(QStringLiteral("Pi ROI: automatic"), selectedHeader);
+    m_piRoiStatusLabel->setObjectName(QStringLiteral("ivaPiRoiStatusLabel"));
+    m_piRoiStatusLabel->setWordWrap(true);
+    m_piRoiStatusLabel->setMinimumHeight(18);
+    m_piRoiStatusLabel->setStyleSheet(QStringLiteral(
+        "border:none;color:#607d8b;font-size:10px;font-weight:700;"));
     selectedHeaderLayout->addWidget(m_selectedAreaTitleLabel, 0, 0);
     selectedHeaderLayout->addWidget(m_selectedAreaStateLabel, 0, 1, Qt::AlignRight);
     selectedHeaderLayout->addWidget(m_selectedAreaMetaLabel, 1, 0, 1, 2);
+    selectedHeaderLayout->addWidget(m_cameraSaveStatusLabel, 2, 0, 1, 2);
+    selectedHeaderLayout->addWidget(m_piRoiStatusLabel, 3, 0, 1, 2);
     selectedHeaderLayout->setColumnStretch(0, 1);
     editorStack->addWidget(selectedHeader);
 
@@ -391,7 +420,7 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     editorLayout->addWidget(m_nameEdit, 1, 0, 1, 4);
     editorLayout->addWidget(new QLabel(QStringLiteral("Area index"), ruleGroup), 2, 0);
     editorLayout->addWidget(m_indexSpin, 2, 1);
-    m_areaMappingLabel = new QLabel(QStringLiteral("No EV slot mapping"), ruleGroup);
+    m_areaMappingLabel = new QLabel(QStringLiteral("No parking slot mapping"), ruleGroup);
     m_areaMappingLabel->setObjectName(QStringLiteral("ivaAreaMappingLabel"));
     m_areaMappingLabel->setStyleSheet(QStringLiteral(
         "color:#607d8b;font-size:10px;font-weight:700;"));
@@ -525,66 +554,53 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     cameraSaveGroup->setStyleSheet(QStringLiteral(
         "QFrame#ivaSaveChangesGroup { background:#ffffff;border:1px solid #cfd8dc;"
         "border-radius:6px; }"));
-    auto *cameraSaveLayout = new QGridLayout(cameraSaveGroup);
-    cameraSaveLayout->setColumnStretch(2, 1);
-    auto *saveTitle = new QLabel(QStringLiteral("SAVE CHANGES"), cameraSaveGroup);
-    saveTitle->setStyleSheet(QStringLiteral(
-        "border:none;color:#263238;font-size:11px;font-weight:900;"));
-    auto *cameraSaveTitle = new QLabel(QStringLiteral("CAMERA / WISEAI"), cameraSaveGroup);
-    cameraSaveTitle->setStyleSheet(QStringLiteral(
-        "border:none;color:#0d47a1;font-size:10px;font-weight:900;"));
-    m_cameraSaveStatusLabel = new QLabel(
-        QStringLiteral("No camera changes."),
-        cameraSaveGroup);
-    m_cameraSaveStatusLabel->setObjectName(QStringLiteral("ivaCameraSaveStatusLabel"));
-    m_cameraSaveStatusLabel->setWordWrap(true);
-    m_cameraSaveStatusLabel->setStyleSheet(QStringLiteral("color:#455a64;"));
-    auto *parkingAreaLabel = new QLabel(QStringLiteral("PI SERVER / CROP ROI"),
-                                        cameraSaveGroup);
-    parkingAreaLabel->setStyleSheet(QStringLiteral(
-        "border:none;color:#1b5e20;font-size:10px;font-weight:900;"));
+    auto *cameraSaveLayout = new QHBoxLayout(cameraSaveGroup);
+    cameraSaveLayout->setContentsMargins(5, 4, 5, 4);
+    cameraSaveLayout->setSpacing(4);
     m_piSlotCombo = new QComboBox(cameraSaveGroup);
     m_piSlotCombo->setObjectName(QStringLiteral("ivaPiParkingSlotCombo"));
-    m_piSlotCombo->addItems({QStringLiteral("EV-01"), QStringLiteral("EV-02"),
-                             QStringLiteral("EV-03"), QStringLiteral("EV-04")});
-    m_piSlotCombo->setMinimumWidth(90);
+    m_piSlotCombo->setMinimumWidth(72);
+    m_piSlotCombo->setMaximumWidth(82);
     m_piSlotCombo->setToolTip(QStringLiteral(
-        "Pi slots EV-01-EV-04 map to camera WiseAI rules name1-name4 and Area indexes 1-4."));
-    m_piMappingLabel = new QLabel(QStringLiteral("EV-01 <-> Area 1 / name1"),
+        "Parking Map slots use their channel and IVA Area mapping for WiseAI selection."));
+    m_piMappingLabel = new QLabel(QStringLiteral("CH- / Area -"),
                                   cameraSaveGroup);
     m_piMappingLabel->setObjectName(QStringLiteral("ivaPiMappingLabel"));
     m_piMappingLabel->setStyleSheet(QStringLiteral(
         "border:none;color:#455a64;font-size:10px;font-weight:700;"));
-    m_includePiRoiCheck = new QCheckBox(QStringLiteral("Include Pi Crop ROI"),
-                                        cameraSaveGroup);
-    m_includePiRoiCheck->setObjectName(QStringLiteral("ivaIncludePiRoiCheck"));
-    m_piRoiStatusLabel = new QLabel(
-        QStringLiteral("Not included in this save."), cameraSaveGroup);
-    m_piRoiStatusLabel->setObjectName(QStringLiteral("ivaPiRoiStatusLabel"));
-    m_piRoiStatusLabel->setWordWrap(true);
-    m_piRoiStatusLabel->setStyleSheet(QStringLiteral("color:#455a64;"));
+    m_piMappingLabel->setWordWrap(false);
+    m_piMappingLabel->setMinimumWidth(76);
+    m_piMappingLabel->setMaximumWidth(94);
+    m_piMappingLabel->setMaximumHeight(18);
     m_applyButton = new QPushButton(QStringLiteral("No changes"),
                                     cameraSaveGroup);
     m_applyButton->setObjectName(QStringLiteral("saveIvaChangesButton"));
-    m_applyButton->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
+    m_applyButton->setIcon(QIcon());
     m_applyButton->setToolTip(QStringLiteral(
-        "Save changed Camera WiseAI settings, then optionally save the Pi Crop ROI"));
+        "Save changed Camera WiseAI settings, then automatically save the mapped Pi Crop ROI"));
     m_deleteAreaButton = new QPushButton(QStringLiteral("Delete selected Area"),
                                          cameraSaveGroup);
     m_deleteAreaButton->setObjectName(QStringLiteral("deleteSelectedIvaAreaButton"));
-    m_deleteAreaButton->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
-    cameraSaveLayout->addWidget(saveTitle, 0, 0, 1, 4);
-    cameraSaveLayout->addWidget(cameraSaveTitle, 1, 0);
-    cameraSaveLayout->addWidget(m_cameraSaveStatusLabel, 1, 1, 1, 3);
-    cameraSaveLayout->addWidget(parkingAreaLabel, 2, 0);
-    cameraSaveLayout->addWidget(m_piSlotCombo, 2, 1);
-    cameraSaveLayout->addWidget(m_piMappingLabel, 2, 2);
-    cameraSaveLayout->addWidget(m_includePiRoiCheck, 2, 3);
-    cameraSaveLayout->addWidget(m_piRoiStatusLabel, 3, 1, 1, 3);
-    cameraSaveLayout->addWidget(m_deleteAreaButton, 4, 0);
-    cameraSaveLayout->addWidget(m_discardDraftButton, 4, 1);
-    cameraSaveLayout->addWidget(m_applyButton, 4, 2, 1, 2);
-    editorStack->addWidget(cameraSaveGroup);
+    // These controls are intentionally text-only in the compact row. Their
+    // icons consumed the available width and left labels visibly clipped.
+    m_deleteAreaButton->setIcon(QIcon());
+    cameraSaveLayout->addWidget(m_piSlotCombo);
+    cameraSaveLayout->addWidget(m_piMappingLabel);
+    m_deleteAreaButton->setText(QStringLiteral("Delete"));
+    m_deleteAreaButton->setFixedWidth(62);
+    m_deleteAreaButton->setToolTip(QStringLiteral("Delete selected IVA Area"));
+    m_discardDraftButton->setText(QStringLiteral("Discard"));
+    m_discardDraftButton->setIcon(QIcon());
+    m_discardDraftButton->setFixedWidth(72);
+    m_discardDraftButton->setToolTip(QStringLiteral("Discard the current camera draft"));
+    cameraSaveLayout->addWidget(m_deleteAreaButton);
+    cameraSaveLayout->addWidget(m_discardDraftButton);
+    m_applyButton->setMinimumWidth(112);
+    m_applyButton->setMaximumWidth(132);
+    cameraSaveLayout->addWidget(m_applyButton);
+    channelRow->addWidget(cameraSaveGroup, 0, Qt::AlignRight);
+    cameraSaveGroup->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    cameraSaveGroup->setFixedHeight(42);
     editorStack->addStretch();
     editorScrollArea->setWidget(editorGroup);
     splitter->addWidget(areaListPanel);
@@ -730,15 +746,36 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
             });
     connect(m_piSlotCombo, &QComboBox::currentTextChanged,
             this, [this]() {
+        const ParkingZoneLayout *mapping = parkingZoneMapping(m_piSlotCombo->currentText());
+        if (mapping) {
+            m_selectedParkingZoneId = mapping->zoneId;
+            m_selectedParkingChannel = mapping->cameraChannel;
+            m_selectedParkingIvaAreaId = mapping->ivaAreaId;
+            const int channel = cameraChannelIndex(mapping->cameraChannel);
+            if (channel >= 0 && channel != m_selectedChannel) selectChannel(channel);
+        }
+        const int areaIndex = mappedParkingAreaIndex();
         m_piMappingLabel->setText(
-            QStringLiteral("%1 <-> Area %2 / %3")
-                .arg(m_piSlotCombo->currentText())
-                .arg(mappedParkingAreaIndex())
-                .arg(mappedParkingAreaName()));
+            areaIndex > 0
+                ? QStringLiteral("%1 / Area %2")
+                      .arg(m_selectedParkingChannel)
+                      .arg(areaIndex)
+                : QStringLiteral("%1 / no IVA Area")
+                      .arg(m_selectedParkingChannel));
+        m_piMappingLabel->setToolTip(
+            areaIndex > 0
+                ? QStringLiteral("%1 ↔ %2 / Area %3")
+                      .arg(m_piSlotCombo->currentText())
+                      .arg(m_selectedParkingChannel)
+                      .arg(areaIndex)
+                : QStringLiteral("%1 has no Parking Map IVA Area mapping")
+                      .arg(m_piSlotCombo->currentText()));
         if (!m_piRoiRequestInFlight) {
             m_piRoiStatusLabel->setText(QStringLiteral(
-                "%1 mapping selected. Pi save uses the normalized crop only; Camera WiseAI remains unchanged.")
-                                            .arg(m_piSlotCombo->currentText()));
+                "%1: Pi ROI automatic").arg(m_piSlotCombo->currentText()));
+            m_piRoiStatusLabel->setToolTip(QStringLiteral(
+                "%1 mapping selected. The normalized Pi Crop ROI is always included when this mapping has a valid frame.")
+                                                .arg(m_piSlotCombo->currentText()));
             m_piRoiStatusLabel->setStyleSheet(QStringLiteral("color:#455a64;"));
         }
         if (m_draftChannel < 0) {
@@ -748,12 +785,8 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
             m_areaMappingLabel->setText(
                 editorMatchesParkingArea()
                     ? QStringLiteral("Mapped to %1").arg(m_piSlotCombo->currentText())
-                    : QStringLiteral("No EV slot mapping"));
+                    : QStringLiteral("No parking slot mapping"));
         }
-        updateButtons();
-    });
-    connect(m_includePiRoiCheck, &QCheckBox::toggled, this, [this](bool checked) {
-        if (!m_updatingEditor && checked) m_piDirty = true;
         updateButtons();
     });
     connect(m_applyButton, &QPushButton::clicked,
@@ -787,6 +820,18 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     m_previewTimer->setInterval(100);
     connect(m_previewTimer, &QTimer::timeout, this, [this]() {
         if (isVisible()) emit previewFrameRequested(m_selectedChannel);
+    });
+    m_refreshTimer = new QTimer(this);
+    m_refreshTimer->setObjectName(QStringLiteral("ivaConfigurationRefreshTimer"));
+    m_refreshTimer->setInterval(10000);
+    connect(m_refreshTimer, &QTimer::timeout, this, [this]() {
+        if (!isVisible() || m_requestInFlight || m_saveStage != SaveStage::Idle
+            || m_piRoiRequestInFlight || m_cameraDirty || m_piDirty
+            || m_draftChannel >= 0) {
+            return;
+        }
+        setRequestStarted();
+        emit refreshRequested();
     });
     selectChannel(0);
     clearEditor();
@@ -916,7 +961,7 @@ void IvaSettingsPage::showHelpDialog()
     const QList<QPair<QString, QString>> setupSteps{
         {QStringLiteral("① Refresh"), QStringLiteral("Options · Capability · 현재 Configuration 조회")},
         {QStringLiteral("② CH 선택"), QStringLiteral("CH1~CH4 중 편집할 카메라 채널 선택")},
-        {QStringLiteral("③ Parking Area"), QStringLiteral("EV-01~EV-04 중 매핑 대상 선택")},
+        {QStringLiteral("③ Parking Area"), QStringLiteral("Parking Map에서 매핑된 슬롯 선택")},
         {QStringLiteral("④ 영상 드래그"), QStringLiteral("호환되는 공유 RTSP 프레임에서 사각형 작성")}
     };
     for (int index = 0; index < setupSteps.size(); ++index) {
@@ -956,7 +1001,7 @@ void IvaSettingsPage::showHelpDialog()
         QStringLiteral("3. Parking Area 매핑 · 현재 선택한 CH 안에서 적용"), content);
     auto *mappingLayout = new QVBoxLayout(mappingGroup);
     auto *mappingHint = new QLabel(
-        QStringLiteral("Include Pi Crop ROI는 아래 세 값이 정확히 일치하는 Area를 선택했을 때만 활성화됩니다."),
+        QStringLiteral("Parking Map의 채널·IVA Area 매핑이 유효하면 저장 시 Pi Crop ROI가 자동으로 포함됩니다."),
         mappingGroup);
     mappingHint->setWordWrap(true);
     mappingLayout->addWidget(mappingHint);
@@ -1056,8 +1101,7 @@ void IvaSettingsPage::showHelpDialog()
         {QStringLiteral("Discard draft"), QStringLiteral("저장 전 새 영역 또는 다시 그린 영역을 버리고 이전 Camera Area로 복원")},
         {QStringLiteral("Delete selected Area"), QStringLiteral("확인 후 선택 Area를 카메라 전용 삭제 API로 제거하고 재조회 검증")},
         {QStringLiteral("Save changes"), QStringLiteral("변경된 Camera WiseAI와 선택한 Pi Crop ROI를 한 번에 확인하고 순차 저장")},
-        {QStringLiteral("Include Pi Crop ROI"), QStringLiteral("정규화 bounding rectangle을 선택 EV 슬롯에도 저장하도록 포함")},
-        {QStringLiteral("Refresh from camera"), QStringLiteral("카메라의 최신 Options, Capability, Configuration을 다시 읽음")}
+        {QStringLiteral("Automatic refresh"), QStringLiteral("페이지가 표시된 동안 10초마다 카메라의 최신 Options, Capability, Configuration을 읽음")}
     };
     for (int row = 0; row < actions.size(); ++row) {
         auto *actionName = new QLabel(actions.at(row).first, actionMatrix);
@@ -1096,11 +1140,11 @@ void IvaSettingsPage::showHelpDialog()
     auto *safetyNotes = new QLabel(
         QStringLiteral(
             "문제가 생겼을 때\n"
-            "• Save changes 결과를 검증할 수 없다는 메시지가 나오면 추가 편집 전에 Refresh from camera를 실행합니다.\n"
+            "• Save changes 결과를 검증할 수 없다는 메시지가 나오면 추가 편집 전에 자동 조회가 끝난 뒤 상태를 확인합니다.\n"
             "• 카메라가 다른 곳에서 변경되어 preflight 충돌이 나면 새로 읽힌 값을 검토한 뒤 다시 적용합니다.\n"
             "• TLS 인증서는 최초 연결 시 SHA-256 지문으로 고정되며 이후 지문이 다르면 연결을 중단합니다. 평문으로 자동 전환하지 않습니다.\n"
             "• 카메라 설정 삭제는 Camera Web Viewer에도 반영되므로 채널과 Area index/name을 확인한 후 승인합니다.\n"
-            "• 이 화면의 EV-01~04는 Pi ROI 선택 이름이며 실제 서버 slot_id 매핑을 자동으로 의미하지 않습니다."),
+            "• 슬롯 선택은 Parking Map의 채널/IVA Area 매핑을 따르며 Pi ROI 저장은 이 화면 내부 옵션입니다."),
         content);
     safetyNotes->setObjectName(QStringLiteral("ivaHelpSafetyNotes"));
     safetyNotes->setWordWrap(true);
@@ -1168,10 +1212,6 @@ void IvaSettingsPage::discardPendingChanges()
     m_cameraDirty = false;
     m_piDirty = false;
     m_pendingLeaveAfterSave = false;
-    {
-        const QSignalBlocker blocker(m_includePiRoiCheck);
-        m_includePiRoiCheck->setChecked(false);
-    }
     populateAreaTable();
     selectMappedParkingArea();
     updateVideoOverlays();
@@ -1222,13 +1262,84 @@ void IvaSettingsPage::startSaveChanges()
     startSaveChangesInternal(true);
 }
 
+void IvaSettingsPage::setParkingZoneMappings(const QList<ParkingZoneLayout> &mappings)
+{
+    const QString previousZoneId = !m_selectedParkingZoneId.isEmpty()
+        ? m_selectedParkingZoneId
+        : (m_piSlotCombo ? m_piSlotCombo->currentText() : QString());
+    m_parkingZoneMappings = mappings;
+
+    if (!m_piSlotCombo) return;
+    {
+        const QSignalBlocker blocker(m_piSlotCombo);
+        m_piSlotCombo->clear();
+        for (const ParkingZoneLayout &mapping : m_parkingZoneMappings) {
+            if (!mapping.zoneId.trimmed().isEmpty()) {
+                m_piSlotCombo->addItem(mapping.zoneId.trimmed().toUpper(),
+                                       mapping.zoneId.trimmed().toUpper());
+            }
+        }
+        int selectedIndex = m_piSlotCombo->findText(previousZoneId,
+                                                    Qt::MatchFixedString);
+        if (selectedIndex < 0 && m_piSlotCombo->count() > 0) selectedIndex = 0;
+        if (selectedIndex >= 0) m_piSlotCombo->setCurrentIndex(selectedIndex);
+    }
+
+    const ParkingZoneLayout *mapping = parkingZoneMapping(m_piSlotCombo->currentText());
+    if (mapping) {
+        m_selectedParkingZoneId = mapping->zoneId;
+        m_selectedParkingChannel = mapping->cameraChannel;
+        m_selectedParkingIvaAreaId = mapping->ivaAreaId;
+        const int channel = cameraChannelIndex(mapping->cameraChannel);
+        if (channel >= 0 && channel != m_selectedChannel) selectChannel(channel);
+    } else {
+        m_selectedParkingZoneId.clear();
+        m_selectedParkingChannel.clear();
+        m_selectedParkingIvaAreaId.clear();
+    }
+    selectMappedParkingArea();
+    updateButtons();
+}
+
+void IvaSettingsPage::setParkingSelection(const QString &zoneId,
+                                          const QString &cameraChannel,
+                                          const QString &ivaAreaId)
+{
+    const QString normalizedZoneId = zoneId.trimmed().toUpper();
+    const ParkingZoneLayout *mapping = parkingZoneMapping(normalizedZoneId);
+    m_selectedParkingZoneId = normalizedZoneId;
+    m_selectedParkingChannel = cameraChannel.trimmed().toUpper();
+    m_selectedParkingIvaAreaId = ivaAreaId.trimmed().toUpper();
+    if (mapping) {
+        m_selectedParkingChannel = mapping->cameraChannel;
+        m_selectedParkingIvaAreaId = mapping->ivaAreaId;
+    }
+
+    if (m_piSlotCombo) {
+        const QSignalBlocker blocker(m_piSlotCombo);
+        const int index = m_piSlotCombo->findText(normalizedZoneId,
+                                                  Qt::MatchFixedString);
+        if (index >= 0) {
+            m_piSlotCombo->setCurrentIndex(index);
+        } else if (!normalizedZoneId.isEmpty()) {
+            m_piSlotCombo->addItem(normalizedZoneId, normalizedZoneId);
+            m_piSlotCombo->setCurrentText(normalizedZoneId);
+        }
+    }
+
+    const int channel = cameraChannelIndex(m_selectedParkingChannel);
+    if (channel >= 0 && channel != m_selectedChannel) selectChannel(channel);
+    selectMappedParkingArea();
+    updateButtons();
+}
+
 bool IvaSettingsPage::startSaveChangesInternal(bool askConfirmation)
 {
     if (m_requestInFlight || m_piRoiRequestInFlight
         || m_saveStage != SaveStage::Idle) return false;
 
     const bool saveCamera = m_cameraDirty;
-    const bool savePi = m_includePiRoiCheck->isChecked()
+    const bool savePi = (m_cameraDirty || m_piDirty)
         && editorMatchesParkingArea() && m_currentPreviewFrameSize.isValid();
     if (!saveCamera && !savePi) return false;
 
@@ -1390,8 +1501,6 @@ void IvaSettingsPage::setConfiguration(
     m_cameraDirty = false;
     if (!continuingPiSave) {
         m_piDirty = false;
-        const QSignalBlocker blocker(m_includePiRoiCheck);
-        m_includePiRoiCheck->setChecked(false);
     }
     m_statusLabel->setText(
         configuration.warnings.isEmpty()
@@ -1445,8 +1554,16 @@ void IvaSettingsPage::setApplySuccess(
     m_requestInFlight = false;
     const bool deletedArea = m_pendingDeletedAreaIndex >= 0;
     m_cameraDirty = false;
+    m_configuration = verifiedConfiguration;
     m_savedConfiguration = verifiedConfiguration;
     m_hasSavedConfiguration = true;
+    m_draftChannel = -1;
+    m_draftAreaIndex = -1;
+    m_draftReplacesExisting = false;
+    m_draftOriginalArea = {};
+    populateAreaTable();
+    selectMappedParkingArea();
+    updateVideoOverlays();
     if (deletedArea) {
         m_statusLabel->setText(
             QStringLiteral("CH%1 IVA Area %2 (%3) was deleted and verified from the camera. "
@@ -1544,10 +1661,6 @@ void IvaSettingsPage::setPiRoiResult(const QString &slotId,
     m_piDirty = false;
     m_saveStage = SaveStage::Idle;
     m_cameraSavedBeforePi = false;
-    {
-        const QSignalBlocker blocker(m_includePiRoiCheck);
-        m_includePiRoiCheck->setChecked(false);
-    }
     m_piRoiStatusLabel->setText(
         appliedImmediately
             ? QStringLiteral("%1 crop ROI was saved, verified, and applied immediately on the Pi server.").arg(slotId)
@@ -1595,6 +1708,7 @@ void IvaSettingsPage::showEvent(QShowEvent *event)
         m_previewTimer->start();
         emit previewFrameRequested(m_selectedChannel);
     }
+    if (m_refreshTimer) m_refreshTimer->start();
     if (m_loadedOnce || m_requestInFlight) return;
     setRequestStarted();
     emit refreshRequested();
@@ -1603,6 +1717,7 @@ void IvaSettingsPage::showEvent(QShowEvent *event)
 void IvaSettingsPage::hideEvent(QHideEvent *event)
 {
     if (m_previewTimer) m_previewTimer->stop();
+    if (m_refreshTimer) m_refreshTimer->stop();
     QWidget::hideEvent(event);
 }
 
@@ -1704,13 +1819,7 @@ void IvaSettingsPage::populateEditor(int row)
         selectChannel(area.channel);
     }
     m_videoCanvas->setSelectedAreaIndex(area.areaIndex);
-    if (area.areaIndex >= 1 && area.areaIndex <= m_piSlotCombo->count()) {
-        const QString mappedName = QStringLiteral("name%1").arg(area.areaIndex);
-        if (area.name.compare(mappedName, Qt::CaseInsensitive) == 0) {
-            const QSignalBlocker blocker(m_piSlotCombo);
-            m_piSlotCombo->setCurrentIndex(area.areaIndex - 1);
-        }
-    }
+    selectParkingZoneForArea(area.channel, area.areaIndex);
     const IvaChannelOptions *options = m_options.forChannel(area.channel);
     m_channelEnabledCheck->setChecked(area.channelEnabled);
     if (options) {
@@ -1747,7 +1856,7 @@ void IvaSettingsPage::populateEditor(int row)
         m_areaMappingLabel->setText(
             editorMatchesParkingArea()
                 ? QStringLiteral("Mapped to %1").arg(m_piSlotCombo->currentText())
-                : QStringLiteral("No EV slot mapping"));
+                : QStringLiteral("No parking slot mapping"));
     }
     updateEditorSummary();
     const bool unsavedDraft = m_draftChannel == area.channel
@@ -1781,7 +1890,7 @@ void IvaSettingsPage::clearEditor()
     m_coordinateTable->setRowCount(0);
     updateDurationAvailability();
     if (m_areaMappingLabel) {
-        m_areaMappingLabel->setText(QStringLiteral("No EV slot mapping"));
+        m_areaMappingLabel->setText(QStringLiteral("No parking slot mapping"));
     }
     updateEditorSummary();
     setEditorState(QStringLiteral("NO SELECTION"), QStringLiteral("#eceff1"),
@@ -1880,6 +1989,7 @@ void IvaSettingsPage::selectChannel(int channel)
 {
     if (channel < 0) return;
     m_selectedChannel = channel;
+    m_selectedParkingChannel = QStringLiteral("CH%1").arg(channel + 1);
     m_currentPreviewFrameSize = {};
     for (int index = 0; index < m_channelButtons.size(); ++index) {
         m_channelButtons.at(index)->setChecked(index == channel);
@@ -1888,6 +1998,7 @@ void IvaSettingsPage::selectChannel(int channel)
     const QSize coordinateResolution = capability && capability->ivaAreaSupported
         ? capability->maxResolution : QSize();
     m_videoCanvas->setChannel(channel, coordinateResolution);
+    selectParkingZoneForArea(channel, mappedParkingAreaIndex());
     updateVideoOverlays();
     if (m_previewTimer && m_previewTimer->isActive()) {
         emit previewFrameRequested(channel);
@@ -1895,9 +2006,88 @@ void IvaSettingsPage::selectChannel(int channel)
     updateButtons();
 }
 
+const ParkingZoneLayout *IvaSettingsPage::parkingZoneMapping(const QString &zoneId) const
+{
+    const QString normalized = zoneId.trimmed().toUpper();
+    for (const ParkingZoneLayout &mapping : m_parkingZoneMappings) {
+        if (mapping.zoneId.trimmed().toUpper() == normalized) return &mapping;
+    }
+    return nullptr;
+}
+
+int IvaSettingsPage::cameraChannelIndex(const QString &cameraChannel) const
+{
+    const QString normalized = cameraChannel.trimmed().toUpper();
+    if (!normalized.startsWith(QStringLiteral("CH"))) return -1;
+    bool ok = false;
+    const int channel = normalized.mid(2).toInt(&ok);
+    return ok && channel >= 1 && channel <= 4 ? channel - 1 : -1;
+}
+
+void IvaSettingsPage::selectParkingZoneForArea(int channel, int areaIndex)
+{
+    if (!m_piSlotCombo || channel < 0) return;
+    const QString expectedChannel = QStringLiteral("CH%1").arg(channel + 1);
+    const QString expectedArea = QStringLiteral("IVA%1").arg(areaIndex);
+    for (const ParkingZoneLayout &mapping : m_parkingZoneMappings) {
+        if (mapping.cameraChannel.compare(expectedChannel, Qt::CaseInsensitive) != 0
+            || areaIndex < 1
+            || mapping.ivaAreaId.compare(expectedArea, Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        const QSignalBlocker blocker(m_piSlotCombo);
+        m_piSlotCombo->setCurrentText(mapping.zoneId);
+        m_selectedParkingZoneId = mapping.zoneId;
+        m_selectedParkingChannel = mapping.cameraChannel;
+        m_selectedParkingIvaAreaId = mapping.ivaAreaId;
+        m_piMappingLabel->setText(
+            QStringLiteral("%1 / Area %2")
+                .arg(mapping.cameraChannel)
+                .arg(areaIndex));
+        m_piMappingLabel->setToolTip(
+            QStringLiteral("%1 ↔ %2 / Area %3")
+                .arg(mapping.zoneId, mapping.cameraChannel)
+                .arg(areaIndex));
+        return;
+    }
+    for (const ParkingZoneLayout &mapping : m_parkingZoneMappings) {
+        if (areaIndex >= 1
+            || mapping.cameraChannel.compare(expectedChannel, Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+        const QSignalBlocker blocker(m_piSlotCombo);
+        m_piSlotCombo->setCurrentText(mapping.zoneId);
+        m_selectedParkingZoneId = mapping.zoneId;
+        m_selectedParkingChannel = mapping.cameraChannel;
+        m_selectedParkingIvaAreaId = mapping.ivaAreaId;
+        m_piMappingLabel->setText(
+            QStringLiteral("%1 / Area %2")
+                .arg(mapping.cameraChannel)
+                .arg(mapping.ivaAreaId.mid(3)));
+        m_piMappingLabel->setToolTip(
+            QStringLiteral("%1 ↔ %2 / Area %3")
+                .arg(mapping.zoneId, mapping.cameraChannel)
+                .arg(mapping.ivaAreaId.mid(3)));
+        return;
+    }
+    const QSignalBlocker blocker(m_piSlotCombo);
+    m_piSlotCombo->setCurrentIndex(-1);
+    m_selectedParkingZoneId.clear();
+    m_selectedParkingChannel = expectedChannel;
+    m_selectedParkingIvaAreaId.clear();
+    m_piMappingLabel->setText(
+        QStringLiteral("%1 / no IVA Area").arg(expectedChannel));
+    m_piMappingLabel->setToolTip(
+        QStringLiteral("No Parking Map IVA Area is mapped to %1").arg(expectedChannel));
+}
+
 int IvaSettingsPage::mappedParkingAreaIndex() const
 {
-    return m_piSlotCombo ? m_piSlotCombo->currentIndex() + 1 : -1;
+    const QString areaId = m_selectedParkingIvaAreaId.trimmed().toUpper();
+    if (!areaId.startsWith(QStringLiteral("IVA"))) return -1;
+    bool ok = false;
+    const int index = areaId.mid(3).toInt(&ok);
+    return ok && index >= 1 && index <= 4 ? index : -1;
 }
 
 QString IvaSettingsPage::mappedParkingAreaName() const
@@ -2008,29 +2198,11 @@ void IvaSettingsPage::createRectangleDraft(const QRectF &sourceRectangle)
     }
     const int targetRow = nameRow >= 0 ? nameRow : indexRow;
     if (targetRow >= 0) {
-        IvaAreaDefinition &selectedArea = m_configuration.areas[targetRow];
-        m_draftChannel = selectedArea.channel;
-        m_draftReplacesExisting = true;
-        m_draftOriginalArea = selectedArea;
-        selectedArea.areaIndex = targetIndex;
-        selectedArea.name = targetName;
-        selectedArea.areaCoordinates = rectangleCoordinates;
-        m_draftAreaIndex = targetIndex;
-
-        populateAreaTable();
-        m_areaTable->selectRow(targetRow);
-        populateEditor(targetRow);
-        updateVideoOverlays();
         m_statusLabel->setText(QStringLiteral(
-            "%1 (%2) was redrawn. Review it, then Save changes or Discard draft.")
-                                   .arg(m_piSlotCombo->currentText(), targetName));
-        m_statusLabel->setStyleSheet(
-            QStringLiteral("color:#e65100;font-weight:700;"));
-        setCameraSaveFeedback(
-            QStringLiteral("%1 (%2) is an unsaved Camera WiseAI draft. Use Save changes to write it.")
-                .arg(m_piSlotCombo->currentText(), targetName),
-            QStringLiteral("color:#e65100;font-weight:700;"));
-        setEditorDirtyFeedback(true);
+            "%1 (%2) already exists. Select another Parking Map slot / IVA Area "
+            "to draw a new area, or drag the existing box to edit it.")
+                               .arg(m_piSlotCombo->currentText(), targetName));
+        m_statusLabel->setStyleSheet(QStringLiteral("color:#e65100;font-weight:700;"));
         updateButtons();
         return;
     }
@@ -2145,10 +2317,6 @@ void IvaSettingsPage::discardRectangleDraft()
     m_draftOriginalArea = {};
     m_cameraDirty = false;
     m_piDirty = false;
-    {
-        const QSignalBlocker blocker(m_includePiRoiCheck);
-        m_includePiRoiCheck->setChecked(false);
-    }
     populateAreaTable();
     clearEditor();
     selectChannel(channel);
@@ -2162,7 +2330,10 @@ void IvaSettingsPage::setCameraSaveFeedback(const QString &message,
                                             const QString &styleSheet)
 {
     if (!m_cameraSaveStatusLabel) return;
-    m_cameraSaveStatusLabel->setText(message);
+    m_cameraSaveStatusLabel->setToolTip(message);
+    m_cameraSaveStatusLabel->setText(
+        m_cameraSaveStatusLabel->fontMetrics().elidedText(
+            message, Qt::ElideRight, m_cameraSaveStatusLabel->maximumWidth()));
     m_cameraSaveStatusLabel->setStyleSheet(styleSheet);
 }
 
@@ -2338,10 +2509,8 @@ void IvaSettingsPage::setEditorDirtyFeedback(bool geometryChanged)
     m_cameraDirty = true;
     if (geometryChanged && editorMatchesParkingArea()) {
         m_piDirty = true;
-        const QSignalBlocker blocker(m_includePiRoiCheck);
-        m_includePiRoiCheck->setChecked(true);
         m_piRoiStatusLabel->setText(
-            QStringLiteral("ROI geometry changed. Pi Crop ROI will be included."));
+            QStringLiteral("ROI geometry changed. Pi Crop ROI will be saved automatically."));
         m_piRoiStatusLabel->setStyleSheet(QStringLiteral("color:#e65100;font-weight:700;"));
     }
     setCameraSaveFeedback(
@@ -2370,13 +2539,13 @@ void IvaSettingsPage::updateButtons()
     m_refreshButton->setEnabled(!anyRequestInFlight);
     const bool canSavePi = matchesParkingArea
         && m_currentPreviewFrameSize.isValid();
-    const bool savePi = m_includePiRoiCheck->isChecked() && canSavePi;
+    const bool savePi = (m_cameraDirty || m_piDirty) && canSavePi;
     m_applyButton->setEnabled(!anyRequestInFlight && m_hasOptions && hasSelection
                               && (m_cameraDirty || savePi));
     m_applyButton->setText(
-        m_cameraDirty && savePi ? QStringLiteral("Save changes / Camera + Pi")
-        : m_cameraDirty ? QStringLiteral("Save changes / Camera")
-        : savePi ? QStringLiteral("Save changes / Pi ROI")
+        m_cameraDirty && savePi ? QStringLiteral("Save Camera + Pi")
+        : m_cameraDirty ? QStringLiteral("Save Camera")
+        : savePi ? QStringLiteral("Save Pi ROI")
                  : QStringLiteral("No changes"));
     m_channelEnabledCheck->setEnabled(!anyRequestInFlight && hasSelection);
     m_geometryToggleButton->setEnabled(hasSelection);
@@ -2400,7 +2569,6 @@ void IvaSettingsPage::updateButtons()
         && m_videoCanvas->frameCompatible() && selectedAreaIsOnChannel;
     m_videoCanvas->setEditMode(canEdit);
     m_discardDraftButton->setEnabled(!anyRequestInFlight && m_draftChannel >= 0);
-    m_includePiRoiCheck->setEnabled(!anyRequestInFlight && canSavePi);
     m_piSlotCombo->setEnabled(!m_piRoiRequestInFlight
                               && !m_requestInFlight
                               && m_saveStage == SaveStage::Idle

@@ -31,12 +31,14 @@ int main(int argc, char **argv)
     if (!directory.isValid()) return 2;
 
     ParkingMapPage page(directory.filePath(QStringLiteral("parking_map_layout.json")));
+    QString requestedSlotId;
+    QObject::connect(&page, &ParkingMapPage::slotDetailRequested, &app,
+                     [&](const QString &slotId) { requestedSlotId = slotId; });
     QLabel *dataStatus = statusLabel(page, "runtimeDataStatusLabel");
     QLabel *vehicle = statusLabel(page, "runtimeVehicleLabel");
     QLabel *vehicleImage = statusLabel(page, "runtimeVehicleImageLabel");
     QLabel *occupiedSince = statusLabel(page, "runtimeOccupiedSinceLabel");
     QLabel *occupiedTime = statusLabel(page, "runtimeOccupiedTimeLabel");
-    QLabel *lastUpdated = statusLabel(page, "runtimeLastUpdatedLabel");
     QLabel *alarm = statusLabel(page, "runtimeAlarmLabel");
     QLabel *alarmState = statusLabel(page, "runtimeAlarmStateLabel");
     QLabel *selectedState = statusLabel(page, "selectedSlotStateLabel");
@@ -53,14 +55,16 @@ int main(int argc, char **argv)
     QComboBox *stateFilter = page.findChild<QComboBox *>(QStringLiteral("parkingStateFilterCombo"));
     QPushButton *undoButton = page.findChild<QPushButton *>(QStringLiteral("undoLayoutButton"));
     if (!dataStatus || !vehicle || !vehicleImage || !occupiedSince
-        || !occupiedTime || !lastUpdated || !alarm
+        || !occupiedTime || !alarm
         || !alarmState || !selectedState || !summaryTotal || !summaryOccupied
         || !summaryVacant || !summaryAlert || !overviewTotal || !overviewVacant
         || !overviewOccupied || !overviewAlert || !filterResult || !search
         || !stateFilter || !undoButton) return 3;
-    if (statusLabel(page, "runtimePlateLabel")) return 28;
+    if (statusLabel(page, "runtimePlateLabel")
+        || statusLabel(page, "runtimeLastUpdatedLabel")) return 28;
 
     if (!selectRow(page, 0)) return 4;
+    if (requestedSlotId != QStringLiteral("EV-01")) return 35;
     if (dataStatus->text() != QStringLiteral("WAITING DATA")
         || occupiedSince->text() != QStringLiteral("-")
         || occupiedTime->text() != QStringLiteral("-")) return 5;
@@ -87,7 +91,6 @@ int main(int argc, char **argv)
     if (occupiedSince->text() == QStringLiteral("-")) return 9;
     if (occupiedTime->text() == QStringLiteral("-")
         || !occupiedTime->text().startsWith(QStringLiteral("00:19:"))) return 10;
-    if (lastUpdated->text() == QStringLiteral("Not provided")) return 29;
     if (vehicleImage->text() != QStringLiteral("No vehicle image")) return 30;
     if (alarm->text() != QStringLiteral("NON-EV")) return 11;
     if (alarmState->text() != QStringLiteral("ACTIVE")) return 12;
@@ -152,10 +155,13 @@ int main(int argc, char **argv)
     general.occupiedSince = QDateTime::currentDateTime().addSecs(-310);
     general.lastUpdatedAt = QDateTime::currentDateTime();
     generalState.parkingSlots.insert(general.slotId, general);
+    generalState.slotPlateNumbers.insert(general.slotId,
+                                         QStringLiteral("34C5678"));
     page.render(generalState);
     if (!selectRow(page, 4)) return 23;
+    if (requestedSlotId != QStringLiteral("P-01")) return 36;
     if (dataStatus->text() != QStringLiteral("AVAILABLE")) return 24;
-    if (vehicle->text() != QStringLiteral("GENERAL CAR")) return 25;
+    if (vehicle->text() != QStringLiteral("GENERAL CAR · 34C5678")) return 25;
     if (occupiedSince->text() == QStringLiteral("-")
         || !occupiedTime->text().startsWith(QStringLiteral("00:05:"))) return 26;
     if (page.hasUnsavedLayoutChanges() || undoButton->isEnabled()) return 27;

@@ -90,8 +90,14 @@ struct ChannelFireAlarmState {
 struct ParkingViewState {
     QHash<QString, EvSlotInfo> evSlots;
     QHash<QString, ParkingSlotInfo> parkingSlots;
+    // Number of unique slots accepted from the latest server snapshot.
+    // Live MQTT/manual updates may change the maps above, but must not change
+    // the Dashboard's server-reported capacity.
+    int serverSlotCount = 0;
+    bool hasServerSnapshot = false;
     QHash<QString, QList<ParkingImageResource>> slotImages;
     QHash<QString, QString> slotPlateNumbers;
+    QHash<QString, qint64> slotSessionIds;
     // Fire belongs to a camera channel, never to an individual parking slot.
     QSet<QString> fireChannels;
     QHash<QString, ChannelFireAlarmState> fireAlarms;

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <QSet>
 
 namespace {
 constexpr double kOperatorSlotWidth = 124.0;
@@ -66,7 +67,6 @@ void appendChannelTestLayout(QList<ParkingZoneLayout> *zones, int channelNumber,
     const QString channel = QStringLiteral("CH%1").arg(channelNumber);
     Q_UNUSED(panelX)
     Q_UNUSED(panelY)
-    const bool isEv = zoneType == QStringLiteral("EV");
     for (int index = 0; index < 4; ++index) {
         const int zoneNumber = firstZoneNumber + index;
         zones->append(makeZone(
@@ -74,8 +74,37 @@ void appendChannelTestLayout(QList<ParkingZoneLayout> *zones, int channelNumber,
             zoneType,
             4 - index,
             channel,
-            isEv ? QStringLiteral("IVA%1").arg(index + 1) : QString(),
+            QStringLiteral("IVA%1").arg(index + 1),
             hallSensorIdFor(zonePrefix, zoneNumber)));
+    }
+}
+
+void fillMissingIvaAreas(QList<ParkingZoneLayout> *zones)
+{
+    if (!zones) return;
+
+    QHash<QString, QSet<QString>> usedByChannel;
+    for (const ParkingZoneLayout &zone : std::as_const(*zones)) {
+        if (zone.cameraChannel.isEmpty()) continue;
+        if (zone.ivaAreaId == QStringLiteral("IVA1")
+            || zone.ivaAreaId == QStringLiteral("IVA2")
+            || zone.ivaAreaId == QStringLiteral("IVA3")
+            || zone.ivaAreaId == QStringLiteral("IVA4")) {
+            usedByChannel[zone.cameraChannel].insert(zone.ivaAreaId);
+        }
+    }
+
+    for (ParkingZoneLayout &zone : *zones) {
+        if (!zone.ivaAreaId.isEmpty()) continue;
+        QSet<QString> &used = usedByChannel[zone.cameraChannel];
+        for (int areaIndex = 1; areaIndex <= 4; ++areaIndex) {
+            const QString areaId = QStringLiteral("IVA%1").arg(areaIndex);
+            if (!used.contains(areaId)) {
+                zone.ivaAreaId = areaId;
+                used.insert(areaId);
+                break;
+            }
+        }
     }
 }
 
@@ -117,14 +146,16 @@ ParkingZoneLayout zoneFromJson(const QJsonObject &object)
     if (zone.displayName.isEmpty()) {
         zone.displayName = zone.zoneId;
     }
-    if (zone.zoneType != QStringLiteral("EV")) {
+    if (zone.zoneType != QStringLiteral("EV")
+        && zone.zoneType != QStringLiteral("GENERAL")) {
         zone.zoneType = QStringLiteral("GENERAL");
+    }
+    if (!zone.ivaAreaId.isEmpty()
+        && zone.ivaAreaId != QStringLiteral("IVA1")
+        && zone.ivaAreaId != QStringLiteral("IVA2")
+        && zone.ivaAreaId != QStringLiteral("IVA3")
+        && zone.ivaAreaId != QStringLiteral("IVA4")) {
         zone.ivaAreaId.clear();
-    } else if (zone.ivaAreaId != QStringLiteral("IVA1")
-               && zone.ivaAreaId != QStringLiteral("IVA2")
-               && zone.ivaAreaId != QStringLiteral("IVA3")
-               && zone.ivaAreaId != QStringLiteral("IVA4")) {
-        zone.ivaAreaId = QStringLiteral("IVA1");
     }
     return zone;
 }
@@ -270,10 +301,10 @@ QList<ParkingZoneLayout> defaultParkingZoneLayout()
 ParkingOverviewLayouts defaultParkingOverviewLayouts()
 {
     return {
-        overviewCameraLayout(2, 0, 0, {"PARKING", "HIDDEN", "HIDDEN", "PARKING"}),
-        overviewCameraLayout(3, 0, 1, {"PARKING", "HIDDEN", "PARKING", "PARKING"}),
-        overviewCameraLayout(4, 0, 2, {"HIDDEN", "HIDDEN", "PARKING", "HIDDEN"}),
-        overviewCameraLayout(1, 0, 3, {"PARKING", "ENTRANCE", "PARKING", "HIDDEN"}),
+        overviewCameraLayout(1, 0, 0, {"PARKING", "ENTRANCE", "PARKING", "HIDDEN"}),
+        overviewCameraLayout(2, 0, 1, {"PARKING", "HIDDEN", "HIDDEN", "PARKING"}),
+        overviewCameraLayout(3, 0, 2, {"PARKING", "HIDDEN", "PARKING", "PARKING"}),
+        overviewCameraLayout(4, 0, 3, {"HIDDEN", "HIDDEN", "PARKING", "HIDDEN"}),
         overviewCameraLayout(5, 1, 0, {"PARKING", "HIDDEN", "HIDDEN", "PARKING"}),
         overviewCameraLayout(6, 1, 1, {"HIDDEN", "HIDDEN", "PARKING", "PARKING"}),
         overviewCameraLayout(7, 1, 2, {"HIDDEN", "HIDDEN", "PARKING", "PARKING"}),
@@ -281,7 +312,7 @@ ParkingOverviewLayouts defaultParkingOverviewLayouts()
         overviewCameraLayout(9, 2, 0, {"PARKING", "HIDDEN", "PARKING", "PARKING"}),
         overviewCameraLayout(10, 2, 1, {"HIDDEN", "HIDDEN", "PARKING", "PARKING"}),
         overviewCameraLayout(11, 2, 2, {"HIDDEN", "HIDDEN", "PARKING", "PARKING"}),
-        overviewCameraLayout(12, 2, 3, {"HIDDEN", "EXIT", "PARKING", "PARKING"})
+        overviewCameraLayout(12, 2, 3, {"EXIT", "EXIT", "EXIT", "EXIT"})
     };
 }
 
@@ -345,6 +376,8 @@ bool loadParkingZoneLayout(const QString &path, QList<ParkingZoneLayout> *zones,
         if (errorMessage) *errorMessage = QStringLiteral("Parking map layout has no valid zones: ") + path;
         return false;
     }
+
+    fillMissingIvaAreas(&loadedZones);
 
     *zones = loadedZones;
     if (channelDisplayNames) {

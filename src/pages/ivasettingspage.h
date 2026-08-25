@@ -2,6 +2,7 @@
 
 #include "api/parkingroi.h"
 #include "iva/ivaareamodels.h"
+#include "models/parkingzonelayout.h"
 
 #include <QWidget>
 
@@ -37,6 +38,10 @@ public:
     PendingChangesDecision confirmPendingChanges();
     void discardPendingChanges();
     void setCameraIp(const QString &cameraIp);
+    void setParkingZoneMappings(const QList<ParkingZoneLayout> &mappings);
+    void setParkingSelection(const QString &zoneId,
+                             const QString &cameraChannel,
+                             const QString &ivaAreaId);
     void setRequestStarted();
     void setOptions(const IvaAreaOptions &options);
     void setCapabilities(const WiseAiCapabilities &capabilities);
@@ -93,6 +98,9 @@ private:
     void addCoordinateRow(double x, double y);
     void selectChannel(int channel);
     void selectMappedParkingArea();
+    void selectParkingZoneForArea(int channel, int areaIndex);
+    const ParkingZoneLayout *parkingZoneMapping(const QString &zoneId) const;
+    int cameraChannelIndex(const QString &cameraChannel) const;
     int mappedParkingAreaIndex() const;
     QString mappedParkingAreaName() const;
     bool editorMatchesParkingArea() const;
@@ -116,6 +124,10 @@ private:
     void updateButtons();
 
     QString m_cameraIp;
+    QList<ParkingZoneLayout> m_parkingZoneMappings;
+    QString m_selectedParkingZoneId;
+    QString m_selectedParkingChannel;
+    QString m_selectedParkingIvaAreaId;
     IvaAreaConfiguration m_configuration;
     IvaAreaConfiguration m_savedConfiguration;
     IvaAreaOptions m_options;
@@ -141,7 +153,6 @@ private:
     QListWidget *m_detectionModesList = nullptr;
     QListWidget *m_objectFiltersList = nullptr;
     QCheckBox *m_allObjectFiltersCheck = nullptr;
-    QCheckBox *m_includePiRoiCheck = nullptr;
     QLabel *m_appearanceDurationLabel = nullptr;
     QLabel *m_intrusionDurationLabel = nullptr;
     QLabel *m_loiteringDurationLabel = nullptr;
@@ -161,6 +172,7 @@ private:
     QComboBox *m_piSlotCombo = nullptr;
     QLabel *m_piRoiStatusLabel = nullptr;
     QTimer *m_previewTimer = nullptr;
+    QTimer *m_refreshTimer = nullptr;
     int m_selectedArea = -1;
     int m_selectedChannel = 0;
     int m_draftChannel = -1;

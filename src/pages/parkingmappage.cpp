@@ -20,6 +20,7 @@
 #include <QGraphicsItem>
 #include <QGraphicsEllipseItem>
 #include <QGraphicsPathItem>
+#include <QGraphicsPolygonItem>
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsSceneContextMenuEvent>
@@ -197,6 +198,8 @@ QRectF overviewCameraRect(const ParkingOverviewCameraLayout &camera)
 
 QRectF overviewChannelRect(const QRectF &cameraRect, const QString &channel)
 {
+    // Physical order is counter-clockwise from north: CH1 top, CH2 left,
+    // CH3 bottom, and CH4 right.
     const OverviewLayoutMetrics &metrics = kOverviewLayoutMetrics;
     const qreal leftVerticalX = cameraRect.left() + metrics.channelEdgeInset;
     const qreal horizontalX = leftVerticalX
@@ -219,7 +222,7 @@ QRectF overviewChannelRect(const QRectF &cameraRect, const QString &channel)
                       metrics.horizontalChannelHeight);
     }
     if (normalized == QStringLiteral("CH2")) {
-        return QRectF(rightVerticalX, verticalY,
+        return QRectF(leftVerticalX, verticalY,
                       metrics.verticalChannelWidth,
                       metrics.verticalChannelHeight);
     }
@@ -229,7 +232,7 @@ QRectF overviewChannelRect(const QRectF &cameraRect, const QString &channel)
                       metrics.horizontalChannelHeight);
     }
     if (normalized == QStringLiteral("CH4")) {
-        return QRectF(leftVerticalX, verticalY,
+        return QRectF(rightVerticalX, verticalY,
                       metrics.verticalChannelWidth,
                       metrics.verticalChannelHeight);
     }
@@ -237,10 +240,28 @@ QRectF overviewChannelRect(const QRectF &cameraRect, const QString &channel)
 }
 
 QRectF overviewAccessLaneRect(const QRectF &cameraRect,
-                              const QRectF &channelRect)
+                              const QRectF &channelRect,
+                              const QString &channel)
 {
     const OverviewLayoutMetrics &metrics = kOverviewLayoutMetrics;
-    return QRectF(cameraRect.right() - metrics.accessLaneWidth,
+    const QString normalized = channel.trimmed().toUpper();
+    const bool northSouth = normalized == QStringLiteral("CH1")
+        || normalized == QStringLiteral("CH3");
+    if (northSouth) {
+        const qreal laneWidth = metrics.accessLaneHeight;
+        const qreal laneHeight = metrics.accessLaneWidth;
+        const bool northSide = normalized == QStringLiteral("CH1");
+        return QRectF(channelRect.center().x() - (laneWidth / 2.0),
+                      northSide ? cameraRect.top()
+                                : cameraRect.bottom() - laneHeight,
+                      laneWidth, laneHeight);
+    }
+
+    const bool westSide = normalized == QStringLiteral("CH2");
+    const qreal laneX = westSide
+        ? cameraRect.left()
+        : cameraRect.right() - metrics.accessLaneWidth;
+    return QRectF(laneX,
                   channelRect.center().y() - (metrics.accessLaneHeight / 2.0),
                   metrics.accessLaneWidth,
                   metrics.accessLaneHeight);
@@ -626,11 +647,23 @@ QString compactVehicleText(bool known, const SlotVisualState &visual)
 
 QString plateNumberForZone(const ParkingViewState &state, const QString &zoneId)
 {
+    const auto usablePlateNumber = [](const QString &rawPlateNumber) {
+        const QString plateNumber = rawPlateNumber.trimmed();
+        if (plateNumber.isEmpty() || plateNumber == QStringLiteral("-")
+            || plateNumber.compare(QStringLiteral("N/A"),
+                                   Qt::CaseInsensitive) == 0
+            || plateNumber.compare(QStringLiteral("NOT PROVIDED"),
+                                   Qt::CaseInsensitive) == 0) {
+            return QString();
+        }
+        return plateNumber;
+    };
     if (state.evSlots.contains(zoneId)) {
-        const QString plateNumber = state.evSlots.value(zoneId).plateNumber.trimmed();
+        const QString plateNumber = usablePlateNumber(
+            state.evSlots.value(zoneId).plateNumber);
         if (!plateNumber.isEmpty()) return plateNumber;
     }
-    return state.slotPlateNumbers.value(zoneId).trimmed();
+    return usablePlateNumber(state.slotPlateNumbers.value(zoneId));
 }
 
 QColor alarmColor(SlotAlarmKind alarm)
@@ -757,41 +790,6 @@ bool sameOverviewLayouts(const ParkingOverviewLayouts &left,
                 || leftChannel.slotCount != rightChannel.slotCount) {
                 return false;
             }
-        }
-    }
-    return true;
-}
-
-bool hasFixedOperatorTopology(const QList<ParkingZoneLayout> &zones)
-{
-    if (zones.size() != 8) return false;
-
-    const QList<QPair<QString, QString>> expectedSlots = {
-        {QStringLiteral("EV-01"), QStringLiteral("CH1")},
-        {QStringLiteral("EV-02"), QStringLiteral("CH1")},
-        {QStringLiteral("EV-03"), QStringLiteral("CH1")},
-        {QStringLiteral("EV-04"), QStringLiteral("CH1")},
-        {QStringLiteral("P-01"), QStringLiteral("CH3")},
-        {QStringLiteral("P-02"), QStringLiteral("CH3")},
-        {QStringLiteral("P-03"), QStringLiteral("CH3")},
-        {QStringLiteral("P-04"), QStringLiteral("CH3")}
-    };
-    for (int index = 0; index < expectedSlots.size(); ++index) {
-        const auto foundZone = std::find_if(
-            zones.cbegin(), zones.cend(), [&expectedSlots, index](const ParkingZoneLayout &zone) {
-                return zone.zoneId == expectedSlots.at(index).first;
-            });
-        if (foundZone == zones.cend()) return false;
-        const ParkingZoneLayout &zone = *foundZone;
-        const bool expectedEv = index < 4;
-        if (zone.zoneId != expectedSlots.at(index).first
-            || zone.cameraChannel != expectedSlots.at(index).second
-            // The physical operator view is mirrored: left-to-right is
-            // slot 4, 3, 2, 1 for both EV and general parking channels.
-            || zone.slotOrder != 4 - (index % 4)
-            || (expectedEv && zone.zoneType != QStringLiteral("EV"))
-            || (!expectedEv && zone.zoneType != QStringLiteral("GENERAL"))) {
-            return false;
         }
     }
     return true;
@@ -998,6 +996,9 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
 
     auto *mapGroup = new QGroupBox(QStringLiteral("Camera 1 Detail"), detailPage);
     auto *mapLayout = new QVBoxLayout(mapGroup);
+    // QGroupBox titles occupy the top border band. Keep the detail toolbar and
+    // status row below that band so the title never overlaps a subtitle/chip.
+    mapLayout->setContentsMargins(12, 30, 12, 12);
     mapLayout->setSpacing(8);
 
     // Layout data is retained for configuration compatibility, but this page is
@@ -1184,12 +1185,12 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     // QGroupBox titles share the top edge with their child area in some Qt
     // styles. Reserve that title band explicitly so the selected-state pill
     // cannot overlap the group title on narrow right panels.
-    runtimeLayout->setContentsMargins(12, 30, 12, 12);
+    runtimeLayout->setContentsMargins(20, 44, 16, 14);
     runtimeLayout->setSpacing(8);
     auto *selectedHeader = new QWidget(runtimeGroup);
     selectedHeader->setObjectName(QStringLiteral("selectedSlotHeader"));
     auto *selectedHeaderLayout = new QVBoxLayout(selectedHeader);
-    selectedHeaderLayout->setContentsMargins(0, 0, 0, 8);
+    selectedHeaderLayout->setContentsMargins(4, 0, 0, 8);
     selectedHeaderLayout->setSpacing(4);
     auto *selectedTitleRow = new QHBoxLayout;
     selectedTitleRow->setContentsMargins(0, 0, 0, 0);
@@ -1223,10 +1224,13 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         return label;
     };
     m_runtimeDataStatusLabel = makeRuntimeValue(QStringLiteral("runtimeDataStatusLabel"));
+    // This label is part of the selected-slot header. Leaving it parented to
+    // runtimeGroup without a layout makes Qt place it at (0, 0), over the
+    // QGroupBox title on styles that do not assign a default geometry.
+    selectedHeaderLayout->addWidget(m_runtimeDataStatusLabel);
     m_runtimeVehicleLabel = makeRuntimeValue(QStringLiteral("runtimeVehicleLabel"));
     m_runtimeOccupiedSinceLabel = makeRuntimeValue(QStringLiteral("runtimeOccupiedSinceLabel"));
     m_runtimeOccupiedTimeLabel = makeRuntimeValue(QStringLiteral("runtimeOccupiedTimeLabel"));
-    m_runtimeLastUpdatedLabel = makeRuntimeValue(QStringLiteral("runtimeLastUpdatedLabel"));
     m_runtimeAlarmLabel = makeRuntimeValue(QStringLiteral("runtimeAlarmLabel"));
     m_runtimeAlarmStateLabel = makeRuntimeValue(QStringLiteral("runtimeAlarmStateLabel"));
     m_runtimeVehicleImageLabel = new QLabel(QStringLiteral("Select a slot to view vehicle image"), runtimeGroup);
@@ -1261,6 +1265,12 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     rightLayout->insertWidget(0, runtimeGroup);
 
     auto *recentGroup = new QGroupBox(QStringLiteral("Recent Events"), rightPanel);
+    recentGroup->setObjectName(QStringLiteral("parkingRecentEventsGroup"));
+    // Keep the recent-event table compact. Without a fixed vertical policy the
+    // right-side layout gives this group half of the available height and the
+    // capped table is vertically centred inside a large empty card.
+    recentGroup->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    recentGroup->setMaximumHeight(184);
     auto *recentLayout = new QVBoxLayout(recentGroup);
     m_recentEventsTable = new QTableWidget(0, 3, recentGroup);
     m_recentEventsTable->setObjectName(QStringLiteral("parkingRecentEventsTable"));
@@ -1273,7 +1283,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_recentEventsTable->verticalHeader()->setVisible(false);
     m_recentEventsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_recentEventsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_recentEventsTable->setMaximumHeight(142);
+    m_recentEventsTable->setFixedHeight(142);
     recentLayout->addWidget(m_recentEventsTable);
     rightLayout->insertWidget(1, recentGroup);
 
@@ -1384,8 +1394,13 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
             this, &ParkingMapPage::openOverviewSearchResult);
     connect(m_stateFilterCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &ParkingMapPage::applyZoneFilters);
-    connect(ivaSettingsButton, &QPushButton::clicked,
-            this, &ParkingMapPage::ivaSettingsRequested);
+    connect(ivaSettingsButton, &QPushButton::clicked, this, [this]() {
+        const ParkingZoneLayout *zone = selectedZone();
+        if (!zone) return;
+        emit ivaSettingsRequested(zone->zoneId,
+                                  zone->cameraChannel,
+                                  zone->ivaAreaId);
+    });
     connect(m_editToggleButton, &QPushButton::toggled,
             this, &ParkingMapPage::setEditMode);
     connect(m_editToggleButton, &QPushButton::toggled, this,
@@ -1512,8 +1527,10 @@ void ParkingMapPage::showHelpDialog()
 
     auto *intro = new QLabel(
         QStringLiteral("Parking Map은 주차면이 연결된 채널과 부지 입·출구를 표시합니다. "
-                       "Camera 1은 CH1(EV-01~EV-04), CH3(P-01~P-04) 주차면과 "
-                       "CH2 입구 표식을 표시합니다. Camera 12 CH2는 출구 표식입니다. "
+                       "Camera 1은 CH1/CH3의 주차면을 표시하며 슬롯 종류와 무관하게 "
+                       "채널 내부 IVA Area 매핑을 사용합니다. "
+                       "CH2 입구 표식을 표시합니다. Camera 12에서 EXIT로 설정된 채널은 "
+                       "각 채널의 동서남북 방향에 맞춰 출구 표식을 표시합니다. "
                        "입·출구는 주차면 집계에 포함되지 않습니다. "
                        "Camera 2~12의 UI Preview 채널 역할과 주차면 수는 Overview의 "
                        "Edit overview layout에서 설정하고 로컬 배치 파일에 저장합니다. "
@@ -1571,7 +1588,7 @@ void ParkingMapPage::showHelpDialog()
         channelLayout->addWidget(makeSlotSample(
             evChannel ? QStringLiteral("EV-01 ~ EV-04")
                       : QStringLiteral("P-01 ~ P-04"),
-            evChannel ? QStringLiteral("IVA mapped") : QStringLiteral("IVA N/A"),
+            QStringLiteral("IVA mapped"),
             evChannel ? QStringLiteral("#2d9cff") : QStringLiteral("#ffd447")));
         const int gridRow = channelNumber == 1 ? 0 : (channelNumber == 3 ? 2 : 1);
         const int gridColumn = channelNumber == 2 ? 2 : (channelNumber == 4 ? 0 : 1);
@@ -1862,9 +1879,7 @@ void ParkingMapPage::addGeneralZone()
     zone.zoneType = QStringLiteral("GENERAL");
     zone.displayName = zone.zoneId;
     zone.cameraChannel = m_cameraChannelCombo ? m_cameraChannelCombo->currentText() : QStringLiteral("CH3");
-    if (zone.cameraChannel != QStringLiteral("CH3")) {
-        zone.cameraChannel = QStringLiteral("CH3");
-    }
+    if (!isParkingControlChannel(zone.cameraChannel)) zone.cameraChannel = QStringLiteral("CH3");
     zone.slotOrder = 5;
     zone.rect = nextZoneRectForChannel(zone.cameraChannel);
     QString compactId = zone.zoneId;
@@ -1892,9 +1907,7 @@ void ParkingMapPage::addEvZone()
     zone.zoneType = QStringLiteral("EV");
     zone.displayName = zone.zoneId;
     zone.cameraChannel = m_cameraChannelCombo ? m_cameraChannelCombo->currentText() : QStringLiteral("CH1");
-    if (zone.cameraChannel != QStringLiteral("CH1")) {
-        zone.cameraChannel = QStringLiteral("CH1");
-    }
+    if (!isParkingControlChannel(zone.cameraChannel)) zone.cameraChannel = QStringLiteral("CH1");
     zone.slotOrder = 5;
     zone.rect = nextZoneRectForChannel(zone.cameraChannel);
     QString compactId = zone.zoneId;
@@ -2020,6 +2033,7 @@ void ParkingMapPage::handleSceneSelectionChanged()
         QSignalBlocker blocker(m_zoneTable);
         m_zoneTable->selectRow(row);
     }
+    emit slotDetailRequested(zoneId);
 }
 
 void ParkingMapPage::handleZoneTableClicked(int row, int column)
@@ -2126,26 +2140,19 @@ void ParkingMapPage::loadLayout()
                                  &loadedChannelDisplayNames,
                                  &loadedOverviewLayouts, &error)) {
         int ignoredCorridorSlots = 0;
-        const QList<ParkingZoneLayout> defaultZones = defaultParkingZoneLayout();
         m_zones.clear();
         for (const ParkingZoneLayout &zone : std::as_const(loadedZones)) {
             if (isParkingControlChannel(zone.cameraChannel)) m_zones.append(zone);
             else ++ignoredCorridorSlots;
         }
         if (m_zones.isEmpty()) m_zones = defaultParkingZoneLayout();
-        if (ignoredCorridorSlots > 0 || !hasFixedOperatorTopology(m_zones)) {
-            m_zones = defaultZones;
-            m_channelDisplayNames.clear();
-            m_overviewLayouts = defaultParkingOverviewLayouts();
-            clearUndoHistory();
-            setLayoutDirty(false, QStringLiteral(
-                "Using fixed operator layout: CH1 EV-01~EV-04 and CH3 P-01~P-04"));
-            return;
-        }
         m_channelDisplayNames = loadedChannelDisplayNames;
         m_overviewLayouts = loadedOverviewLayouts;
         clearUndoHistory();
-        setLayoutDirty(false, QStringLiteral("Loaded local layout"));
+        setLayoutDirty(false, ignoredCorridorSlots > 0
+                           ? QStringLiteral("Loaded local layout; ignored %1 non-parking channel slot(s)")
+                                 .arg(ignoredCorridorSlots)
+                           : QStringLiteral("Loaded local layout"));
         return;
     }
 
@@ -2662,7 +2669,7 @@ QString ParkingMapPage::channelForScenePoint(const QPointF &point) const
     return QString();
 }
 
-QString ParkingMapPage::nextIvaAreaForEv(const QString &channel, const QString &excludeZoneId) const
+QString ParkingMapPage::nextIvaAreaForChannel(const QString &channel, const QString &excludeZoneId) const
 {
     const QStringList ivaAreas = {
         QStringLiteral("IVA1"),
@@ -2683,8 +2690,7 @@ bool ParkingMapPage::ivaUsedInChannel(const QString &channel, const QString &iva
     const QString normalizedExclude = normalizedZoneId(excludeZoneId);
     for (const ParkingZoneLayout &zone : m_zones) {
         if (zone.zoneId == normalizedExclude) continue;
-        if (zone.zoneType == QStringLiteral("EV")
-            && zone.cameraChannel == channel
+        if (zone.cameraChannel == channel
             && zone.ivaAreaId == ivaAreaId) {
             return true;
         }
@@ -2700,15 +2706,9 @@ void ParkingMapPage::applyZoneTypeRules(ParkingZoneLayout *zone, const QString &
     if (!isParkingControlChannel(zone->cameraChannel)) {
         zone->cameraChannel = QStringLiteral("CH1");
     }
-    if (zone->cameraChannel == QStringLiteral("CH1")) {
-        zone->zoneType = QStringLiteral("EV");
-    } else if (zone->cameraChannel == QStringLiteral("CH3")) {
+    if (zone->zoneType != QStringLiteral("EV")
+        && zone->zoneType != QStringLiteral("GENERAL")) {
         zone->zoneType = QStringLiteral("GENERAL");
-    }
-    if (zone->zoneType != QStringLiteral("EV")) {
-        zone->zoneType = QStringLiteral("GENERAL");
-        zone->ivaAreaId.clear();
-        return;
     }
 
     QString ivaAreaId = preferredIva.trimmed().toUpper();
@@ -2717,7 +2717,7 @@ void ParkingMapPage::applyZoneTypeRules(ParkingZoneLayout *zone, const QString &
     }
     if (!isIvaAreaId(ivaAreaId)
         || ivaUsedInChannel(zone->cameraChannel, ivaAreaId, zone->zoneId)) {
-        ivaAreaId = nextIvaAreaForEv(zone->cameraChannel, zone->zoneId);
+        ivaAreaId = nextIvaAreaForChannel(zone->cameraChannel, zone->zoneId);
     }
     zone->ivaAreaId = ivaAreaId;
 }
@@ -3081,7 +3081,6 @@ void ParkingMapPage::updateRuntimeStatusFromSelection()
         if (m_runtimeVehicleLabel) m_runtimeVehicleLabel->setText(QStringLiteral("-"));
         if (m_runtimeOccupiedSinceLabel) m_runtimeOccupiedSinceLabel->setText(QStringLiteral("-"));
         if (m_runtimeOccupiedTimeLabel) m_runtimeOccupiedTimeLabel->setText(QStringLiteral("-"));
-        if (m_runtimeLastUpdatedLabel) m_runtimeLastUpdatedLabel->setText(QStringLiteral("-"));
         if (m_runtimeAlarmLabel) m_runtimeAlarmLabel->setText(QStringLiteral("-"));
         if (m_runtimeAlarmStateLabel) {
             m_runtimeAlarmStateLabel->setText(QStringLiteral("-"));
@@ -3189,12 +3188,6 @@ void ParkingMapPage::updateRuntimeStatusFromSelection()
                    && trimmedDuration != QStringLiteral("-")
                        ? trimmedDuration : QStringLiteral("-")));
     }
-    if (m_runtimeLastUpdatedLabel) {
-        m_runtimeLastUpdatedLabel->setText(lastUpdatedAt.isValid()
-            ? lastUpdatedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
-            : QStringLiteral("Not provided"));
-    }
-
     if (m_runtimeAlarmLabel) {
         m_runtimeAlarmLabel->setText(slotAlarmText(selectedVisual.alarm));
     }
@@ -3291,6 +3284,7 @@ bool ParkingMapPage::validateLayout(QString *errorMessage) const
 {
     QSet<QString> zoneIds;
     QSet<QString> ivaMappings;
+    QSet<QString> channelSlotOrders;
     for (const ParkingZoneLayout &zone : m_zones) {
         if (zone.zoneId.trimmed().isEmpty()) {
             if (errorMessage) *errorMessage = QStringLiteral("Zone ID is required");
@@ -3311,6 +3305,14 @@ bool ParkingMapPage::validateLayout(QString *errorMessage) const
                 .arg(zone.zoneId);
             return false;
         }
+        const QString channelSlotKey = zone.cameraChannel
+            + QLatin1Char(':') + QString::number(zone.slotOrder);
+        if (channelSlotOrders.contains(channelSlotKey)) {
+            if (errorMessage) *errorMessage = QStringLiteral(
+                "Duplicate channel slot order: %1").arg(channelSlotKey);
+            return false;
+        }
+        channelSlotOrders.insert(channelSlotKey);
         const QRectF panel = channelPanelRect(zone.cameraChannel);
         const QGraphicsRectItem *graphicsItem = m_zoneItems.value(zone.zoneId);
         const QRectF visualBounds = graphicsItem
@@ -3321,20 +3323,13 @@ bool ParkingMapPage::validateLayout(QString *errorMessage) const
                 .arg(zone.zoneId);
             return false;
         }
-        if (zone.zoneType == QStringLiteral("EV")) {
-            const QString mappingKey = zone.cameraChannel + QLatin1Char(':') + zone.ivaAreaId;
-            if (!isIvaAreaId(zone.ivaAreaId) || ivaMappings.contains(mappingKey)) {
-                if (errorMessage) *errorMessage = QStringLiteral("Invalid or duplicate IVA mapping: %1")
-                    .arg(zone.zoneId);
-                return false;
-            }
-            ivaMappings.insert(mappingKey);
+        const QString mappingKey = zone.cameraChannel + QLatin1Char(':') + zone.ivaAreaId;
+        if (!isIvaAreaId(zone.ivaAreaId) || ivaMappings.contains(mappingKey)) {
+            if (errorMessage) *errorMessage = QStringLiteral("Invalid or duplicate IVA mapping: %1")
+                .arg(zone.zoneId);
+            return false;
         }
-    }
-    if (!hasFixedOperatorTopology(m_zones)) {
-        if (errorMessage) *errorMessage = QStringLiteral(
-            "Parking Map uses the fixed CH1 EV-01~EV-04 and CH3 P-01~P-04 topology");
-        return false;
+        ivaMappings.insert(mappingKey);
     }
     if (errorMessage) errorMessage->clear();
     return true;
@@ -3693,9 +3688,13 @@ void ParkingMapPage::rebuildOverviewScene()
                 const QColor accessFill = entrance ? entranceFill : exitFill;
                 const QString accessType = entrance
                     ? QStringLiteral("Entrance") : QStringLiteral("Exit");
-                const qreal laneRight = cameraRect.right();
                 const QRectF laneRect = overviewAccessLaneRect(
-                    cameraRect, channelRect);
+                    cameraRect, channelRect, channel);
+                const QString normalizedChannel = channel.trimmed().toUpper();
+                const bool northSouth = normalizedChannel == QStringLiteral("CH1")
+                    || normalizedChannel == QStringLiteral("CH3");
+                const bool northSide = normalizedChannel == QStringLiteral("CH1");
+                const bool westSide = normalizedChannel == QStringLiteral("CH2");
                 auto *lane = m_overviewScene->addRect(
                     laneRect, QPen(accessAccent.darker(115), 1.2),
                     QBrush(accessFill));
@@ -3707,32 +3706,70 @@ void ParkingMapPage::rebuildOverviewScene()
 
                 // The facility border remains continuous; draw the access
                 // gate immediately inside that external boundary.
-                const qreal gateX = laneRight
-                    - kOverviewLayoutMetrics.accessGateInset;
-                m_overviewScene->addLine(
-                    gateX, laneRect.top() + 8.0,
-                    gateX, laneRect.bottom() - 8.0,
-                    QPen(accessAccent, 3.0));
-
                 QPen arrowPen(accessAccent, 2.2);
                 arrowPen.setCapStyle(Qt::RoundCap);
                 arrowPen.setJoinStyle(Qt::RoundJoin);
-                const qreal arrowY = laneRect.center().y();
-                const qreal arrowTipX = entrance
-                    ? laneRect.left() + 18.0 : gateX - 4.0;
-                const qreal arrowTailX = entrance
-                    ? gateX - 8.0 : laneRect.left() + 18.0;
-                const qreal arrowHeadDirection = entrance ? 1.0 : -1.0;
-                m_overviewScene->addLine(
-                    arrowTailX, arrowY, arrowTipX, arrowY, arrowPen);
-                m_overviewScene->addLine(
-                    arrowTipX, arrowY,
-                    arrowTipX + (arrowHeadDirection * 11.0),
-                    arrowY - 7.0, arrowPen);
-                m_overviewScene->addLine(
-                    arrowTipX, arrowY,
-                    arrowTipX + (arrowHeadDirection * 11.0),
-                    arrowY + 7.0, arrowPen);
+                const QString arrowToolTip = lane->toolTip()
+                    + QStringLiteral(" | Direction arrow");
+                if (northSouth) {
+                    const qreal gateY = northSide
+                        ? laneRect.bottom() - kOverviewLayoutMetrics.accessGateInset
+                        : laneRect.top() + kOverviewLayoutMetrics.accessGateInset;
+                    m_overviewScene->addLine(
+                        laneRect.left() + 8.0, gateY,
+                        laneRect.right() - 8.0, gateY,
+                        QPen(accessAccent, 3.0));
+                    const qreal arrowX = laneRect.center().x();
+                    const qreal arrowTipY = entrance
+                        ? (northSide ? laneRect.bottom() - 18.0 : laneRect.top() + 18.0)
+                        : (northSide ? laneRect.top() + 4.0 : laneRect.bottom() - 4.0);
+                    const qreal arrowTailY = entrance
+                        ? (northSide ? laneRect.top() + 8.0 : gateY + 8.0)
+                        : (northSide ? gateY - 8.0 : laneRect.top() + 18.0);
+                    const qreal travelDirection = entrance
+                        ? (northSide ? 1.0 : -1.0)
+                        : (northSide ? -1.0 : 1.0);
+                    const qreal arrowBaseY = arrowTipY
+                        - (travelDirection * 10.0);
+                    m_overviewScene->addLine(
+                        arrowX, arrowTailY, arrowX, arrowBaseY, arrowPen);
+                    const QPolygonF arrowHead{
+                        QPointF(arrowX, arrowTipY),
+                        QPointF(arrowX - 6.0, arrowBaseY),
+                        QPointF(arrowX + 6.0, arrowBaseY)};
+                    auto *arrowHeadItem = m_overviewScene->addPolygon(
+                        arrowHead, Qt::NoPen, QBrush(accessAccent));
+                    arrowHeadItem->setToolTip(arrowToolTip);
+                } else {
+                    const qreal arrowY = laneRect.center().y();
+                    const qreal gateX = westSide
+                        ? laneRect.right() - kOverviewLayoutMetrics.accessGateInset
+                        : laneRect.left() + kOverviewLayoutMetrics.accessGateInset;
+                    m_overviewScene->addLine(
+                        gateX, laneRect.top() + 8.0,
+                        gateX, laneRect.bottom() - 8.0,
+                        QPen(accessAccent, 3.0));
+                    const qreal arrowTipX = entrance
+                        ? (westSide ? laneRect.right() - 18.0 : laneRect.left() + 18.0)
+                        : (westSide ? laneRect.left() + 4.0 : laneRect.right() - 4.0);
+                    const qreal arrowTailX = entrance
+                        ? (westSide ? laneRect.left() + 8.0 : gateX - 8.0)
+                        : (westSide ? gateX + 8.0 : laneRect.left() + 18.0);
+                    const qreal travelDirection = entrance
+                        ? (westSide ? 1.0 : -1.0)
+                        : (westSide ? -1.0 : 1.0);
+                    const qreal arrowBaseX = arrowTipX
+                        - (travelDirection * 10.0);
+                    m_overviewScene->addLine(
+                        arrowTailX, arrowY, arrowBaseX, arrowY, arrowPen);
+                    const QPolygonF arrowHead{
+                        QPointF(arrowTipX, arrowY),
+                        QPointF(arrowBaseX, arrowY - 6.0),
+                        QPointF(arrowBaseX, arrowY + 6.0)};
+                    auto *arrowHeadItem = m_overviewScene->addPolygon(
+                        arrowHead, Qt::NoPen, QBrush(accessAccent));
+                    arrowHeadItem->setToolTip(arrowToolTip);
+                }
                 continue;
             }
 

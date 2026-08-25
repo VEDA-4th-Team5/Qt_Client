@@ -50,14 +50,18 @@ public:
     bool saveLayoutNow(QString *errorMessage = nullptr);
     QString channelDisplayName(const QString &channel) const;
     bool setChannelDisplayName(const QString &channel, const QString &displayName);
+    QList<ParkingZoneLayout> parkingZoneMappings() const { return m_zones; }
 
 signals:
     void layoutSaveResult(bool success, const QString &message);
     void layoutDirtyChanged(bool dirty);
+    void slotDetailRequested(const QString &zoneId);
     void eventsRequested(const QString &zoneId, const QString &eventId);
     void evidenceRequested(const QString &zoneId, const QString &eventId);
     void cameraRequested(const QString &channel);
-    void ivaSettingsRequested();
+    void ivaSettingsRequested(const QString &zoneId,
+                              const QString &cameraChannel,
+                              const QString &ivaAreaId);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -121,7 +125,7 @@ private:
     void showZoneContextMenu(const QString &zoneId, const QPoint &screenPos);
     void selectZoneById(const QString &zoneId);
     QString channelForScenePoint(const QPointF &point) const;
-    QString nextIvaAreaForEv(const QString &channel, const QString &excludeZoneId = QString()) const;
+    QString nextIvaAreaForChannel(const QString &channel, const QString &excludeZoneId = QString()) const;
     bool ivaUsedInChannel(const QString &channel, const QString &ivaAreaId, const QString &excludeZoneId) const;
     void applyZoneTypeRules(ParkingZoneLayout *zone, const QString &preferredIva = QString()) const;
     void rebuildScene();
@@ -196,7 +200,6 @@ private:
     QLabel *m_runtimeVehicleImageLabel = nullptr;
     QLabel *m_runtimeOccupiedSinceLabel = nullptr;
     QLabel *m_runtimeOccupiedTimeLabel = nullptr;
-    QLabel *m_runtimeLastUpdatedLabel = nullptr;
     QLabel *m_runtimeAlarmLabel = nullptr;
     QLabel *m_runtimeAlarmStateLabel = nullptr;
     QPushButton *m_editToggleButton = nullptr;

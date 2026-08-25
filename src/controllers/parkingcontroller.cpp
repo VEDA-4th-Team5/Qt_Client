@@ -34,7 +34,8 @@ constexpr int kMaximumOverstayThresholdSeconds = 86400;
 
 bool isParkingRoiZoneId(const QString &slotId)
 {
-    static const QRegularExpression pattern(QStringLiteral("^EV-(\\d+)$"));
+    static const QRegularExpression pattern(
+        QStringLiteral("^(?:EV|P)-(\\d+)$"));
     const QRegularExpressionMatch match = pattern.match(slotId);
     return match.hasMatch() && match.captured(1).toInt() > 0;
 }
@@ -919,6 +920,13 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
         return false;
     }
 
+    if (vacant) {
+        m_state.slotImages.remove(slotId);
+        m_state.slotSessionIds.remove(slotId);
+    } else if (event.sessionId > 0) {
+        m_state.slotSessionIds.insert(slotId, event.sessionId);
+    }
+
     VehicleClass incomingVehicleClass = VehicleClass::Unknown;
     const bool vehicleClassKnown =
         vehicleClassFromText(event.vehicleType, incomingVehicleClass);
@@ -933,6 +941,8 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
             if (removeUnknownState) {
                 m_state.evSlots.remove(slotId);
                 m_state.slotPlateNumbers.remove(slotId);
+                m_state.slotImages.remove(slotId);
+                m_state.slotSessionIds.remove(slotId);
             }
         } else {
             removeUnknownState = !m_state.parkingSlots.contains(slotId)
@@ -940,6 +950,9 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
                     == SlotOccupancy::Unknown;
             if (removeUnknownState) {
                 m_state.parkingSlots.remove(slotId);
+                m_state.slotPlateNumbers.remove(slotId);
+                m_state.slotImages.remove(slotId);
+                m_state.slotSessionIds.remove(slotId);
             }
         }
         if (removeUnknownState) {
@@ -1013,6 +1026,7 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
         slot.eventId = event.eventId;
         m_state.evSlots.insert(slotId, slot);
         m_state.slotPlateNumbers.insert(slotId, slot.plateNumber);
+        if (vacant) m_state.slotPlateNumbers.remove(slotId);
     } else {
         ParkingSlotInfo slot = m_state.parkingSlots.value(slotId);
         slot.slotId = slotId;
@@ -1061,6 +1075,12 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
             ? event.occurredAt : QDateTime::currentDateTime();
         slot.eventId = event.eventId;
         m_state.parkingSlots.insert(slotId, slot);
+        if (vacant) {
+            m_state.slotPlateNumbers.remove(slotId);
+        } else if (!event.plateNumber.trimmed().isEmpty()) {
+            m_state.slotPlateNumbers.insert(slotId,
+                                            event.plateNumber.trimmed());
+        }
     }
 
     notifyStateChanged();
@@ -1533,6 +1553,7 @@ void ParkingController::rebuildApiClient()
                 }
             });
 
+    emit imageLoaderChanged(m_imageLoader);
     emit serverBaseUrlChanged(m_apiBaseUrl.toString());
     publishApiDiagnostic();
     notifyStateChanged();
@@ -2014,9 +2035,12 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
     const ParkingViewState previousState = m_state;
     resetSlotsForSnapshot();
     int appliedCount = 0;
+    int rejectedCount = 0;
+    int duplicateCount = 0;
     for (const ParkingSlotSnapshot &slot : snapshot.parkingSlots) {
         const QString mappedSlotId = m_slotIdMapper.toZoneId(slot.slotId);
         if (mappedSlotId.isEmpty()) {
+            ++rejectedCount;
             recordEvent(slot.slotId, QStringLiteral("API_SLOT_SKIPPED"), QStringLiteral("No zone mapping for server slot"), QStringLiteral("SKIPPED"));
             continue;
         }
@@ -2024,8 +2048,12 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
         // in case the mapper's output wasn't perfect, or for passthrough mode.
         const QString slotId = normalizeParkingSlotId(mappedSlotId);
         if (!isEvSlotId(slotId) && !isGeneralSlotId(slotId)) {
+            ++rejectedCount;
             recordEvent(slotId, QStringLiteral("API_SLOT_SKIPPED"), QStringLiteral("Unknown parking slot in response"), QStringLiteral("SKIPPED"));
             continue;
+        }
+        if (m_state.evSlots.contains(slotId) || m_state.parkingSlots.contains(slotId)) {
+            ++duplicateCount;
         }
         SlotState state = slotStateFromText(slot.state);
         const SlotAlarmKind alarmKind = slotAlarmKindFromText(slot.alarm, state);
@@ -2078,26 +2106,53 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
             m_state.parkingSlots[slotId] = info;
         }
         m_state.slotPlateNumbers.insert(slotId, slot.plateNumber);
+        m_state.slotSessionIds.insert(slotId, slot.sessionId);
         QList<ParkingImageResource> images;
         for (ParkingImageResource image : slot.images) { image.url = resolveApiUrl(image.url); images.append(image); }
+        if (images.isEmpty() && slot.sessionId > 0
+            && previousState.slotSessionIds.value(slotId, -1)
+                == slot.sessionId) {
+            images = previousState.slotImages.value(slotId);
+        }
         if (!images.isEmpty()) m_state.slotImages.insert(slotId, images);
         ++appliedCount;
     }
+    // Keep Dashboard capacity tied to the latest accepted server snapshot.
+    // MQTT/manual updates can add or remove entries in m_state afterwards;
+    // they are runtime state changes, not a new capacity declaration.
+    m_state.serverSlotCount = m_state.evSlots.size() + m_state.parkingSlots.size();
+    m_state.hasServerSnapshot = true;
     m_state.generatedAt = snapshot.generatedAt;
     notifyStateChanged();
     const QString generatedAt = snapshot.generatedAt.isValid()
         ? snapshot.generatedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
         : QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-    emit statusMessageChanged(QStringLiteral("API synchronized: %1 slots at %2").arg(appliedCount).arg(generatedAt));
+    const int uniqueCount = m_state.serverSlotCount;
+    const int evCount = m_state.evSlots.size();
+    const int parkingCount = m_state.parkingSlots.size();
+    const int receivedCount = snapshot.parkingSlots.size();
+    const QString snapshotDetail = QStringLiteral(
+        "Server snapshot: received=%1, applied=%2, unique=%3 (EV=%4, P=%5), "
+        "rejected=%6, duplicates=%7, generated=%8")
+        .arg(receivedCount)
+        .arg(appliedCount)
+        .arg(uniqueCount)
+        .arg(evCount)
+        .arg(parkingCount)
+        .arg(rejectedCount)
+        .arg(duplicateCount)
+        .arg(generatedAt);
+    emit statusMessageChanged(snapshotDetail);
     m_apiDiagnostic.connected = true;
     m_apiDiagnostic.status = QStringLiteral("CONNECTED");
     m_apiDiagnostic.lastError.clear();
     m_apiDiagnostic.lastSuccessAt = QDateTime::currentDateTime();
     m_apiDiagnostic.consecutiveFailures = 0;
     m_apiDiagnostic.nextRetrySeconds = 0;
-    m_apiDiagnostic.appliedSlotCount = appliedCount;
+    m_apiDiagnostic.appliedSlotCount = uniqueCount;
     publishApiDiagnostic();
-    recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_SYNC"), QStringLiteral("Applied %1 parking slots").arg(appliedCount), QStringLiteral("DONE"));
+    recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_SYNC"), snapshotDetail,
+                QStringLiteral("DONE"));
 }
 
 void ParkingController::publishApiDiagnostic()
@@ -2124,6 +2179,7 @@ void ParkingController::applyParkingSlotDetail(
     }
     const QString slotId = normalizeParkingSlotId(mappedSlotId);
     m_state.slotPlateNumbers.insert(slotId, slot.plateNumber);
+    m_state.slotSessionIds.insert(slotId, slot.sessionId);
     QList<ParkingImageResource> images;
     for (ParkingImageResource image : slot.images) { image.url = resolveApiUrl(image.url); images.append(image); }
     if (images.isEmpty()) m_state.slotImages.remove(slotId); else m_state.slotImages.insert(slotId, images);
@@ -2175,7 +2231,11 @@ void ParkingController::applyParkingSessionImages(
 
 void ParkingController::resetSlotsForSnapshot()
 {
-    m_state.evSlots.clear(); m_state.parkingSlots.clear(); m_state.slotImages.clear(); m_state.slotPlateNumbers.clear();
+    m_state.evSlots.clear();
+    m_state.parkingSlots.clear();
+    m_state.slotImages.clear();
+    m_state.slotPlateNumbers.clear();
+    m_state.slotSessionIds.clear();
 }
 
 void ParkingController::requestSlotDetail(const QString &rawSlotId)
@@ -2205,6 +2265,10 @@ void ParkingController::requestSlotDetail(const QString &rawSlotId)
 void ParkingController::replaceViewState(const ParkingViewState &state)
 {
     m_state = state;
+    // replaceViewState() is used by the local simulation/test path. It must
+    // not be mistaken for a server-provided capacity snapshot.
+    m_state.serverSlotCount = 0;
+    m_state.hasServerSnapshot = false;
     notifyStateChanged();
 }
 
@@ -2239,6 +2303,11 @@ void ParkingController::applyParkingSlotUpdate(const QString &slotId, SlotState 
         updated.visual = deriveSlotVisualState(state, state == SlotState::Occupied, false);
     }
     m_state.parkingSlots[slotId] = updated;
+    if (state == SlotState::Vacant) {
+        m_state.slotPlateNumbers.remove(slotId);
+        m_state.slotImages.remove(slotId);
+        m_state.slotSessionIds.remove(slotId);
+    }
     notifyStateChanged();
 }
 
