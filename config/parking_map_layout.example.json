@@ -50,7 +50,7 @@
       "display_name": "P-01",
       "slot_order": 1,
       "camera_channel": "CH3",
-      "iva_area_id": "",
+      "iva_area_id": "IVA1",
       "hall_sensor_id": "HALL_P_01",
       "enabled": true
     },
@@ -60,7 +60,7 @@
       "display_name": "P-02",
       "slot_order": 2,
       "camera_channel": "CH3",
-      "iva_area_id": "",
+      "iva_area_id": "IVA2",
       "hall_sensor_id": "HALL_P_02",
       "enabled": true
     },
@@ -70,7 +70,7 @@
       "display_name": "P-03",
       "slot_order": 3,
       "camera_channel": "CH3",
-      "iva_area_id": "",
+      "iva_area_id": "IVA3",
       "hall_sensor_id": "HALL_P_03",
       "enabled": true
     },
@@ -80,7 +80,7 @@
       "display_name": "P-04",
       "slot_order": 4,
       "camera_channel": "CH3",
-      "iva_area_id": "",
+      "iva_area_id": "IVA4",
       "hall_sensor_id": "HALL_P_04",
       "enabled": true
     }

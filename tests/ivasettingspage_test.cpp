@@ -38,6 +38,7 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     IvaSettingsPage page(QStringLiteral("192.0.2.10"));
+    page.setParkingZoneMappings(defaultParkingZoneLayout());
 
     IvaAreaConfiguration configuration;
     IvaChannelDefinition channel0;
@@ -111,8 +112,9 @@ int main(int argc, char *argv[])
                      && !table->isColumnHidden(5),
                  "table must show readable rule data and an accessible object icon strip")) return 1;
     auto *summary = page.findChild<QLabel *>(QStringLiteral("ivaChannelSummaryLabel"));
-    if (!require(summary && summary->text().contains(QStringLiteral("CH2 OFF (0 areas)")),
-                 "disabled empty camera channels must remain visible")) return 1;
+    if (!require(summary && summary->text().contains(QStringLiteral("CH2 OFF (0 areas)"))
+                     && !summary->isVisible(),
+                 "channel counts must remain available diagnostically without duplicating the channel buttons")) return 1;
     auto *coordinateTable = page.findChild<QTableWidget *>(
         QStringLiteral("ivaCoordinateTable"));
     auto *indexSpin = page.findChild<QSpinBox *>(QStringLiteral("ivaRuleIndexSpin"));
@@ -120,8 +122,11 @@ int main(int argc, char *argv[])
         QStringLiteral("saveIvaChangesButton"));
     auto *saveGroup = page.findChild<QFrame *>(
         QStringLiteral("ivaSaveChangesGroup"));
+    auto *cameraWiseAiAreasTitle = page.findChild<QLabel *>(
+        QStringLiteral("ivaCameraWiseAiAreasTitle"));
     auto *cameraSaveStatus = page.findChild<QLabel *>(
         QStringLiteral("ivaCameraSaveStatusLabel"));
+    auto *ivaStatus = page.findChild<QLabel *>(QStringLiteral("ivaStatusLabel"));
     auto *areaCount = page.findChild<QLabel *>(QStringLiteral("ivaAreaCountLabel"));
     auto *selectedTitle = page.findChild<QLabel *>(
         QStringLiteral("ivaSelectedAreaTitleLabel"));
@@ -134,6 +139,8 @@ int main(int argc, char *argv[])
         QStringLiteral("ivaAllObjectFiltersCheck"));
     auto *channel1Button = page.findChild<QPushButton *>(
         QStringLiteral("ivaPreviewChannel1Button"));
+    auto *channelEnabled = page.findChild<QCheckBox *>(
+        QStringLiteral("ivaChannelEnabledCheck"));
     auto *objectFilters = page.findChild<QListWidget *>(
         QStringLiteral("ivaObjectFiltersList"));
     auto *detectionModes = page.findChild<QListWidget *>(
@@ -229,7 +236,6 @@ int main(int argc, char *argv[])
     auto *canvas = page.findChild<IvaVideoCanvas *>(QStringLiteral("ivaVideoCanvas"));
     auto *discard = page.findChild<QPushButton *>(QStringLiteral("ivaDiscardDraftButton"));
     auto *piSlot = page.findChild<QComboBox *>(QStringLiteral("ivaPiParkingSlotCombo"));
-    auto *includePi = page.findChild<QCheckBox *>(QStringLiteral("ivaIncludePiRoiCheck"));
     auto *piStatus = page.findChild<QLabel *>(QStringLiteral("ivaPiRoiStatusLabel"));
     QString piRequestedSlot;
     ParkingRoi piRequestedRoi;
@@ -248,6 +254,7 @@ int main(int argc, char *argv[])
         QStringLiteral("ivaRuleDetailsSplitter"));
     auto *workspaceSplitter = page.findChild<QSplitter *>(
         QStringLiteral("ivaWorkspaceSplitter"));
+    auto *controlRow = page.findChild<QWidget *>(QStringLiteral("ivaTopControlRow"));
     auto *editorScrollArea = page.findChild<QScrollArea *>(
         QStringLiteral("ivaRuleEditorScrollArea"));
     if (!require(workspaceSplitter && workspaceSplitter->sizes().size() == 2,
@@ -259,7 +266,22 @@ int main(int argc, char *argv[])
                      && !detailsSplitter->childrenCollapsible()
                      && detailsSplitter->handleWidth() == 8
                      && table->height() >= table->minimumHeight(),
-                 "IVA rule table must remain readable while details use a resizable scroll viewport")) return 1;
+                  "IVA rule table must remain readable while details use a resizable scroll viewport")) return 1;
+    if (!require(controlRow && saveGroup && channel1Button && channelEnabled
+                     && saveGroup->parentWidget() == controlRow
+                     && saveGroup->sizeHint().width() < 800
+                     && saveGroup->maximumHeight() == 42
+                     && cameraWiseAiAreasTitle
+                     && cameraSaveStatus->parentWidget()
+                            && cameraSaveStatus->parentWidget()->objectName()
+                                   == QStringLiteral("ivaSelectedAreaHeader")
+                     && saveGroup->geometry().top() <= controlRow->height()
+                     && saveGroup->geometry().right() >= controlRow->width() - 2
+                     && saveGroup->mapToGlobal(QPoint(0, 0)).x()
+                            > channelEnabled->mapToGlobal(QPoint(0, 0)).x()
+                     && channelEnabled->mapToGlobal(QPoint(0, 0)).x()
+                            > channel1Button->mapToGlobal(QPoint(0, 0)).x(),
+                 "Channel enabled must stay beside the channel buttons while compact save information remains on the right")) return 1;
     geometryToggle->setChecked(true);
     app.processEvents();
     const int compactListHeight = detailsSplitter->sizes().at(0);
@@ -276,6 +298,22 @@ int main(int argc, char *argv[])
                  "splitter and narrow-window scrolling must keep the IVA editor usable")) return 1;
     if (!require(canvas && canvas->frameCompatible() && canvas->drawMode(),
                  "shared matching RTSP frames must enable direct video dragging")) return 1;
+    const QPoint newAreaStart = canvas->mapFromScene(QPointF(1200, 500));
+    const QPoint newAreaEnd = canvas->mapFromScene(QPointF(1600, 900));
+    QMouseEvent newAreaPress(QEvent::MouseButtonPress, QPointF(newAreaStart),
+                             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(canvas->viewport(), &newAreaPress);
+    QMouseEvent newAreaMove(QEvent::MouseMove, QPointF(newAreaEnd),
+                            Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(canvas->viewport(), &newAreaMove);
+    QMouseEvent newAreaRelease(QEvent::MouseButtonRelease, QPointF(newAreaEnd),
+                               Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(canvas->viewport(), &newAreaRelease);
+    app.processEvents();
+    if (!require(table->rowCount() == 1
+                     && ivaStatus && ivaStatus->text().contains(
+                            QStringLiteral("already exists"), Qt::CaseInsensitive),
+                 "drawing with an occupied Parking Map/IVA mapping must not silently replace the saved area")) return 1;
     const QPoint existingMoveStart = canvas->mapFromScene(QPointF(40, 20));
     const QPoint existingMoveEnd = canvas->mapFromScene(QPointF(100, 50));
     QMouseEvent existingPress(QEvent::MouseButtonPress, QPointF(existingMoveStart),
@@ -296,8 +334,11 @@ int main(int argc, char *argv[])
     discard->click();
     page.setPreviewFrame(0, QImage(1296, 760, QImage::Format_RGB32));
     app.processEvents();
-    if (!require(piSlot && includePi && !includePi->isEnabled() && piStatus,
-                 "unmapped IVA rules must not enable Pi ROI saving")) return 1;
+    if (!require(piSlot && piStatus && !page.findChild<QCheckBox *>(
+                     QStringLiteral("ivaIncludePiRoiCheck"))
+                     && piStatus->text().contains(QStringLiteral("automatic"),
+                                                   Qt::CaseInsensitive),
+                 "Pi ROI must be automatic without an include checkbox")) return 1;
     piSlot->setCurrentText(QStringLiteral("EV-03"));
     if (!require(table->currentRow() < 0 && canvas->drawMode(),
                  "selecting an unmapped EV area must prepare direct creation")) return 1;
@@ -319,7 +360,7 @@ int main(int argc, char *argv[])
                      && table->item(1, 2)->toolTip().contains(QStringLiteral("4 points"))
                      && coordinateTable->rowCount() == 4
                      && discard && discard->isEnabled()
-                     && includePi->isChecked() && apply->isEnabled()
+                     && apply->isEnabled()
                      && apply->text().contains(QStringLiteral("Camera + Pi")),
                  "EV03 direct dragging must create camera Area index 3 named name3")) return 1;
     if (!require(cameraSaveStatus->text().contains(
@@ -345,7 +386,14 @@ int main(int argc, char *argv[])
     if (!require(cameraApplyChannel == 0 && piGeneration == 0,
                  "combined save must send Camera WiseAI before Pi ROI")) return 1;
     page.setApplyStarted(0);
-    page.setApplySuccess(0, configuration);
+    IvaAreaConfiguration verifiedConfiguration = configuration;
+    IvaAreaDefinition verifiedArea = area;
+    verifiedArea.areaIndex = 3;
+    verifiedArea.name = QStringLiteral("name3");
+    verifiedArea.areaCoordinates = {QPointF(120, 50), QPointF(240, 50),
+                                    QPointF(240, 150), QPointF(120, 150)};
+    verifiedConfiguration.areas.append(verifiedArea);
+    page.setApplySuccess(0, verifiedConfiguration);
     if (!require(piRequestedSlot == QStringLiteral("EV-03")
                      && piGeneration > (quint64(1) << 63),
                  "verified Camera save must continue with the selected Pi ROI")) return 1;
@@ -355,16 +403,16 @@ int main(int argc, char *argv[])
                  "stale Pi ROI responses must not finish the active request")) return 1;
     page.setPiRoiResult(QStringLiteral("EV-03"), piRequestedRoi,
                         piGeneration, true, true);
-    if (!require(!includePi->isChecked() && !apply->isEnabled()
+    if (!require(!apply->isEnabled()
                      && piStatus->text().contains(QStringLiteral("applied immediately")),
                  "verified Pi ROI responses must complete the request")) return 1;
     discard->click();
-    if (!require(table->rowCount() == 1 && table->currentRow() < 0
-                     && coordinateTable->rowCount() == 0 && !apply->isEnabled(),
-                 "discard draft must remove the unsaved EV03 camera Area")) return 1;
+    if (!require(table->rowCount() == 2 && table->currentRow() == 1
+                     && coordinateTable->rowCount() == 4 && !apply->isEnabled(),
+                 "verified Camera save must refresh and retain the EV03 camera Area")) return 1;
 
     page.setRequestError(QStringLiteral("temporary failure"));
-    if (!require(table->rowCount() == 1,
+    if (!require(table->rowCount() == 2,
                  "request errors must retain the last-good table")) return 1;
 
     int refreshRequests = 0;
@@ -372,8 +420,11 @@ int main(int argc, char *argv[])
                      [&]() { ++refreshRequests; });
     auto *refresh = page.findChild<QPushButton *>(
         QStringLiteral("refreshIvaConfigurationButton"));
-    if (!require(refresh && refresh->isEnabled(),
-                 "refresh control must be available after an error")) return 1;
+    auto *refreshTimer = page.findChild<QTimer *>(
+        QStringLiteral("ivaConfigurationRefreshTimer"));
+    if (!require(refresh && !refresh->isVisible() && refresh->isEnabled()
+                     && refreshTimer && refreshTimer->interval() == 10000,
+                 "manual refresh must stay hidden while the page uses a 10-second refresh timer")) return 1;
     refresh->click();
     if (!require(refreshRequests == 1 && !refresh->isEnabled(),
                  "refresh must emit once and guard duplicate requests")) return 1;
@@ -383,7 +434,6 @@ int main(int argc, char *argv[])
 
     auto *deleteArea = page.findChild<QPushButton *>(
         QStringLiteral("deleteSelectedIvaAreaButton"));
-    auto *ivaStatus = page.findChild<QLabel *>(QStringLiteral("ivaStatusLabel"));
     int deletedChannel = -1;
     int deletedAreaIndex = -1;
     QObject::connect(&page, &IvaSettingsPage::deleteAreaRequested,
@@ -431,7 +481,7 @@ int main(int argc, char *argv[])
     auto *channel2Button = page.findChild<QPushButton *>(
         QStringLiteral("ivaPreviewChannel2Button"));
     channel2Button->click();
-    piSlot->setCurrentText(QStringLiteral("EV-02"));
+    table->selectRow(0);
     QTimer::singleShot(50, []() {
         for (QWidget *widget : QApplication::topLevelWidgets()) {
             if (auto *box = qobject_cast<QMessageBox *>(widget)) {
@@ -489,6 +539,17 @@ int main(int argc, char *argv[])
                      && safetyNotes->text().contains(QStringLiteral("SHA-256")),
                  "IVA help must explain camera/Pi boundaries, mapping, canvas, and verification")) return 1;
     helpDialog->close();
+
+    page.setParkingSelection(QStringLiteral("P-02"),
+                             QStringLiteral("CH3"),
+                             QStringLiteral("IVA2"));
+    auto *parkingSlot = page.findChild<QComboBox *>(
+        QStringLiteral("ivaPiParkingSlotCombo"));
+    auto *ch3Button = page.findChild<QPushButton *>(
+        QStringLiteral("ivaPreviewChannel3Button"));
+    if (!require(parkingSlot && parkingSlot->currentText() == QStringLiteral("P-02")
+                     && ch3Button && ch3Button->isChecked(),
+                 "Parking Map P slots must select their channel and IVA Area in IVA Setup")) return 1;
 
     std::cout << "PASS: IVA settings page edits option-bounded rules and isolates camera state\n";
     return 0;

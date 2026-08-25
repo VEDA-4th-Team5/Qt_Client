@@ -379,6 +379,7 @@ void MainWindow::buildUi()
                                       m_cameraSettings.cameraUsername(),
                                       m_cameraSettings.cameraPassword());
     m_ivaSettingsPage = new IvaSettingsPage(m_cameraSettings.cameraIp(), m_pages);
+    m_ivaSettingsPage->setParkingZoneMappings(m_parkingMapPage->parkingZoneMappings());
     m_debugPage = new DebugPage(m_pages);
     m_pages->addWidget(m_dashboardPage);
     m_pages->addWidget(m_parkingMapPage);
@@ -596,7 +597,14 @@ void MainWindow::connectPages()
                 if (m_dashboardNavButton) m_dashboardNavButton->setChecked(true);
             });
     connect(m_parkingMapPage, &ParkingMapPage::ivaSettingsRequested, this,
-            [this]() {
+            [this](const QString &zoneId,
+                   const QString &cameraChannel,
+                   const QString &ivaAreaId) {
+                m_ivaSettingsPage->setParkingZoneMappings(
+                    m_parkingMapPage->parkingZoneMappings());
+                m_ivaSettingsPage->setParkingSelection(zoneId,
+                                                        cameraChannel,
+                                                        ivaAreaId);
                 m_pages->setCurrentWidget(m_ivaSettingsPage);
                 if (m_ivaNavButton) m_ivaNavButton->setChecked(true);
             });
@@ -776,7 +784,7 @@ void MainWindow::renderParkingState()
         }
     }
     m_dashboardPage->setSummary(
-        state.parkingSlots.size() + state.evSlots.size(),
+        state.hasServerSnapshot ? state.serverSlotCount : 0,
         occupied, vacant, sensorErrors);
     QHash<QString, ChannelFireAlarmState> fireAlarms = state.fireAlarms;
     for (const QString &channelId : state.fireChannels) {

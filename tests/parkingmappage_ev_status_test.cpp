@@ -36,7 +36,6 @@ int main(int argc, char **argv)
     QLabel *vehicleImage = statusLabel(page, "runtimeVehicleImageLabel");
     QLabel *occupiedSince = statusLabel(page, "runtimeOccupiedSinceLabel");
     QLabel *occupiedTime = statusLabel(page, "runtimeOccupiedTimeLabel");
-    QLabel *lastUpdated = statusLabel(page, "runtimeLastUpdatedLabel");
     QLabel *alarm = statusLabel(page, "runtimeAlarmLabel");
     QLabel *alarmState = statusLabel(page, "runtimeAlarmStateLabel");
     QLabel *selectedState = statusLabel(page, "selectedSlotStateLabel");
@@ -53,12 +52,13 @@ int main(int argc, char **argv)
     QComboBox *stateFilter = page.findChild<QComboBox *>(QStringLiteral("parkingStateFilterCombo"));
     QPushButton *undoButton = page.findChild<QPushButton *>(QStringLiteral("undoLayoutButton"));
     if (!dataStatus || !vehicle || !vehicleImage || !occupiedSince
-        || !occupiedTime || !lastUpdated || !alarm
+        || !occupiedTime || !alarm
         || !alarmState || !selectedState || !summaryTotal || !summaryOccupied
         || !summaryVacant || !summaryAlert || !overviewTotal || !overviewVacant
         || !overviewOccupied || !overviewAlert || !filterResult || !search
         || !stateFilter || !undoButton) return 3;
-    if (statusLabel(page, "runtimePlateLabel")) return 28;
+    if (statusLabel(page, "runtimePlateLabel")
+        || statusLabel(page, "runtimeLastUpdatedLabel")) return 28;
 
     if (!selectRow(page, 0)) return 4;
     if (dataStatus->text() != QStringLiteral("WAITING DATA")
@@ -87,7 +87,6 @@ int main(int argc, char **argv)
     if (occupiedSince->text() == QStringLiteral("-")) return 9;
     if (occupiedTime->text() == QStringLiteral("-")
         || !occupiedTime->text().startsWith(QStringLiteral("00:19:"))) return 10;
-    if (lastUpdated->text() == QStringLiteral("Not provided")) return 29;
     if (vehicleImage->text() != QStringLiteral("No vehicle image")) return 30;
     if (alarm->text() != QStringLiteral("NON-EV")) return 11;
     if (alarmState->text() != QStringLiteral("ACTIVE")) return 12;

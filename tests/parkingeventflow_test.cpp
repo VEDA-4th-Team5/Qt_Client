@@ -344,10 +344,14 @@ int main(int argc, char **argv)
     if (controller.state().evSlots.size() != 1) return 71;
     if (!controller.state().parkingSlots.isEmpty()) return 72;
     if (controller.state().evSlots.contains(QStringLiteral("EV-02"))) return 73;
+    if (!controller.state().hasServerSnapshot
+        || controller.state().serverSlotCount != 1) return 74;
     const EvSlotInfo snapshotSlot =
         controller.state().evSlots.value(QStringLiteral("EV-01"));
-    if (snapshotSlot.visual.occupancy != SlotOccupancy::Occupied) return 74;
-    if (snapshotSlot.visual.vehicleClass != VehicleClass::Electric) return 75;
+    if (snapshotSlot.visual.occupancy != SlotOccupancy::Occupied) return 75;
+    if (snapshotSlot.visual.vehicleClass != VehicleClass::Electric) return 76;
+    controller.applyParkingSlotUpdate(QStringLiteral("P-99"), SlotState::Vacant);
+    if (controller.state().serverSlotCount != 1) return 77;
 
     const QByteArray systemErrorPayload = R"JSON({
         "event_id": "system-uart-disconnected",

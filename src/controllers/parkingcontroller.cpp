@@ -2014,9 +2014,12 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
     const ParkingViewState previousState = m_state;
     resetSlotsForSnapshot();
     int appliedCount = 0;
+    int rejectedCount = 0;
+    int duplicateCount = 0;
     for (const ParkingSlotSnapshot &slot : snapshot.parkingSlots) {
         const QString mappedSlotId = m_slotIdMapper.toZoneId(slot.slotId);
         if (mappedSlotId.isEmpty()) {
+            ++rejectedCount;
             recordEvent(slot.slotId, QStringLiteral("API_SLOT_SKIPPED"), QStringLiteral("No zone mapping for server slot"), QStringLiteral("SKIPPED"));
             continue;
         }
@@ -2024,8 +2027,12 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
         // in case the mapper's output wasn't perfect, or for passthrough mode.
         const QString slotId = normalizeParkingSlotId(mappedSlotId);
         if (!isEvSlotId(slotId) && !isGeneralSlotId(slotId)) {
+            ++rejectedCount;
             recordEvent(slotId, QStringLiteral("API_SLOT_SKIPPED"), QStringLiteral("Unknown parking slot in response"), QStringLiteral("SKIPPED"));
             continue;
+        }
+        if (m_state.evSlots.contains(slotId) || m_state.parkingSlots.contains(slotId)) {
+            ++duplicateCount;
         }
         SlotState state = slotStateFromText(slot.state);
         const SlotAlarmKind alarmKind = slotAlarmKindFromText(slot.alarm, state);
@@ -2083,21 +2090,42 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
         if (!images.isEmpty()) m_state.slotImages.insert(slotId, images);
         ++appliedCount;
     }
+    // Keep Dashboard capacity tied to the latest accepted server snapshot.
+    // MQTT/manual updates can add or remove entries in m_state afterwards;
+    // they are runtime state changes, not a new capacity declaration.
+    m_state.serverSlotCount = m_state.evSlots.size() + m_state.parkingSlots.size();
+    m_state.hasServerSnapshot = true;
     m_state.generatedAt = snapshot.generatedAt;
     notifyStateChanged();
     const QString generatedAt = snapshot.generatedAt.isValid()
         ? snapshot.generatedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
         : QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
-    emit statusMessageChanged(QStringLiteral("API synchronized: %1 slots at %2").arg(appliedCount).arg(generatedAt));
+    const int uniqueCount = m_state.serverSlotCount;
+    const int evCount = m_state.evSlots.size();
+    const int parkingCount = m_state.parkingSlots.size();
+    const int receivedCount = snapshot.parkingSlots.size();
+    const QString snapshotDetail = QStringLiteral(
+        "Server snapshot: received=%1, applied=%2, unique=%3 (EV=%4, P=%5), "
+        "rejected=%6, duplicates=%7, generated=%8")
+        .arg(receivedCount)
+        .arg(appliedCount)
+        .arg(uniqueCount)
+        .arg(evCount)
+        .arg(parkingCount)
+        .arg(rejectedCount)
+        .arg(duplicateCount)
+        .arg(generatedAt);
+    emit statusMessageChanged(snapshotDetail);
     m_apiDiagnostic.connected = true;
     m_apiDiagnostic.status = QStringLiteral("CONNECTED");
     m_apiDiagnostic.lastError.clear();
     m_apiDiagnostic.lastSuccessAt = QDateTime::currentDateTime();
     m_apiDiagnostic.consecutiveFailures = 0;
     m_apiDiagnostic.nextRetrySeconds = 0;
-    m_apiDiagnostic.appliedSlotCount = appliedCount;
+    m_apiDiagnostic.appliedSlotCount = uniqueCount;
     publishApiDiagnostic();
-    recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_SYNC"), QStringLiteral("Applied %1 parking slots").arg(appliedCount), QStringLiteral("DONE"));
+    recordEvent(QStringLiteral("SYSTEM"), QStringLiteral("API_SYNC"), snapshotDetail,
+                QStringLiteral("DONE"));
 }
 
 void ParkingController::publishApiDiagnostic()
@@ -2205,6 +2233,10 @@ void ParkingController::requestSlotDetail(const QString &rawSlotId)
 void ParkingController::replaceViewState(const ParkingViewState &state)
 {
     m_state = state;
+    // replaceViewState() is used by the local simulation/test path. It must
+    // not be mistaken for a server-provided capacity snapshot.
+    m_state.serverSlotCount = 0;
+    m_state.hasServerSnapshot = false;
     notifyStateChanged();
 }
 

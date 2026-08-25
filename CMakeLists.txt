@@ -854,6 +854,8 @@ if (BUILD_TESTING)
         src/iva/ivaareamodels.h
         src/iva/ivavideocanvas.cpp
         src/iva/ivavideocanvas.h
+        src/models/parkingzonelayout.cpp
+        src/models/parkingzonelayout.h
         src/pages/ivasettingspage.cpp
         src/pages/ivasettingspage.h
     )

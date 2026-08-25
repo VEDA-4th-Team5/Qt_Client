@@ -132,13 +132,17 @@ DashboardPage::DashboardPage(const QStringList &lowRtspUrls,
     recentHeaderLayout->addWidget(recentDetailButton);
     recentLayout->addLayout(recentHeaderLayout);
 
-    m_recentEventTable = new QTableWidget(0, 2, recentGroup);
+    m_recentEventTable = new QTableWidget(0, 3, recentGroup);
     m_recentEventTable->setObjectName(QStringLiteral("recentEventTable"));
-    m_recentEventTable->setHorizontalHeaderLabels({QStringLiteral("Time"), QStringLiteral("Message")});
+    m_recentEventTable->setHorizontalHeaderLabels({QStringLiteral("Time"),
+                                                    QStringLiteral("Event"),
+                                                    QStringLiteral("Message")});
     auto *recentHeader = m_recentEventTable->horizontalHeader();
     recentHeader->setSectionResizeMode(0, QHeaderView::Fixed);
-    recentHeader->setSectionResizeMode(1, QHeaderView::Stretch);
+    recentHeader->setSectionResizeMode(1, QHeaderView::Fixed);
+    recentHeader->setSectionResizeMode(2, QHeaderView::Stretch);
     recentHeader->resizeSection(0, 92);
+    recentHeader->resizeSection(1, 124);
     m_recentEventTable->verticalHeader()->setVisible(false);
     m_recentEventTable->setMinimumHeight(160);
     m_recentEventTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -318,7 +322,7 @@ void DashboardPage::showHelpDialog()
     };
     eventLayout->addWidget(makeFlowCard(
         QStringLiteral("Recent Events"),
-        QStringLiteral("Time · Message\n최근 5건만 표시"),
+        QStringLiteral("Time · Event · Message\n최근 5건만 표시"),
         QStringLiteral("#f5f7f9")), 1);
     eventLayout->addWidget(new QLabel(QStringLiteral("→"), eventGroup));
     eventLayout->addWidget(makeFlowCard(
@@ -535,11 +539,12 @@ void DashboardPage::prependEvent(const MonitoringEvent &event)
 {
     m_recentEventTable->insertRow(0);
     const QStringList values = {
-        monitoringEventTimeText(event), event.message};
+        monitoringEventTimeText(event), event.eventType, event.message};
     for (int column = 0; column < values.size(); ++column) {
         auto *item = new QTableWidgetItem(values.at(column));
         item->setData(Qt::UserRole, event.id);
         item->setData(Qt::UserRole + 1, event.evidenceSlotId);
+        item->setToolTip(values.at(column));
         m_recentEventTable->setItem(0, column, item);
     }
     while (m_recentEventTable->rowCount() > 5) m_recentEventTable->removeRow(5);
