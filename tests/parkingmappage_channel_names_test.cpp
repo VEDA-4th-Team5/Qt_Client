@@ -153,6 +153,11 @@ int main(int argc, char **argv)
 
     const QString layoutPath = directory.filePath(QStringLiteral("parking_map_layout.json"));
     ParkingMapPage page(layoutPath);
+    QGroupBox *recentEventsGroup = page.findChild<QGroupBox *>(
+        QStringLiteral("parkingRecentEventsGroup"));
+    if (!recentEventsGroup
+        || recentEventsGroup->sizePolicy().verticalPolicy() != QSizePolicy::Fixed
+        || recentEventsGroup->maximumHeight() != 184) return 75;
     if (page.hasUnsavedLayoutChanges()) return 3;
     if (page.channelDisplayName(QStringLiteral("CH1")) != QStringLiteral("CH1")) return 4;
     if (!page.channelDisplayName(QStringLiteral("EAST")).isEmpty()) return 5;

@@ -1253,6 +1253,12 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     rightLayout->insertWidget(0, runtimeGroup);
 
     auto *recentGroup = new QGroupBox(QStringLiteral("Recent Events"), rightPanel);
+    recentGroup->setObjectName(QStringLiteral("parkingRecentEventsGroup"));
+    // Keep the recent-event table compact. Without a fixed vertical policy the
+    // right-side layout gives this group half of the available height and the
+    // capped table is vertically centred inside a large empty card.
+    recentGroup->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    recentGroup->setMaximumHeight(184);
     auto *recentLayout = new QVBoxLayout(recentGroup);
     m_recentEventsTable = new QTableWidget(0, 3, recentGroup);
     m_recentEventsTable->setObjectName(QStringLiteral("parkingRecentEventsTable"));
@@ -1265,7 +1271,7 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     m_recentEventsTable->verticalHeader()->setVisible(false);
     m_recentEventsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_recentEventsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_recentEventsTable->setMaximumHeight(142);
+    m_recentEventsTable->setFixedHeight(142);
     recentLayout->addWidget(m_recentEventsTable);
     rightLayout->insertWidget(1, recentGroup);
 
