@@ -19,6 +19,7 @@
 #include <QPushButton>
 #include <QStringList>
 #include <QTableWidget>
+#include <QTemporaryDir>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimer>
@@ -344,9 +345,8 @@ int main(int argc, char **argv)
         || !downloadSelectionLabel->text().contains(
             QStringLiteral("3 pairs selected"))) return 49;
 
-    const QString downloadDirectory = QDir::current().filePath(
-        QStringLiteral("build-evidence-pair-verification"));
-    if (!QDir(downloadDirectory).exists()) return 50;
+    QTemporaryDir downloadDirectory;
+    if (!downloadDirectory.isValid()) return 50;
     bool downloadFinished = false;
     bool downloadSucceeded = false;
     QStringList downloadedFiles;
@@ -359,7 +359,7 @@ int main(int argc, char **argv)
             downloadedFiles = files;
             downloadLoop.quit();
         });
-    if (!page.downloadSelectedPairsTo(downloadDirectory)) {
+    if (!page.downloadSelectedPairsTo(downloadDirectory.path())) {
         const QString failure = statusLabel->text();
         if (failure.contains(QStringLiteral("session ID"))) return 58;
         if (failure.contains(QStringLiteral("no longer available"))) return 59;
