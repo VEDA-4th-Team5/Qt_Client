@@ -97,6 +97,7 @@ struct ParkingViewState {
     bool hasServerSnapshot = false;
     QHash<QString, QList<ParkingImageResource>> slotImages;
     QHash<QString, QString> slotPlateNumbers;
+    QHash<QString, qint64> slotSessionIds;
     // Fire belongs to a camera channel, never to an individual parking slot.
     QSet<QString> fireChannels;
     QHash<QString, ChannelFireAlarmState> fireAlarms;

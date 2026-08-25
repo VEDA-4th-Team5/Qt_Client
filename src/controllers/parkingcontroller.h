@@ -82,6 +82,7 @@ signals:
     void eventEvidenceFailed(const QString &eventId, const QString &slotId,
                              const QString &message);
     void detailError(const QString &message);
+    void imageLoaderChanged(ImageLoader *imageLoader);
     void serverBaseUrlChanged(const QString &baseUrl);
     void serverConnectionChanged(const QString &status, bool connected);
     void apiDiagnosticChanged(const ApiDiagnosticState &state);

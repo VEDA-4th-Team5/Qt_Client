@@ -77,9 +77,12 @@ int main(int argc, char **argv)
     controller.applyManualJsonMessage(QJsonObject{
         {QStringLiteral("event_type"), QStringLiteral("SLOT_OCCUPIED")},
         {QStringLiteral("slot_id"), QStringLiteral("P-04")},
+        {QStringLiteral("plate_number"), QStringLiteral("34C5678")},
         {QStringLiteral("parking_state"), QStringLiteral("OCCUPIED")}
     });
     if (controller.slotState(QStringLiteral("P-04")) != SlotState::Occupied) return 9;
+    if (controller.plateNumber(QStringLiteral("P-04"))
+        != QStringLiteral("34C5678")) return 129;
     if (events.constLast().sourceId != QStringLiteral("P-04")) return 10;
     if (events.constLast().eventType != QStringLiteral("SLOT_OCCUPIED")) return 11;
 

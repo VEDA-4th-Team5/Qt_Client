@@ -31,6 +31,9 @@ int main(int argc, char **argv)
     if (!directory.isValid()) return 2;
 
     ParkingMapPage page(directory.filePath(QStringLiteral("parking_map_layout.json")));
+    QString requestedSlotId;
+    QObject::connect(&page, &ParkingMapPage::slotDetailRequested, &app,
+                     [&](const QString &slotId) { requestedSlotId = slotId; });
     QLabel *dataStatus = statusLabel(page, "runtimeDataStatusLabel");
     QLabel *vehicle = statusLabel(page, "runtimeVehicleLabel");
     QLabel *vehicleImage = statusLabel(page, "runtimeVehicleImageLabel");
@@ -61,6 +64,7 @@ int main(int argc, char **argv)
         || statusLabel(page, "runtimeLastUpdatedLabel")) return 28;
 
     if (!selectRow(page, 0)) return 4;
+    if (requestedSlotId != QStringLiteral("EV-01")) return 35;
     if (dataStatus->text() != QStringLiteral("WAITING DATA")
         || occupiedSince->text() != QStringLiteral("-")
         || occupiedTime->text() != QStringLiteral("-")) return 5;
@@ -151,10 +155,13 @@ int main(int argc, char **argv)
     general.occupiedSince = QDateTime::currentDateTime().addSecs(-310);
     general.lastUpdatedAt = QDateTime::currentDateTime();
     generalState.parkingSlots.insert(general.slotId, general);
+    generalState.slotPlateNumbers.insert(general.slotId,
+                                         QStringLiteral("34C5678"));
     page.render(generalState);
     if (!selectRow(page, 4)) return 23;
+    if (requestedSlotId != QStringLiteral("P-01")) return 36;
     if (dataStatus->text() != QStringLiteral("AVAILABLE")) return 24;
-    if (vehicle->text() != QStringLiteral("GENERAL CAR")) return 25;
+    if (vehicle->text() != QStringLiteral("GENERAL CAR · 34C5678")) return 25;
     if (occupiedSince->text() == QStringLiteral("-")
         || !occupiedTime->text().startsWith(QStringLiteral("00:05:"))) return 26;
     if (page.hasUnsavedLayoutChanges() || undoButton->isEnabled()) return 27;

@@ -55,6 +55,7 @@ public:
 signals:
     void layoutSaveResult(bool success, const QString &message);
     void layoutDirtyChanged(bool dirty);
+    void slotDetailRequested(const QString &zoneId);
     void eventsRequested(const QString &zoneId, const QString &eventId);
     void evidenceRequested(const QString &zoneId, const QString &eventId);
     void cameraRequested(const QString &channel);

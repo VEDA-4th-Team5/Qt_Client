@@ -467,6 +467,10 @@ void MainWindow::connectPages()
     connect(m_parkingController, &ParkingController::authenticationExpired,
             this, &MainWindow::reauthenticationRequested);
     m_parkingMapPage->setImageLoader(m_parkingController->imageLoader());
+    connect(m_parkingController, &ParkingController::imageLoaderChanged,
+            m_parkingMapPage, &ParkingMapPage::setImageLoader);
+    connect(m_parkingMapPage, &ParkingMapPage::slotDetailRequested,
+            m_parkingController, &ParkingController::requestSlotDetail);
     connect(m_parkingController, &ParkingController::stateChanged,
             this, &MainWindow::renderParkingState);
     connect(m_parkingController, &ParkingController::bannerChanged, this,

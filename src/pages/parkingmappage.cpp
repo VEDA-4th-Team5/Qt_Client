@@ -647,11 +647,23 @@ QString compactVehicleText(bool known, const SlotVisualState &visual)
 
 QString plateNumberForZone(const ParkingViewState &state, const QString &zoneId)
 {
+    const auto usablePlateNumber = [](const QString &rawPlateNumber) {
+        const QString plateNumber = rawPlateNumber.trimmed();
+        if (plateNumber.isEmpty() || plateNumber == QStringLiteral("-")
+            || plateNumber.compare(QStringLiteral("N/A"),
+                                   Qt::CaseInsensitive) == 0
+            || plateNumber.compare(QStringLiteral("NOT PROVIDED"),
+                                   Qt::CaseInsensitive) == 0) {
+            return QString();
+        }
+        return plateNumber;
+    };
     if (state.evSlots.contains(zoneId)) {
-        const QString plateNumber = state.evSlots.value(zoneId).plateNumber.trimmed();
+        const QString plateNumber = usablePlateNumber(
+            state.evSlots.value(zoneId).plateNumber);
         if (!plateNumber.isEmpty()) return plateNumber;
     }
-    return state.slotPlateNumbers.value(zoneId).trimmed();
+    return usablePlateNumber(state.slotPlateNumbers.value(zoneId));
 }
 
 QColor alarmColor(SlotAlarmKind alarm)
@@ -2021,6 +2033,7 @@ void ParkingMapPage::handleSceneSelectionChanged()
         QSignalBlocker blocker(m_zoneTable);
         m_zoneTable->selectRow(row);
     }
+    emit slotDetailRequested(zoneId);
 }
 
 void ParkingMapPage::handleZoneTableClicked(int row, int column)

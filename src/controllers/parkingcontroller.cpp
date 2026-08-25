@@ -919,6 +919,13 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
         return false;
     }
 
+    if (vacant) {
+        m_state.slotImages.remove(slotId);
+        m_state.slotSessionIds.remove(slotId);
+    } else if (event.sessionId > 0) {
+        m_state.slotSessionIds.insert(slotId, event.sessionId);
+    }
+
     VehicleClass incomingVehicleClass = VehicleClass::Unknown;
     const bool vehicleClassKnown =
         vehicleClassFromText(event.vehicleType, incomingVehicleClass);
@@ -933,6 +940,8 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
             if (removeUnknownState) {
                 m_state.evSlots.remove(slotId);
                 m_state.slotPlateNumbers.remove(slotId);
+                m_state.slotImages.remove(slotId);
+                m_state.slotSessionIds.remove(slotId);
             }
         } else {
             removeUnknownState = !m_state.parkingSlots.contains(slotId)
@@ -940,6 +949,9 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
                     == SlotOccupancy::Unknown;
             if (removeUnknownState) {
                 m_state.parkingSlots.remove(slotId);
+                m_state.slotPlateNumbers.remove(slotId);
+                m_state.slotImages.remove(slotId);
+                m_state.slotSessionIds.remove(slotId);
             }
         }
         if (removeUnknownState) {
@@ -1013,6 +1025,7 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
         slot.eventId = event.eventId;
         m_state.evSlots.insert(slotId, slot);
         m_state.slotPlateNumbers.insert(slotId, slot.plateNumber);
+        if (vacant) m_state.slotPlateNumbers.remove(slotId);
     } else {
         ParkingSlotInfo slot = m_state.parkingSlots.value(slotId);
         slot.slotId = slotId;
@@ -1061,6 +1074,12 @@ bool ParkingController::applyServerParkingEvent(const QJsonObject &object,
             ? event.occurredAt : QDateTime::currentDateTime();
         slot.eventId = event.eventId;
         m_state.parkingSlots.insert(slotId, slot);
+        if (vacant) {
+            m_state.slotPlateNumbers.remove(slotId);
+        } else if (!event.plateNumber.trimmed().isEmpty()) {
+            m_state.slotPlateNumbers.insert(slotId,
+                                            event.plateNumber.trimmed());
+        }
     }
 
     notifyStateChanged();
@@ -1533,6 +1552,7 @@ void ParkingController::rebuildApiClient()
                 }
             });
 
+    emit imageLoaderChanged(m_imageLoader);
     emit serverBaseUrlChanged(m_apiBaseUrl.toString());
     publishApiDiagnostic();
     notifyStateChanged();
@@ -2085,8 +2105,14 @@ void ParkingController::applyParkingSnapshot(const QJsonDocument &document)
             m_state.parkingSlots[slotId] = info;
         }
         m_state.slotPlateNumbers.insert(slotId, slot.plateNumber);
+        m_state.slotSessionIds.insert(slotId, slot.sessionId);
         QList<ParkingImageResource> images;
         for (ParkingImageResource image : slot.images) { image.url = resolveApiUrl(image.url); images.append(image); }
+        if (images.isEmpty() && slot.sessionId > 0
+            && previousState.slotSessionIds.value(slotId, -1)
+                == slot.sessionId) {
+            images = previousState.slotImages.value(slotId);
+        }
         if (!images.isEmpty()) m_state.slotImages.insert(slotId, images);
         ++appliedCount;
     }
@@ -2152,6 +2178,7 @@ void ParkingController::applyParkingSlotDetail(
     }
     const QString slotId = normalizeParkingSlotId(mappedSlotId);
     m_state.slotPlateNumbers.insert(slotId, slot.plateNumber);
+    m_state.slotSessionIds.insert(slotId, slot.sessionId);
     QList<ParkingImageResource> images;
     for (ParkingImageResource image : slot.images) { image.url = resolveApiUrl(image.url); images.append(image); }
     if (images.isEmpty()) m_state.slotImages.remove(slotId); else m_state.slotImages.insert(slotId, images);
@@ -2203,7 +2230,11 @@ void ParkingController::applyParkingSessionImages(
 
 void ParkingController::resetSlotsForSnapshot()
 {
-    m_state.evSlots.clear(); m_state.parkingSlots.clear(); m_state.slotImages.clear(); m_state.slotPlateNumbers.clear();
+    m_state.evSlots.clear();
+    m_state.parkingSlots.clear();
+    m_state.slotImages.clear();
+    m_state.slotPlateNumbers.clear();
+    m_state.slotSessionIds.clear();
 }
 
 void ParkingController::requestSlotDetail(const QString &rawSlotId)
@@ -2271,6 +2302,11 @@ void ParkingController::applyParkingSlotUpdate(const QString &slotId, SlotState 
         updated.visual = deriveSlotVisualState(state, state == SlotState::Occupied, false);
     }
     m_state.parkingSlots[slotId] = updated;
+    if (state == SlotState::Vacant) {
+        m_state.slotPlateNumbers.remove(slotId);
+        m_state.slotImages.remove(slotId);
+        m_state.slotSessionIds.remove(slotId);
+    }
     notifyStateChanged();
 }
 
