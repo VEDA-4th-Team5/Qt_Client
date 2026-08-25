@@ -21,11 +21,17 @@ struct Result
 {
     bool loaded = false;
     bool failed = false;
+    bool dataLoaded = false;
+    bool dataFailed = false;
     bool authenticationRequired = false;
+    QByteArray data;
+    QString contentType;
     QByteArray request;
 };
 
-Result runScenario(AuthenticationMode authenticationMode, int statusCode = 200)
+Result runScenario(AuthenticationMode authenticationMode,
+                   int statusCode = 200,
+                   bool downloadData = false)
 {
     QTcpServer server;
     if (!server.listen(QHostAddress::LocalHost, 0)) return {};
@@ -89,13 +95,31 @@ Result runScenario(AuthenticationMode authenticationMode, int statusCode = 200)
         result.failed = true;
         loop.quit();
     });
+    QObject::connect(
+        &loader, &ImageLoader::imageDataLoaded, &loop,
+        [&](const QString &, const QByteArray &data,
+            const QString &contentType) {
+            result.dataLoaded = true;
+            result.data = data;
+            result.contentType = contentType;
+            loop.quit();
+        });
+    QObject::connect(&loader, &ImageLoader::imageDataFailed, &loop,
+                     [&](const QString &, const QString &) {
+        result.dataFailed = true;
+        loop.quit();
+    });
     QObject::connect(&loader, &ImageLoader::authenticationRequired, &loop,
                      [&]() {
         result.authenticationRequired = true;
         loop.quit();
     });
     QTimer::singleShot(2000, &loop, &QEventLoop::quit);
-    loader.load(QStringLiteral("evidence"), imageUrl);
+    if (downloadData) {
+        loader.download(QStringLiteral("evidence-data"), imageUrl);
+    } else {
+        loader.load(QStringLiteral("evidence"), imageUrl);
+    }
     loop.exec();
     return result;
 }
@@ -124,6 +148,27 @@ int main(int argc, char **argv)
     if (crossOriginUnauthorized.authenticationRequired
         || crossOriginUnauthorized.loaded
         || !crossOriginUnauthorized.failed) return 6;
+
+    const Result dataDownload = runScenario(
+        AuthenticationMode::SameOrigin, 200, true);
+    if (!dataDownload.dataLoaded || dataDownload.dataFailed
+        || dataDownload.data.isEmpty()
+        || dataDownload.contentType != QStringLiteral("image/png")) return 7;
+    if (!dataDownload.request.toLower().contains(
+            "authorization: bearer image-bearer-token")) return 8;
+
+    const Result crossOriginDataDownload = runScenario(
+        AuthenticationMode::CrossOrigin, 200, true);
+    if (!crossOriginDataDownload.dataLoaded
+        || crossOriginDataDownload.dataFailed
+        || crossOriginDataDownload.request.toLower().contains(
+            "authorization:")) return 9;
+
+    const Result unauthorizedDataDownload = runScenario(
+        AuthenticationMode::SameOrigin, 401, true);
+    if (!unauthorizedDataDownload.authenticationRequired
+        || unauthorizedDataDownload.dataLoaded
+        || !unauthorizedDataDownload.dataFailed) return 10;
 
     return 0;
 }
