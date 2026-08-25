@@ -34,7 +34,8 @@ constexpr int kMaximumOverstayThresholdSeconds = 86400;
 
 bool isParkingRoiZoneId(const QString &slotId)
 {
-    static const QRegularExpression pattern(QStringLiteral("^EV-(\\d+)$"));
+    static const QRegularExpression pattern(
+        QStringLiteral("^(?:EV|P)-(\\d+)$"));
     const QRegularExpressionMatch match = pattern.match(slotId);
     return match.hasMatch() && match.captured(1).toInt() > 0;
 }

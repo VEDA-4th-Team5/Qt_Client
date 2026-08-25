@@ -240,6 +240,12 @@ int main(int argc, char *argv[])
     QString piRequestedSlot;
     ParkingRoi piRequestedRoi;
     quint64 piGeneration = 0;
+    if (!require(piSlot
+                     && piSlot->findText(QStringLiteral("P-01")) >= 0
+                     && piSlot->findText(QStringLiteral("P-02")) >= 0
+                     && piSlot->findText(QStringLiteral("P-03")) >= 0
+                     && piSlot->findText(QStringLiteral("P-04")) >= 0,
+                 "IVA Setup must expose P01-P04 as mapped Pi ROI targets")) return 1;
     QObject::connect(&page, &IvaSettingsPage::piRoiSaveRequested,
                      [&](const QString &slotId, const ParkingRoi &roi,
                          quint64 generation) {

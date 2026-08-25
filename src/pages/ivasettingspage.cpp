@@ -420,7 +420,7 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
     editorLayout->addWidget(m_nameEdit, 1, 0, 1, 4);
     editorLayout->addWidget(new QLabel(QStringLiteral("Area index"), ruleGroup), 2, 0);
     editorLayout->addWidget(m_indexSpin, 2, 1);
-    m_areaMappingLabel = new QLabel(QStringLiteral("No EV slot mapping"), ruleGroup);
+    m_areaMappingLabel = new QLabel(QStringLiteral("No parking slot mapping"), ruleGroup);
     m_areaMappingLabel->setObjectName(QStringLiteral("ivaAreaMappingLabel"));
     m_areaMappingLabel->setStyleSheet(QStringLiteral(
         "color:#607d8b;font-size:10px;font-weight:700;"));
@@ -785,7 +785,7 @@ IvaSettingsPage::IvaSettingsPage(const QString &cameraIp, QWidget *parent)
             m_areaMappingLabel->setText(
                 editorMatchesParkingArea()
                     ? QStringLiteral("Mapped to %1").arg(m_piSlotCombo->currentText())
-                    : QStringLiteral("No EV slot mapping"));
+                    : QStringLiteral("No parking slot mapping"));
         }
         updateButtons();
     });
@@ -1856,7 +1856,7 @@ void IvaSettingsPage::populateEditor(int row)
         m_areaMappingLabel->setText(
             editorMatchesParkingArea()
                 ? QStringLiteral("Mapped to %1").arg(m_piSlotCombo->currentText())
-                : QStringLiteral("No EV slot mapping"));
+                : QStringLiteral("No parking slot mapping"));
     }
     updateEditorSummary();
     const bool unsavedDraft = m_draftChannel == area.channel
@@ -1890,7 +1890,7 @@ void IvaSettingsPage::clearEditor()
     m_coordinateTable->setRowCount(0);
     updateDurationAvailability();
     if (m_areaMappingLabel) {
-        m_areaMappingLabel->setText(QStringLiteral("No EV slot mapping"));
+        m_areaMappingLabel->setText(QStringLiteral("No parking slot mapping"));
     }
     updateEditorSummary();
     setEditorState(QStringLiteral("NO SELECTION"), QStringLiteral("#eceff1"),
