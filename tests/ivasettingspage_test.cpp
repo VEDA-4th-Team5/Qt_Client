@@ -307,12 +307,15 @@ int main(int argc, char *argv[])
     const QPoint newAreaStart = canvas->mapFromScene(QPointF(1200, 500));
     const QPoint newAreaEnd = canvas->mapFromScene(QPointF(1600, 900));
     QMouseEvent newAreaPress(QEvent::MouseButtonPress, QPointF(newAreaStart),
+                             QPointF(canvas->viewport()->mapToGlobal(newAreaStart)),
                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(canvas->viewport(), &newAreaPress);
     QMouseEvent newAreaMove(QEvent::MouseMove, QPointF(newAreaEnd),
+                            QPointF(canvas->viewport()->mapToGlobal(newAreaEnd)),
                             Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(canvas->viewport(), &newAreaMove);
     QMouseEvent newAreaRelease(QEvent::MouseButtonRelease, QPointF(newAreaEnd),
+                               QPointF(canvas->viewport()->mapToGlobal(newAreaEnd)),
                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
     QApplication::sendEvent(canvas->viewport(), &newAreaRelease);
     app.processEvents();
@@ -323,12 +326,15 @@ int main(int argc, char *argv[])
     const QPoint existingMoveStart = canvas->mapFromScene(QPointF(40, 20));
     const QPoint existingMoveEnd = canvas->mapFromScene(QPointF(100, 50));
     QMouseEvent existingPress(QEvent::MouseButtonPress, QPointF(existingMoveStart),
+                              QPointF(canvas->viewport()->mapToGlobal(existingMoveStart)),
                               Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(canvas->viewport(), &existingPress);
     QMouseEvent existingMove(QEvent::MouseMove, QPointF(existingMoveEnd),
+                             QPointF(canvas->viewport()->mapToGlobal(existingMoveEnd)),
                              Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(canvas->viewport(), &existingMove);
     QMouseEvent existingRelease(QEvent::MouseButtonRelease, QPointF(existingMoveEnd),
+                                QPointF(canvas->viewport()->mapToGlobal(existingMoveEnd)),
                                 Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
     QApplication::sendEvent(canvas->viewport(), &existingRelease);
     if (!require(table->item(0, 2)->text() == QStringLiteral("parking-a")
@@ -351,12 +357,15 @@ int main(int argc, char *argv[])
     const QPoint start = canvas->mapFromScene(QPointF(1200, 500));
     const QPoint end = canvas->mapFromScene(QPointF(1600, 900));
     QMouseEvent press(QEvent::MouseButtonPress, QPointF(start),
+                      QPointF(canvas->viewport()->mapToGlobal(start)),
                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(canvas->viewport(), &press);
     QMouseEvent move(QEvent::MouseMove, QPointF(end),
+                     QPointF(canvas->viewport()->mapToGlobal(end)),
                      Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(canvas->viewport(), &move);
     QMouseEvent release(QEvent::MouseButtonRelease, QPointF(end),
+                        QPointF(canvas->viewport()->mapToGlobal(end)),
                         Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
     QApplication::sendEvent(canvas->viewport(), &release);
     app.processEvents();
