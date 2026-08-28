@@ -16,6 +16,7 @@
 #include "services/uifontscale.h"
 #include "simulation/parkingsimulationservice.h"
 #include "iva/wiseaiconfigclient.h"
+#include "widgets/uifontscalecontrol.h"
 
 
 #include <QButtonGroup>
@@ -316,6 +317,7 @@ void MainWindow::buildUi()
     headerLayout->setSpacing(10);
     m_monitorStatusButton = new QToolButton(contentWidget);
     m_monitorStatusButton->setObjectName(QStringLiteral("monitorStatusIndicator"));
+    m_monitorStatusButton->setProperty("uiFontScaleFixed", true);
     m_monitorStatusButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     m_monitorStatusButton->setIconSize(QSize(22, 22));
     m_monitorStatusButton->setFixedSize(42, 34);
@@ -325,23 +327,38 @@ void MainWindow::buildUi()
 
     m_alertBanner = new QLabel(QString(), contentWidget);
     m_alertBanner->setObjectName(QStringLiteral("headerStatusLabel"));
+    m_alertBanner->setProperty("uiFontScaleFixed", true);
     m_alertBanner->setAlignment(Qt::AlignCenter);
-    m_alertBanner->setFixedSize(360, 34);
+    m_alertBanner->setFixedSize(260, 34);
     m_alertBanner->setMargin(6);
     m_alertBanner->setToolTip(QStringLiteral("No active alerts"));
     m_alertBanner->setStyleSheet(QStringLiteral(
         "background: transparent; color: transparent; "
-        "border: 1px solid transparent; border-radius: 4px;"));
+        "border: 1px solid transparent; border-radius: 4px; font-size: 12px;"));
     headerLayout->addWidget(m_alertBanner);
     headerLayout->addStretch();
 
+    m_uiFontScaleControl = new UiFontScaleControl(contentWidget);
+    m_uiFontScaleControl->setPercent(UiFontScale::currentPercent());
+    headerLayout->addWidget(m_uiFontScaleControl);
+    connect(m_uiFontScaleControl, &UiFontScaleControl::percentChangeRequested,
+            this, [this](int percent) {
+                QString error;
+                if (!UiFontScale::setPercent(percent, &error)) {
+                    QMessageBox::warning(this, QStringLiteral("UI preferences"), error);
+                }
+                m_uiFontScaleControl->setPercent(UiFontScale::currentPercent());
+            });
+
     m_pageHelpStack = new QStackedWidget(contentWidget);
     m_pageHelpStack->setObjectName(QStringLiteral("pageHelpStack"));
+    m_pageHelpStack->setProperty("uiFontScaleFixed", true);
     m_pageHelpStack->setFixedSize(112, 34);
     headerLayout->addWidget(m_pageHelpStack);
 
     auto *alarmWidget = new QWidget(contentWidget);
     alarmWidget->setObjectName(QStringLiteral("notificationIndicator"));
+    alarmWidget->setProperty("uiFontScaleFixed", true);
     alarmWidget->setFixedSize(62, 34);
     auto *alarmLayout = new QHBoxLayout(alarmWidget);
     alarmLayout->setContentsMargins(0, 0, 0, 0);
@@ -378,7 +395,6 @@ void MainWindow::buildUi()
                                       m_pages,
                                       m_cameraSettings.cameraUsername(),
                                       m_cameraSettings.cameraPassword());
-    m_settingsPage->setUiFontScalePercent(UiFontScale::currentPercent());
     m_ivaSettingsPage = new IvaSettingsPage(m_cameraSettings.cameraIp(), m_pages);
     m_ivaSettingsPage->setParkingZoneMappings(m_parkingMapPage->parkingZoneMappings());
     m_debugPage = new DebugPage(m_settingsPage->systemTabs(), m_settingsPage);
@@ -446,7 +462,7 @@ void MainWindow::installPageHelpButtons()
         button->setFixedSize(112, 34);
         button->setStyleSheet(QStringLiteral(
             "QPushButton { background:#263238; color:white; border:1px solid #455a64; "
-            "border-radius:6px; padding:6px 10px; font-weight:800; }"
+            "border-radius:6px; padding:6px 10px; font-size:12px; font-weight:800; }"
             "QPushButton:hover { background:#37474f; border-color:#fb8c00; }"
             "QPushButton:pressed { background:#1c252a; }"));
         m_pageHelpStack->addWidget(button);
@@ -478,7 +494,7 @@ void MainWindow::connectPages()
                     m_alertBanner->setToolTip(QStringLiteral("No active alerts"));
                     m_alertBanner->setStyleSheet(QStringLiteral(
                         "background: transparent; color: transparent; "
-                        "border: 1px solid transparent; border-radius: 4px;"));
+                        "border: 1px solid transparent; border-radius: 4px; font-size: 12px;"));
                     return;
                 }
 
@@ -486,7 +502,7 @@ void MainWindow::connectPages()
                 m_alertBanner->setToolTip(message);
                 m_alertBanner->setStyleSheet(QStringLiteral(
                     "background: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; "
-                    "border-radius: 4px; font-weight: 800;"));
+                    "border-radius: 4px; font-size: 12px; font-weight: 800;"));
             });
     connect(m_parkingController, &ParkingController::eventLogged, this,
             [this](const MonitoringEvent &event) {
@@ -659,16 +675,6 @@ void MainWindow::connectPages()
             m_parkingController, &ParkingController::updateServerBaseUrl);
     connect(m_settingsPage, &SettingsPage::reconnectServerRequested,
             m_parkingController, &ParkingController::reconnectNow);
-    connect(m_settingsPage, &SettingsPage::uiFontScaleChangeRequested,
-            this, [this](int percent) {
-                QString error;
-                if (!UiFontScale::setPercent(percent, &error)) {
-                    QMessageBox::warning(this, QStringLiteral("UI preferences"), error);
-                    return;
-                }
-                m_settingsPage->setUiFontScalePercent(
-                    UiFontScale::currentPercent());
-            });
     connect(m_settingsPage, &SettingsPage::overstayThresholdRefreshRequested,
             m_parkingController, &ParkingController::requestOverstayThreshold);
     connect(m_settingsPage, &SettingsPage::overstayThresholdUpdateRequested,

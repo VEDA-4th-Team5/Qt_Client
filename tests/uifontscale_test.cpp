@@ -39,6 +39,11 @@ int main(int argc, char **argv)
     if (!label.styleSheet().contains(QStringLiteral("font-size:22px"))) return 4;
 
     QString error;
+    if (!UiFontScale::setPercent(105, &error) || !error.isEmpty()) return 11;
+    QApplication::processEvents();
+    if (UiFontScale::currentPercent() != 105
+        || !label.styleSheet().contains(QStringLiteral("font-size:21px"))
+        || UiFontScale::loadPercent(configPath) != 105) return 12;
     if (!UiFontScale::setPercent(90, &error) || !error.isEmpty()) return 5;
     QApplication::processEvents();
     if (UiFontScale::currentPercent() != 90
@@ -48,5 +53,8 @@ int main(int argc, char **argv)
     label.setStyleSheet(QStringLiteral("font-size:10px;color:#263238;"));
     QApplication::processEvents();
     if (!label.styleSheet().contains(QStringLiteral("font-size:9px"))) return 7;
+    if (UiFontScale::normalizePercent(20) != 90
+        || UiFontScale::normalizePercent(103) != 105
+        || UiFontScale::normalizePercent(500) != 200) return 13;
     return 0;
 }

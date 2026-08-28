@@ -9,6 +9,15 @@
 
 namespace {
 constexpr auto kBaseStyleProperty = "uiFontScaleBaseStyle";
+constexpr auto kFixedScaleProperty = "uiFontScaleFixed";
+
+bool hasFixedScaleAncestor(const QWidget *widget)
+{
+    for (const QWidget *current = widget; current; current = current->parentWidget()) {
+        if (current->property(kFixedScaleProperty).toBool()) return true;
+    }
+    return false;
+}
 
 QString scaledStyleSheet(const QString &source, int percent)
 {
@@ -106,6 +115,7 @@ private:
 
     void applyWidgetStyle(QWidget *widget, bool forceStoredBase)
     {
+        if (hasFixedScaleAncestor(widget)) return;
         const QString current = widget->styleSheet();
         QVariant baseProperty = widget->property(kBaseStyleProperty);
         QString baseStyle;
@@ -139,9 +149,11 @@ namespace UiFontScale {
 
 int normalizePercent(int percent)
 {
-    if (percent <= (CompactPercent + DefaultPercent) / 2) return CompactPercent;
-    if (percent >= (DefaultPercent + LargePercent) / 2) return LargePercent;
-    return DefaultPercent;
+    const int clamped = qBound(MinimumPercent, percent, MaximumPercent);
+    return qBound(MinimumPercent,
+                  qRound(clamped / static_cast<double>(StepPercent))
+                      * StepPercent,
+                  MaximumPercent);
 }
 
 int loadPercent(const QString &configPath)

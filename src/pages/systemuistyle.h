@@ -6,7 +6,6 @@
 namespace SystemUiStyle {
 
 inline constexpr int ConnectionsMaxWidth = 960;
-inline constexpr int GeneralUiMaxWidth = 760;
 inline constexpr int DiagnosticsMaxWidth = 1080;
 inline constexpr int LogsMaxWidth = 1080;
 inline constexpr int TestToolsMaxWidth = 900;

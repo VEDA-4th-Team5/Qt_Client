@@ -26,22 +26,17 @@ int main(int argc, char **argv)
     if (!uiConfigDirectory.isValid()) return 40;
     UiFontScale::initialize(
         app, uiConfigDirectory.filePath(QStringLiteral("client_config.local.ini")));
+    QString resetError;
     SettingsPage page(QStringLiteral("camera_config.ini"), QString());
 
     QTabWidget *systemTabs = page.findChild<QTabWidget *>(
         QStringLiteral("systemTabWidget"));
     QScrollArea *connectionsScroll = page.findChild<QScrollArea *>(
         QStringLiteral("systemConnectionsScrollArea"));
-    QScrollArea *generalUiScroll = page.findChild<QScrollArea *>(
-        QStringLiteral("systemGeneralUiScrollArea"));
     QGroupBox *policyGroup = page.findChild<QGroupBox *>(
         QStringLiteral("parkingPolicyGroup"));
-    if (!systemTabs || systemTabs->count() != 2
-        || systemTabs->tabText(0) != QStringLiteral("General UI")
-        || systemTabs->tabText(1) != QStringLiteral("Configuration")
-        || !generalUiScroll || !generalUiScroll->widgetResizable()
-        || !generalUiScroll->widget()
-        || generalUiScroll->widget()->maximumWidth() != 760
+    if (!systemTabs || systemTabs->count() != 1
+        || systemTabs->tabText(0) != QStringLiteral("Configuration")
         || !connectionsScroll || !connectionsScroll->widgetResizable()
         || !connectionsScroll->widget() || !connectionsScroll->widget()->layout()
         || connectionsScroll->widget()->layout()->contentsMargins().left() != 16
@@ -56,8 +51,6 @@ int main(int argc, char **argv)
     int requestedSeconds = -1;
     QString requestedServerUrl;
     int reconnectRequests = 0;
-    int requestedFontScale = -1;
-    bool fontScaleSaveFailed = false;
     QObject::connect(&page, &SettingsPage::saveServerBaseUrlRequested,
                      &app, [&](const QString &url) { requestedServerUrl = url; });
     QObject::connect(&page, &SettingsPage::overstayThresholdRefreshRequested,
@@ -69,37 +62,6 @@ int main(int argc, char **argv)
                      });
     QObject::connect(&page, &SettingsPage::reconnectServerRequested,
                      &app, [&]() { ++reconnectRequests; });
-    QObject::connect(&page, &SettingsPage::uiFontScaleChangeRequested,
-                     &app, [&](int percent) {
-                         requestedFontScale = percent;
-                         QString error;
-                         if (!UiFontScale::setPercent(percent, &error)) {
-                             fontScaleSaveFailed = true;
-                         }
-                     });
-
-    auto *compactFont = page.findChild<QRadioButton *>(
-        QStringLiteral("compactFontScaleRadio"));
-    auto *defaultFont = page.findChild<QRadioButton *>(
-        QStringLiteral("defaultFontScaleRadio"));
-    auto *largeFont = page.findChild<QRadioButton *>(
-        QStringLiteral("largeFontScaleRadio"));
-    auto *fontStatus = page.findChild<QLabel *>(
-        QStringLiteral("uiFontScaleStatusLabel"));
-    if (!compactFont || !defaultFont || !largeFont || !fontStatus
-        || !defaultFont->isChecked()) return 35;
-    largeFont->click();
-    if (requestedFontScale != 110 || !largeFont->isChecked()
-        || fontScaleSaveFailed || UiFontScale::currentPercent() != 110) return 36;
-    page.setUiFontScalePercent(90);
-    if (!compactFont->isChecked()
-        || !fontStatus->text().contains(QStringLiteral("90%"))) return 37;
-    requestedFontScale = -1;
-    page.setUiFontScalePercent(100);
-    if (requestedFontScale != -1 || !defaultFont->isChecked()) return 38;
-    QString resetError;
-    if (!UiFontScale::setPercent(100, &resetError)) return 41;
-
     if (SettingsPage::overstaySeconds(1, 0, 0) != 3600) return 1;
     if (SettingsPage::overstaySeconds(0, 30, 0) != 1800) return 2;
     if (SettingsPage::overstaySeconds(2, 0, 0) != 7200) return 3;
@@ -227,26 +189,20 @@ int main(int argc, char **argv)
         page.show();
         QApplication::processEvents();
         QString largeError;
-        if (!UiFontScale::setPercent(110, &largeError)) return 42;
-        page.setUiFontScalePercent(110);
+        if (!UiFontScale::setPercent(200, &largeError)) return 42;
         systemTabs->setCurrentIndex(0);
         QApplication::processEvents();
-        if (!page.grab().save(
-                QDir(captureDir).filePath(QStringLiteral("system-general-ui-large.png")))) {
-            return 39;
-        }
-        systemTabs->setCurrentIndex(1);
         connectionsScroll->verticalScrollBar()->setValue(0);
         QApplication::processEvents();
         if (!page.grab().save(
-                QDir(captureDir).filePath(QStringLiteral("system-configuration-large.png")))) {
+                QDir(captureDir).filePath(QStringLiteral("system-configuration-200.png")))) {
             return 33;
         }
         connectionsScroll->verticalScrollBar()->setValue(
             connectionsScroll->verticalScrollBar()->maximum());
         QApplication::processEvents();
         if (!page.grab().save(
-                QDir(captureDir).filePath(QStringLiteral("system-configuration-policy-large.png")))) {
+                QDir(captureDir).filePath(QStringLiteral("system-configuration-policy-200.png")))) {
             return 34;
         }
         if (!UiFontScale::setPercent(100, &resetError)) return 43;
@@ -263,7 +219,6 @@ int main(int argc, char **argv)
         ? helpDialog->findChild<QLabel *>(QStringLiteral("settingsHelpSteps"))
         : nullptr;
     if (!helpDialog || !helpSteps
-        || !helpSteps->text().contains(QStringLiteral("General UI"))
         || !helpSteps->text().contains(QStringLiteral("Configuration"))) {
         return 25;
     }

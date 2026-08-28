@@ -14,7 +14,6 @@
 #include <QRadioButton>
 #include <QScrollArea>
 #include <QShowEvent>
-#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QStyle>
 #include <QTabWidget>
@@ -43,24 +42,23 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     layout->setSpacing(10);
     layout->addLayout(createPageHeader(
         this, QStringLiteral("System"),
-        QStringLiteral("Configure shared UI, connections, policies, diagnostics, and local test tools")));
+        QStringLiteral("Configure connections, policies, diagnostics, and local test tools")));
     createPageHelpButton(
         this, this,
         {QStringLiteral("settings"), QStringLiteral("System"),
          QStringLiteral("System 사용 안내"),
-         QStringLiteral("공용 UI, 연결 설정, 운영 정책, 런타임 진단과 로컬 테스트 도구를 한 화면에서 관리합니다."),
+         QStringLiteral("연결 설정, 운영 정책, 런타임 진단과 로컬 테스트 도구를 한 화면에서 관리합니다."),
          QStringLiteral(
-             "<b>1. General UI</b><br>앱 전체 글꼴 크기를 Compact, Default, Large 중에서 선택합니다. 변경은 즉시 적용되고 로컬 설정에 저장됩니다.<br><br>"
-             "<b>2. Configuration</b><br>카메라 접근 정보, Pi API endpoint와 초과주차 정책을 한 화면에서 관리합니다.<br><br>"
-             "<b>3. Diagnostics</b><br>Pi API, RTSP 채널과 주차 데이터 상태·지연·마지막 오류를 읽기 전용으로 확인합니다.<br><br>"
-             "<b>4. Live Logs</b><br>Level, Module과 검색어로 로컬 Qt 진단 로그를 필터링합니다.<br><br>"
-             "<b>5. Test Tools</b><br>Mock EV, 테스트 이벤트와 normalized RX 메시지를 로컬 Qt 프로세스에만 적용합니다."),
+             "<b>1. Configuration</b><br>카메라 접근 정보, Pi API endpoint와 초과주차 정책을 한 화면에서 관리합니다.<br><br>"
+             "<b>2. Diagnostics</b><br>Pi API, RTSP 채널과 주차 데이터 상태·지연·마지막 오류를 읽기 전용으로 확인합니다.<br><br>"
+             "<b>3. Live Logs</b><br>Level, Module과 검색어로 로컬 Qt 진단 로그를 필터링합니다.<br><br>"
+             "<b>4. Test Tools</b><br>Mock EV, 테스트 이벤트와 normalized RX 메시지를 로컬 Qt 프로세스에만 적용합니다."),
          QStringLiteral(
              "※ Pi 주소 변경 시 MQTT host도 같은 서버 host를 따릅니다. TLS 실패 시 평문으로 자동 전환하지 않습니다.\n"
              "   Test Tools는 Pi 서버로 전송되지 않는 로컬 simulation sandbox이며 실제 장비 통합 성공 증거가 아닙니다.")});
 
     auto *systemBanner = new QLabel(
-        QStringLiteral("SYSTEM MANAGEMENT  ·  Adjust shared UI, configure endpoints and policy, inspect runtime health, and run local test scenarios."),
+        QStringLiteral("SYSTEM MANAGEMENT  ·  Configure endpoints and policy, inspect runtime health, and run local test scenarios."),
         this);
     systemBanner->setObjectName(QStringLiteral("systemScopeBanner"));
     systemBanner->setWordWrap(true);
@@ -70,67 +68,6 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     m_systemTabs = new QTabWidget(this);
     m_systemTabs->setObjectName(QStringLiteral("systemTabWidget"));
     m_systemTabs->setDocumentMode(true);
-
-    auto *generalUiScroll = new QScrollArea(m_systemTabs);
-    generalUiScroll->setObjectName(QStringLiteral("systemGeneralUiScrollArea"));
-    generalUiScroll->setWidgetResizable(true);
-    generalUiScroll->setFrameShape(QFrame::NoFrame);
-    generalUiScroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
-    auto *generalUi = new QWidget(generalUiScroll);
-    generalUi->setProperty("systemTabContent", true);
-    generalUi->setMaximumWidth(SystemUiStyle::GeneralUiMaxWidth);
-    auto *generalUiLayout = new QVBoxLayout(generalUi);
-    generalUiLayout->setContentsMargins(16, 16, 16, 16);
-    generalUiLayout->setSpacing(12);
-    generalUiScroll->setWidget(generalUi);
-
-    auto *generalUiNote = new QLabel(
-        QStringLiteral("SHARED UI · Font size applies immediately across every app page and is saved only on this PC."),
-        generalUi);
-    generalUiNote->setWordWrap(true);
-    generalUiNote->setProperty("uiBanner", QStringLiteral("info"));
-    generalUiLayout->addWidget(generalUiNote);
-
-    auto *fontGroup = new QGroupBox(QStringLiteral("Application Font Size"), generalUi);
-    fontGroup->setObjectName(QStringLiteral("applicationFontSizeGroup"));
-    auto *fontLayout = new QVBoxLayout(fontGroup);
-    fontLayout->setContentsMargins(12, 14, 12, 12);
-    fontLayout->setSpacing(12);
-    auto *fontDescription = new QLabel(
-        QStringLiteral("Choose a safe preset. Default is recommended; Large increases text by 10% while preserving the current layout limits."),
-        fontGroup);
-    fontDescription->setWordWrap(true);
-    fontLayout->addWidget(fontDescription);
-    auto *fontOptions = new QHBoxLayout;
-    fontOptions->setSpacing(24);
-    m_compactFontRadio = new QRadioButton(QStringLiteral("Compact · 90%"), fontGroup);
-    m_compactFontRadio->setObjectName(QStringLiteral("compactFontScaleRadio"));
-    m_defaultFontRadio = new QRadioButton(QStringLiteral("Default · 100%"), fontGroup);
-    m_defaultFontRadio->setObjectName(QStringLiteral("defaultFontScaleRadio"));
-    m_largeFontRadio = new QRadioButton(QStringLiteral("Large · 110%"), fontGroup);
-    m_largeFontRadio->setObjectName(QStringLiteral("largeFontScaleRadio"));
-    m_defaultFontRadio->setChecked(true);
-    fontOptions->addWidget(m_compactFontRadio);
-    fontOptions->addWidget(m_defaultFontRadio);
-    fontOptions->addWidget(m_largeFontRadio);
-    fontOptions->addStretch();
-    fontLayout->addLayout(fontOptions);
-    auto *fontPreview = new QLabel(
-        QStringLiteral("Preview  ·  Parking status, camera connection, event evidence  ·  Aa 123"),
-        fontGroup);
-    fontPreview->setObjectName(QStringLiteral("uiFontScalePreviewLabel"));
-    fontPreview->setWordWrap(true);
-    fontPreview->setProperty("uiReadOnlyValue", true);
-    fontLayout->addWidget(fontPreview);
-    m_uiFontScaleStatusLabel = new QLabel(
-        QStringLiteral("Default · 100% · Saved in client_config.local.ini"), fontGroup);
-    m_uiFontScaleStatusLabel->setObjectName(QStringLiteral("uiFontScaleStatusLabel"));
-    m_uiFontScaleStatusLabel->setWordWrap(true);
-    m_uiFontScaleStatusLabel->setProperty("uiBanner", QStringLiteral("success"));
-    fontLayout->addWidget(m_uiFontScaleStatusLabel);
-    generalUiLayout->addWidget(fontGroup);
-    generalUiLayout->addStretch();
-    m_systemTabs->addTab(generalUiScroll, QStringLiteral("General UI"));
 
     auto *configurationScroll = new QScrollArea(m_systemTabs);
     configurationScroll->setObjectName(QStringLiteral("systemConnectionsScrollArea"));
@@ -376,15 +313,6 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     connect(saveServerButton, &QPushButton::clicked, this, requestServerSave);
     connect(m_serverHostInput, &QLineEdit::returnPressed, this, requestServerSave);
     connect(reconnectButton, &QPushButton::clicked, this, &SettingsPage::reconnectServerRequested);
-    connect(m_compactFontRadio, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) emit uiFontScaleChangeRequested(90);
-    });
-    connect(m_defaultFontRadio, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) emit uiFontScaleChangeRequested(100);
-    });
-    connect(m_largeFontRadio, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) emit uiFontScaleChangeRequested(110);
-    });
     connect(m_refreshOverstayButton, &QPushButton::clicked, this, [this]() {
         if (m_overstayRequestInFlight) return;
         setOverstayThresholdRequestStarted(QStringLiteral("Loading the current parking policy..."));
@@ -454,24 +382,6 @@ void SettingsPage::setServerConnectionStatus(const QString &status, bool connect
             : QStringLiteral("color:#b71c1c;background:#ffebee;border:1px solid #ef9a9a;"
                              "border-radius:5px;padding:5px 8px;font-weight:800;"));
     updateOverstayButtons();
-}
-
-void SettingsPage::setUiFontScalePercent(int percent)
-{
-    const QSignalBlocker compactBlocker(m_compactFontRadio);
-    const QSignalBlocker defaultBlocker(m_defaultFontRadio);
-    const QSignalBlocker largeBlocker(m_largeFontRadio);
-    const int normalized = percent <= 95 ? 90 : (percent >= 105 ? 110 : 100);
-    m_compactFontRadio->setChecked(normalized == 90);
-    m_defaultFontRadio->setChecked(normalized == 100);
-    m_largeFontRadio->setChecked(normalized == 110);
-    const QString label = normalized == 90
-        ? QStringLiteral("Compact")
-        : (normalized == 110 ? QStringLiteral("Large") : QStringLiteral("Default"));
-    m_uiFontScaleStatusLabel->setText(
-        QStringLiteral("%1 · %2% · Applied app-wide and saved in client_config.local.ini")
-            .arg(label)
-            .arg(normalized));
 }
 
 void SettingsPage::setOverstayThresholdRequestStarted(const QString &status)

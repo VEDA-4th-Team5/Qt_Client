@@ -28,12 +28,12 @@ int main(int argc, char **argv)
                         ->property("fontScale").toDouble() - 1.0) > 0.01) {
         return 4;
     }
-    app.setProperty("uiFontScalePercent", 110);
+    app.setProperty("uiFontScalePercent", 200);
     QEvent fontChange(QEvent::FontChange);
     QApplication::sendEvent(&page, &fontChange);
     QApplication::processEvents();
     if (std::abs(videoViews.first()->rootObject()
-                     ->property("fontScale").toDouble() - 1.1) > 0.01) {
+                     ->property("fontScale").toDouble() - 2.0) > 0.01) {
         return 5;
     }
     QFrame *channel1 = page.findChild<QFrame *>(
