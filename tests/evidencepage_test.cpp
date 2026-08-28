@@ -60,10 +60,13 @@ int main(int argc, char **argv)
         || content->parentWidget() == leftSidebar) return 41;
     QTimer *autoRefreshTimer = page.findChild<QTimer *>(
         QStringLiteral("evidenceAutoRefreshTimer"));
-    QLabel *statusLabel = page.findChild<QLabel *>(
-        QStringLiteral("evidenceStatusLabel"));
     if (!autoRefreshTimer || autoRefreshTimer->interval() != 5000
-        || autoRefreshTimer->isSingleShot() || !statusLabel) return 39;
+        || autoRefreshTimer->isSingleShot()
+        || page.findChild<QLabel *>(QStringLiteral("evidenceSummaryLabel"))
+        || page.findChild<QLabel *>(QStringLiteral("evidenceStatusLabel"))) return 39;
+    for (QLabel *label : page.findChildren<QLabel *>()) {
+        if (label->text().contains(QStringLiteral("Timeline is ordered by capture time"))) return 67;
+    }
     page.resize(1700, 1000);
     page.show();
     QApplication::processEvents();
@@ -193,8 +196,6 @@ int main(int argc, char **argv)
         || !timelineGroup->title().contains(QStringLiteral("▼"))
         || resizableFirstImage->height()
             >= collapsedTimelineImageHeight) return 47;
-    QLabel *summary = page.findChild<QLabel *>(QStringLiteral("evidenceSummaryLabel"));
-    if (!summary || !summary->text().contains(QStringLiteral("local evidence timeline"))) return 6;
     QLabel *plateMetric = page.findChild<QLabel *>(QStringLiteral("evidencePlateMetric"));
     QLabel *slotMetric = page.findChild<QLabel *>(QStringLiteral("evidenceSlotMetric"));
     QLabel *sessionMetric = page.findChild<QLabel *>(QStringLiteral("evidenceSessionMetric"));
@@ -249,14 +250,12 @@ int main(int argc, char **argv)
 
     requestedSlots.clear();
     const int imageLoadCountBeforeAutoRefresh = loadedImageCount;
-    const QString statusBeforeAutoRefresh = statusLabel->text();
     const qint64 firstPixmapBeforeAutoRefresh = firstImage->pixmap().cacheKey();
     const qint64 latestPixmapBeforeAutoRefresh = selectedImage->pixmap().cacheKey();
     if (!QMetaObject::invokeMethod(autoRefreshTimer, "timeout",
                                    Qt::DirectConnection)
         || requestedSlots.size() != 1
         || requestedSlots.constFirst() != QStringLiteral("EV-02")
-        || statusLabel->text() != statusBeforeAutoRefresh
         || loadedImageCount != imageLoadCountBeforeAutoRefresh
         || firstImage->pixmap().cacheKey() != firstPixmapBeforeAutoRefresh
         || selectedImage->pixmap().cacheKey() != latestPixmapBeforeAutoRefresh) return 43;
@@ -380,11 +379,6 @@ int main(int argc, char **argv)
             downloadLoop.quit();
         });
     if (!page.downloadSelectedPairsTo(downloadDirectory.path())) {
-        const QString failure = statusLabel->text();
-        if (failure.contains(QStringLiteral("session ID"))) return 58;
-        if (failure.contains(QStringLiteral("no longer available"))) return 59;
-        if (failure.contains(QStringLiteral("image URLs"))) return 60;
-        if (failure.contains(QStringLiteral("does not exist"))) return 61;
         return 51;
     }
     QTimer::singleShot(5000, &downloadLoop, &QEventLoop::quit);
@@ -456,7 +450,6 @@ int main(int argc, char **argv)
         SlotState::OvertimeAlert, QStringLiteral("34B7788"),
         {eventFirstOriginal, eventLatestOriginal, eventLatestEnhanced});
     if (page.captureCount() != 2
-        || !summary->text().contains(QStringLiteral("local evidence timeline"))
         || sessionMetric->text() != QStringLiteral("8")
         || firstTitle->text()
             != QStringLiteral("First capture · EV-02 · Session 8")
