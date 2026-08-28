@@ -4,6 +4,10 @@ cmake_minimum_required(VERSION 3.14)
 
 project(smart_parking_qt_client VERSION 0.1 LANGUAGES CXX)
 
+if (WIN32)
+    enable_language(RC)
+endif()
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
@@ -154,6 +158,12 @@ add_executable(smart_parking_qt_client
     rtsp_legacy/RtspVideoItem.h
 )
 
+if (WIN32)
+    target_sources(smart_parking_qt_client PRIVATE
+        resources/icons/app-icon.rc
+    )
+endif()
+
 target_link_libraries(smart_parking_qt_client
     PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
@@ -190,6 +200,7 @@ if (QT_VERSION_MAJOR EQUAL 6)
         PREFIX "/"
         FILES
             resources/icons/dashboard.svg
+            resources/icons/app-icon.png
             resources/icons/parking-map.svg
             resources/icons/events.svg
             resources/icons/evidence.svg

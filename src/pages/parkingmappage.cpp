@@ -1179,13 +1179,10 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
     rightLayout->addWidget(mappingGroup, 2);
     mappingGroup->setVisible(false);
 
-    auto *runtimeGroup = new QGroupBox(QStringLiteral("Selected Slot"), rightPanel);
+    auto *runtimeGroup = new QGroupBox(rightPanel);
     runtimeGroup->setObjectName(QStringLiteral("runtimeStatusGroup"));
     auto *runtimeLayout = new QVBoxLayout(runtimeGroup);
-    // QGroupBox titles share the top edge with their child area in some Qt
-    // styles. Reserve that title band explicitly so the selected-state pill
-    // cannot overlap the group title on narrow right panels.
-    runtimeLayout->setContentsMargins(20, 44, 16, 14);
+    runtimeLayout->setContentsMargins(20, 16, 16, 14);
     runtimeLayout->setSpacing(8);
     auto *selectedHeader = new QWidget(runtimeGroup);
     selectedHeader->setObjectName(QStringLiteral("selectedSlotHeader"));
@@ -1224,9 +1221,6 @@ ParkingMapPage::ParkingMapPage(const QString &layoutPath, QWidget *parent)
         return label;
     };
     m_runtimeDataStatusLabel = makeRuntimeValue(QStringLiteral("runtimeDataStatusLabel"));
-    // This label is part of the selected-slot header. Leaving it parented to
-    // runtimeGroup without a layout makes Qt place it at (0, 0), over the
-    // QGroupBox title on styles that do not assign a default geometry.
     selectedHeaderLayout->addWidget(m_runtimeDataStatusLabel);
     m_runtimeVehicleLabel = makeRuntimeValue(QStringLiteral("runtimeVehicleLabel"));
     m_runtimeOccupiedSinceLabel = makeRuntimeValue(QStringLiteral("runtimeOccupiedSinceLabel"));

@@ -148,9 +148,12 @@ int main(int argc, char **argv)
         if (++loadedImageCount >= 2) imageLoadLoop.quit();
     });
 
-    page.showEvidence(QStringLiteral("EV-02"), SlotState::OvertimeAlert,
+    ParkingImageResource firstOcrOriginal = firstOriginal;
+    firstOcrOriginal.ocrResult = QStringLiteral("34B7788");
+    firstOcrOriginal.processing = QStringLiteral("ACTIVE");
+    page.showEvidence(QStringLiteral("EV-02"), SlotState::NonEvAlert,
                       QStringLiteral("34B7788"),
-                      {firstOriginal, latestOriginal, latestEnhanced});
+                      {firstOcrOriginal, latestOriginal, latestEnhanced});
     if (page.captureCount() != 2) return 4;
     QTableWidget *table = page.findChild<QTableWidget *>(
         QStringLiteral("evidenceCaptureTable"));
@@ -193,10 +196,17 @@ int main(int argc, char **argv)
     QLabel *summary = page.findChild<QLabel *>(QStringLiteral("evidenceSummaryLabel"));
     if (!summary || !summary->text().contains(QStringLiteral("local evidence timeline"))) return 6;
     QLabel *plateMetric = page.findChild<QLabel *>(QStringLiteral("evidencePlateMetric"));
+    QLabel *slotMetric = page.findChild<QLabel *>(QStringLiteral("evidenceSlotMetric"));
     QLabel *sessionMetric = page.findChild<QLabel *>(QStringLiteral("evidenceSessionMetric"));
     QLabel *captureMetric = page.findChild<QLabel *>(QStringLiteral("evidenceCaptureMetric"));
     if (!plateMetric || !plateMetric->text().contains(QStringLiteral("34B7788"))) return 27;
-    if (!sessionMetric || sessionMetric->text() != QStringLiteral("Session 7")) return 36;
+    if (!slotMetric
+        || slotMetric->text() != QStringLiteral("EV-02 · NONEV")
+        || slotMetric->minimumHeight() < 42
+        || slotMetric->height() < slotMetric->minimumHeight()
+        || !captureMetric || captureMetric->minimumHeight() < 42
+        || captureMetric->height() < captureMetric->minimumHeight()) return 66;
+    if (!sessionMetric || sessionMetric->text() != QStringLiteral("7")) return 36;
     if (!captureMetric || !captureMetric->text().contains(QStringLiteral("2 image groups"))) return 28;
     QLabel *firstTitle = page.findChild<QLabel *>(QStringLiteral("evidenceFirstTitle"));
     QLabel *selectedTitle = page.findChild<QLabel *>(QStringLiteral("evidenceSelectedTitle"));
@@ -214,6 +224,15 @@ int main(int argc, char **argv)
             QStringLiteral("2026-07-27 09:00:00"))
         || !selectedMetadata || !selectedMetadata->text().contains(
             QStringLiteral("2026-07-27 10:00:01"))) return 42;
+    if (!firstMetadata->text().contains(QStringLiteral("OCR available"))
+        || !selectedMetadata->text().contains(QStringLiteral("OCR available"))
+        || firstMetadata->text().contains(QStringLiteral("ACTIVE"),
+                                          Qt::CaseInsensitive)
+        || selectedMetadata->text().contains(QStringLiteral("ORIGINAL"),
+                                             Qt::CaseInsensitive)) return 67;
+    if (!table->item(0, 4)
+        || table->item(0, 4)->text() != QStringLiteral("34B7788")
+        || table->item(0, 4)->text().contains(QStringLiteral("→"))) return 68;
     if (!firstImage || !selectedImage || firstImage->minimumHeight() != 280
         || selectedImage->minimumHeight() != 280
         || firstImage->maximumHeight() != QWIDGETSIZE_MAX
@@ -275,7 +294,7 @@ int main(int argc, char **argv)
     page.render(state);
     if (page.captureCount() != 4
         || table->rowCount() != 2
-        || sessionMetric->text() != QStringLiteral("Session 7")
+        || sessionMetric->text() != QStringLiteral("7")
         || !firstMetadata->text().contains(QStringLiteral("2026-07-27 09:00:00"))
         || !selectedMetadata->text().contains(QStringLiteral("2026-07-27 10:05:01"))) return 26;
 
@@ -287,6 +306,7 @@ int main(int argc, char **argv)
     ParkingImageResource generalCapture = firstOriginal;
     generalCapture.imageId = 40;
     generalCapture.sessionId = 8;
+    generalCapture.ocrResult.clear();
     generalCapture.timestamp = QDateTime::fromString(
         QStringLiteral("2026-07-27T10:07:01+09:00"), Qt::ISODate);
     state.slotImages.insert(QStringLiteral("P-01"), {generalCapture});
@@ -294,7 +314,7 @@ int main(int argc, char **argv)
     page.showLocalEvidenceSnapshot(state);
     if (page.captureCount() != 5
         || table->rowCount() != 3
-        || sessionMetric->text() != QStringLiteral("Session 8")
+        || sessionMetric->text() != QStringLiteral("8")
         || !firstMetadata->text().contains(QStringLiteral("2026-07-27 10:07:01"))
         || !selectedMetadata->text().contains(QStringLiteral("2026-07-27 10:07:01"))) return 29;
     if (!table || table->columnCount() != 7
@@ -302,7 +322,7 @@ int main(int argc, char **argv)
         || !table->item(0, 1)
         || table->item(0, 1)->text() != QStringLiteral("P-01")
         || !table->item(0, 0)
-        || table->item(0, 0)->text() != QStringLiteral("Session 8")
+        || table->item(0, 0)->text() != QStringLiteral("8")
         || !table->item(0, 2)
         || !table->item(0, 2)->text().contains(QStringLiteral("#40"))
         || !table->item(0, 3)
@@ -437,7 +457,7 @@ int main(int argc, char **argv)
         {eventFirstOriginal, eventLatestOriginal, eventLatestEnhanced});
     if (page.captureCount() != 2
         || !summary->text().contains(QStringLiteral("local evidence timeline"))
-        || sessionMetric->text() != QStringLiteral("Session 8")
+        || sessionMetric->text() != QStringLiteral("8")
         || firstTitle->text()
             != QStringLiteral("First capture · EV-02 · Session 8")
         || selectedTitle->text()

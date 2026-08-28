@@ -6,6 +6,7 @@
 #include <QMetaObject>
 #include <QPushButton>
 #include <QComboBox>
+#include <QGroupBox>
 #include <QTemporaryDir>
 
 namespace {
@@ -54,12 +55,15 @@ int main(int argc, char **argv)
     QLineEdit *search = page.findChild<QLineEdit *>(QStringLiteral("parkingZoneSearchEdit"));
     QComboBox *stateFilter = page.findChild<QComboBox *>(QStringLiteral("parkingStateFilterCombo"));
     QPushButton *undoButton = page.findChild<QPushButton *>(QStringLiteral("undoLayoutButton"));
+    QGroupBox *runtimeGroup = page.findChild<QGroupBox *>(
+        QStringLiteral("runtimeStatusGroup"));
     if (!dataStatus || !vehicle || !vehicleImage || !occupiedSince
         || !occupiedTime || !alarm
         || !alarmState || !selectedState || !summaryTotal || !summaryOccupied
         || !summaryVacant || !summaryAlert || !overviewTotal || !overviewVacant
         || !overviewOccupied || !overviewAlert || !filterResult || !search
-        || !stateFilter || !undoButton) return 3;
+        || !stateFilter || !undoButton || !runtimeGroup) return 3;
+    if (!runtimeGroup->title().isEmpty()) return 37;
     if (statusLabel(page, "runtimePlateLabel")
         || statusLabel(page, "runtimeLastUpdatedLabel")) return 28;
 

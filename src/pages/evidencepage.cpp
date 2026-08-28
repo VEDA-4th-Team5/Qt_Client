@@ -319,6 +319,12 @@ QString slotStateSurface(SlotState state)
     }
 }
 
+QString evidenceSlotStateText(SlotState state)
+{
+    return state == SlotState::NonEvAlert
+        ? QStringLiteral("NONEV") : slotStateText(state);
+}
+
 QString statePillStyle(SlotState state)
 {
     return QStringLiteral(
@@ -345,7 +351,10 @@ QFrame *createMetricCard(QWidget *parent,
         "border:none; color:#607d8b; font-size:11px; font-weight:800;"));
     *valueLabel = new QLabel(QStringLiteral("-"), card);
     (*valueLabel)->setObjectName(objectName);
-    (*valueLabel)->setMinimumWidth(80);
+    (*valueLabel)->setMinimumWidth(0);
+    (*valueLabel)->setMinimumHeight(42);
+    (*valueLabel)->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    (*valueLabel)->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     (*valueLabel)->setWordWrap(true);
     (*valueLabel)->setStyleSheet(QStringLiteral(
         "border:none; color:#17212b; font-size:13px; font-weight:900;"));
@@ -468,6 +477,8 @@ EvidencePage::EvidencePage(QWidget *parent)
 
     auto *metricGrid = new QGridLayout;
     metricGrid->setSpacing(8);
+    metricGrid->setColumnStretch(0, 1);
+    metricGrid->setColumnStretch(1, 1);
     metricGrid->addWidget(createMetricCard(summaryFrame, QStringLiteral("Slot"),
                                            QStringLiteral("evidenceSlotMetric"),
                                            &m_slotMetricLabel), 0, 0);
@@ -1568,12 +1579,13 @@ void EvidencePage::renderCaptureTable()
             m_allLocalTimelineEntries.at(pair.latestEntryIndex).capture;
         const QStringList values = {
             pair.sessionId > 0
-                ? QStringLiteral("Session %1").arg(pair.sessionId)
+                ? QString::number(pair.sessionId)
                 : QStringLiteral("Unavailable"),
             pair.slotId.isEmpty() ? QStringLiteral("-") : pair.slotId,
             capturePairCellText(first),
             capturePairCellText(latest),
-            pairValueText(first.ocrResult, latest.ocrResult),
+            first.ocrResult.trimmed().isEmpty()
+                ? QStringLiteral("-") : first.ocrResult.trimmed(),
             pairValueText(captureReasonText(first.reason),
                           captureReasonText(latest.reason)),
             pairAvailabilityText(first, latest)};
@@ -1708,7 +1720,8 @@ void EvidencePage::updateSummaryMetrics(const QString &slotId,
         m_slotMetricLabel->setText(
             slotId.isEmpty()
                 ? QStringLiteral("-")
-                : QStringLiteral("%1 · %2").arg(slotId, slotStateText(state)));
+                : QStringLiteral("%1 · %2")
+                      .arg(slotId, evidenceSlotStateText(state)));
         m_slotMetricLabel->setStyleSheet(QStringLiteral(
             "border:none; color:%1; font-size:16px; font-weight:900;")
                                              .arg(slotStateAccent(state)));
@@ -1723,7 +1736,7 @@ void EvidencePage::updateSummaryMetrics(const QString &slotId,
     if (m_sessionMetricLabel) {
         QString sessionText;
         if (sessionId > 0) {
-            sessionText = QStringLiteral("Session %1").arg(sessionId);
+            sessionText = QString::number(sessionId);
         } else if (eventId == QStringLiteral("qt-local-cache")) {
             sessionText = QStringLiteral("Qt cache");
         } else if (!eventId.trimmed().isEmpty()) {
@@ -1767,9 +1780,6 @@ void EvidencePage::renderCaptureCard(
     }
     QString metadata = QStringLiteral("%1")
         .arg(captureTimeText(capture->timestamp));
-    if (variant && !variant->processing.isEmpty()) {
-        metadata += QStringLiteral("  |  %1").arg(variant->processing);
-    }
     if (ocrText != QStringLiteral("-")) {
         metadata += QStringLiteral("  |  OCR available");
     }

@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
+#include <QIcon>
 #include <QSettings>
 #include <QTimer>
 #include <qqml.h>
@@ -122,6 +123,8 @@ int runMonitoringSession(QApplication &app, const AuthSession &session)
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    app.setWindowIcon(
+        QIcon(QStringLiteral(":/resources/icons/app-icon.png")));
     qmlRegisterType<RtspVideoItem>("Rtsp", 1, 0, "RtspVideoItem");
 
     ApiStartupOptions apiOptions = loadApiStartupOptions();
