@@ -2,15 +2,17 @@
 
 #include <QApplication>
 #include <QCheckBox>
-#include <QComboBox>
 #include <QDialog>
 #include <QDir>
+#include <QGroupBox>
 #include <QLabel>
 #include <QLayout>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QPixmap>
+#include <QRadioButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSpinBox>
 #include <QTabWidget>
 
@@ -23,19 +25,15 @@ int main(int argc, char **argv)
         QStringLiteral("systemTabWidget"));
     QScrollArea *connectionsScroll = page.findChild<QScrollArea *>(
         QStringLiteral("systemConnectionsScrollArea"));
-    QScrollArea *policyScroll = page.findChild<QScrollArea *>(
-        QStringLiteral("systemPolicyScrollArea"));
-    if (!systemTabs || systemTabs->count() != 2
-        || systemTabs->tabText(0) != QStringLiteral("Connections")
-        || systemTabs->tabText(1) != QStringLiteral("Parking Policy")
+    QGroupBox *policyGroup = page.findChild<QGroupBox *>(
+        QStringLiteral("parkingPolicyGroup"));
+    if (!systemTabs || systemTabs->count() != 1
+        || systemTabs->tabText(0) != QStringLiteral("Configuration")
         || !connectionsScroll || !connectionsScroll->widgetResizable()
-        || !policyScroll || !policyScroll->widgetResizable()
         || !connectionsScroll->widget() || !connectionsScroll->widget()->layout()
         || connectionsScroll->widget()->layout()->contentsMargins().left() != 16
         || connectionsScroll->widget()->maximumWidth() != 960
-        || !policyScroll->widget() || !policyScroll->widget()->layout()
-        || policyScroll->widget()->layout()->contentsMargins().left() != 16
-        || policyScroll->widget()->maximumWidth() != 820
+        || !policyGroup || policyGroup->parentWidget() != connectionsScroll->widget()
         || !page.styleSheet().contains(QStringLiteral("uiActionRole"))) {
         return 28;
     }
@@ -61,10 +59,14 @@ int main(int argc, char **argv)
     if (SettingsPage::overstaySeconds(0, 30, 0) != 1800) return 2;
     if (SettingsPage::overstaySeconds(2, 0, 0) != 7200) return 3;
 
-    auto *scheme = page.findChild<QComboBox *>(QStringLiteral("serverApiSchemeInput"));
+    auto *httpRadio = page.findChild<QRadioButton *>(QStringLiteral("serverApiHttpRadio"));
+    auto *httpsRadio = page.findChild<QRadioButton *>(QStringLiteral("serverApiHttpsRadio"));
     auto *host = page.findChild<QLineEdit *>(QStringLiteral("serverApiHostInput"));
     auto *port = page.findChild<QSpinBox *>(QStringLiteral("serverApiPortInput"));
-    if (!scheme || !host || !port) return 20;
+    if (!httpRadio || !httpsRadio || !host || !port
+        || !httpRadio->isChecked() || httpsRadio->isChecked()
+        || httpRadio->text() != QStringLiteral("HTTP")
+        || httpsRadio->text() != QStringLiteral("HTTPS")) return 20;
     auto *cameraUsername = page.findChild<QLineEdit *>(
         QStringLiteral("cameraUsernameInput"));
     auto *cameraPassword = page.findChild<QLineEdit *>(
@@ -97,13 +99,13 @@ int main(int argc, char **argv)
         || requestedCameraUsername != QStringLiteral("admin")
         || requestedCameraPassword != QStringLiteral("camera-secret")) return 27;
     page.setServerBaseUrl(QStringLiteral("http://172.20.32.97:8080"));
-    if (scheme->currentText() != QStringLiteral("http")
+    if (!httpRadio->isChecked() || httpsRadio->isChecked()
         || host->text() != QStringLiteral("172.20.32.97")
         || port->value() != 8080) return 21;
     QMetaObject::invokeMethod(host, "returnPressed");
     if (requestedServerUrl != QStringLiteral("http://172.20.32.97:8080")) return 22;
     page.setServerBaseUrl(QStringLiteral("https://pi.example.test:8443"));
-    if (scheme->currentText() != QStringLiteral("https")
+    if (!httpsRadio->isChecked() || httpRadio->isChecked()
         || host->text() != QStringLiteral("pi.example.test")
         || port->value() != 8443) return 23;
     auto *reconnect = page.findChild<QPushButton *>(
@@ -179,13 +181,16 @@ int main(int argc, char **argv)
         page.resize(900, 720);
         page.show();
         QApplication::processEvents();
-        for (int index = 0; index < systemTabs->count(); ++index) {
-            systemTabs->setCurrentIndex(index);
-            QApplication::processEvents();
-            const QString fileName = index == 0
-                ? QStringLiteral("system-connections.png")
-                : QStringLiteral("system-parking-policy.png");
-            if (!page.grab().save(QDir(captureDir).filePath(fileName))) return 33;
+        if (!page.grab().save(
+                QDir(captureDir).filePath(QStringLiteral("system-configuration.png")))) {
+            return 33;
+        }
+        connectionsScroll->verticalScrollBar()->setValue(
+            connectionsScroll->verticalScrollBar()->maximum());
+        QApplication::processEvents();
+        if (!page.grab().save(
+                QDir(captureDir).filePath(QStringLiteral("system-configuration-policy.png")))) {
+            return 34;
         }
     }
 
@@ -200,7 +205,7 @@ int main(int argc, char **argv)
         ? helpDialog->findChild<QLabel *>(QStringLiteral("settingsHelpSteps"))
         : nullptr;
     if (!helpDialog || !helpSteps
-        || !helpSteps->text().contains(QStringLiteral("Connections"))) {
+        || !helpSteps->text().contains(QStringLiteral("Configuration"))) {
         return 25;
     }
     helpDialog->close();

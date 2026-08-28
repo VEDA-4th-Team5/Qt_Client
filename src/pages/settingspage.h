@@ -4,9 +4,9 @@
 #include <QWidget>
 
 class QLabel;
-class QComboBox;
 class QLineEdit;
 class QPushButton;
+class QRadioButton;
 class QShowEvent;
 class QSpinBox;
 class QTabWidget;
@@ -51,7 +51,8 @@ private:
     QLineEdit *m_cameraIpInput = nullptr;
     QLineEdit *m_cameraUsernameInput = nullptr;
     QLineEdit *m_cameraPasswordInput = nullptr;
-    QComboBox *m_serverSchemeInput = nullptr;
+    QRadioButton *m_serverHttpRadio = nullptr;
+    QRadioButton *m_serverHttpsRadio = nullptr;
     QLineEdit *m_serverHostInput = nullptr;
     QSpinBox *m_serverPortInput = nullptr;
     QLabel *m_serverConnectionLabel = nullptr;

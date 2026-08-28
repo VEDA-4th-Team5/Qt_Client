@@ -204,7 +204,7 @@ QWidget *DebugPage::createOverviewTab()
     apiLayout->setSpacing(10);
     auto *apiImpact = new QLabel(
         m_embeddedInSystemTabs
-            ? QStringLiteral("READ ONLY · Endpoint changes and reconnection are managed in the Connections tab.")
+            ? QStringLiteral("READ ONLY · Endpoint changes and reconnection are managed in the Configuration tab.")
             : QStringLiteral("SERVER/API CONNECTION · Reconnect now starts a real server request from this client."),
         apiGroup);
     apiImpact->setObjectName(QStringLiteral("debugApiImpactLabel"));

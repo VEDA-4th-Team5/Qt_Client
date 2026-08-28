@@ -212,19 +212,18 @@ int main(int argc, char **argv)
     QApplication::processEvents();
 
     QTabWidget systemTabs;
-    systemTabs.addTab(new QWidget(&systemTabs), QStringLiteral("Connections"));
-    systemTabs.addTab(new QWidget(&systemTabs), QStringLiteral("Parking Policy"));
+    systemTabs.addTab(new QWidget(&systemTabs), QStringLiteral("Configuration"));
     DebugPage embeddedPage(&systemTabs, &systemTabs);
     QLabel *embeddedApiImpact = systemTabs.findChild<QLabel *>(
         QStringLiteral("debugApiImpactLabel"));
-    if (systemTabs.count() != 5
-        || systemTabs.tabText(2) != QStringLiteral("Diagnostics")
-        || systemTabs.tabText(3) != QStringLiteral("Live Logs")
-        || systemTabs.tabText(4) != QStringLiteral("Test Tools")
+    if (systemTabs.count() != 4
+        || systemTabs.tabText(1) != QStringLiteral("Diagnostics")
+        || systemTabs.tabText(2) != QStringLiteral("Live Logs")
+        || systemTabs.tabText(3) != QStringLiteral("Test Tools")
         || systemTabs.findChild<QPushButton *>(
                QStringLiteral("debugReconnectApiButton"))
         || !embeddedApiImpact
-        || !embeddedApiImpact->text().contains(QStringLiteral("Connections"))) {
+        || !embeddedApiImpact->text().contains(QStringLiteral("Configuration"))) {
         return 12;
     }
     return 0;

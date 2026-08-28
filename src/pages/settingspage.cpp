@@ -4,7 +4,6 @@
 #include "widgets/pagehelp.h"
 
 #include <QCheckBox>
-#include <QComboBox>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -12,6 +11,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QScrollArea>
 #include <QShowEvent>
 #include <QSpinBox>
@@ -49,11 +49,10 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
          QStringLiteral("System 사용 안내"),
          QStringLiteral("연결 설정, 운영 정책, 런타임 진단과 로컬 테스트 도구를 한 화면에서 관리합니다."),
          QStringLiteral(
-             "<b>1. Connections</b><br>카메라 IPv4 주소·계정과 Pi API endpoint를 저장하고 연결을 다시 시도합니다.<br><br>"
-             "<b>2. Parking Policy</b><br>서버의 초과주차 기준을 읽고 1분~24시간 범위에서 변경합니다.<br><br>"
-             "<b>3. Diagnostics</b><br>Pi API, RTSP 채널과 주차 데이터 상태·지연·마지막 오류를 읽기 전용으로 확인합니다.<br><br>"
-             "<b>4. Live Logs</b><br>Level, Module과 검색어로 로컬 Qt 진단 로그를 필터링합니다.<br><br>"
-             "<b>5. Test Tools</b><br>Mock EV, 테스트 이벤트와 normalized RX 메시지를 로컬 Qt 프로세스에만 적용합니다."),
+             "<b>1. Configuration</b><br>카메라 접근 정보, Pi API endpoint와 초과주차 정책을 한 화면에서 관리합니다.<br><br>"
+             "<b>2. Diagnostics</b><br>Pi API, RTSP 채널과 주차 데이터 상태·지연·마지막 오류를 읽기 전용으로 확인합니다.<br><br>"
+             "<b>3. Live Logs</b><br>Level, Module과 검색어로 로컬 Qt 진단 로그를 필터링합니다.<br><br>"
+             "<b>4. Test Tools</b><br>Mock EV, 테스트 이벤트와 normalized RX 메시지를 로컬 Qt 프로세스에만 적용합니다."),
          QStringLiteral(
              "※ Pi 주소 변경 시 MQTT host도 같은 서버 host를 따릅니다. TLS 실패 시 평문으로 자동 전환하지 않습니다.\n"
              "   Test Tools는 Pi 서버로 전송되지 않는 로컬 simulation sandbox이며 실제 장비 통합 성공 증거가 아닙니다.")});
@@ -119,10 +118,11 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     cameraActions->addStretch();
     cameraActions->addWidget(saveCameraButton);
 
-    m_serverSchemeInput = new QComboBox(group);
-    m_serverSchemeInput->setObjectName(QStringLiteral("serverApiSchemeInput"));
-    m_serverSchemeInput->addItems(
-        {QStringLiteral("http"), QStringLiteral("https")});
+    m_serverHttpRadio = new QRadioButton(QStringLiteral("HTTP"), group);
+    m_serverHttpRadio->setObjectName(QStringLiteral("serverApiHttpRadio"));
+    m_serverHttpsRadio = new QRadioButton(QStringLiteral("HTTPS"), group);
+    m_serverHttpsRadio->setObjectName(QStringLiteral("serverApiHttpsRadio"));
+    m_serverHttpRadio->setChecked(true);
     m_serverHostInput = new QLineEdit(group);
     m_serverHostInput->setObjectName(QStringLiteral("serverApiHostInput"));
     m_serverHostInput->setPlaceholderText(QStringLiteral("e.g. raspberry-pi.local"));
@@ -136,9 +136,13 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     auto *reconnectButton = new QPushButton(QStringLiteral("Retry connection"), group);
     reconnectButton->setObjectName(QStringLiteral("reconnectServerButton"));
     auto *serverLayout = new QHBoxLayout;
-    serverLayout->addWidget(m_serverSchemeInput);
     serverLayout->addWidget(m_serverHostInput, 1);
     serverLayout->addWidget(m_serverPortInput);
+    auto *protocolLayout = new QHBoxLayout;
+    protocolLayout->setSpacing(20);
+    protocolLayout->addWidget(m_serverHttpRadio);
+    protocolLayout->addWidget(m_serverHttpsRadio);
+    protocolLayout->addStretch();
     auto *serverActions = new QHBoxLayout;
     serverActions->addStretch();
     serverActions->addWidget(reconnectButton);
@@ -177,43 +181,32 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     grid->addWidget(credentialNote, 6, 1);
     grid->addLayout(cameraActions, 7, 1);
     grid->addWidget(makeSectionLabel(QStringLiteral("PI SERVER")), 8, 0, 1, 2);
-    grid->addWidget(new QLabel(QStringLiteral("API endpoint"), group), 9, 0);
-    grid->addLayout(serverLayout, 9, 1);
-    grid->addWidget(new QLabel(QStringLiteral("Endpoint format"), group), 10, 0);
-    grid->addWidget(new QLabel(QStringLiteral("Protocol  ·  Host  ·  Port"), group), 10, 1);
-    grid->addWidget(new QLabel(QStringLiteral("Connection status"), group), 11, 0);
-    grid->addWidget(m_serverConnectionLabel, 11, 1);
-    grid->addWidget(new QLabel(QStringLiteral("MQTT routing"), group), 12, 0);
-    grid->addWidget(new QLabel(QStringLiteral("Automatically follows the Pi API host."), group), 12, 1);
-    grid->addWidget(new QLabel(QStringLiteral("Local override file"), group), 13, 0);
-    grid->addWidget(new QLabel(QStringLiteral("client_config.local.ini"), group), 13, 1);
-    grid->addWidget(new QLabel(QStringLiteral("RTSP URL pattern"), group), 14, 0);
-    grid->addWidget(new QLabel(QStringLiteral("/{channel}/{profile}/media.smp"), group), 14, 1);
-    grid->addLayout(serverActions, 15, 1);
+    grid->addWidget(new QLabel(QStringLiteral("API protocol"), group), 9, 0);
+    grid->addLayout(protocolLayout, 9, 1);
+    grid->addWidget(new QLabel(QStringLiteral("API endpoint"), group), 10, 0);
+    grid->addLayout(serverLayout, 10, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Endpoint format"), group), 11, 0);
+    grid->addWidget(new QLabel(QStringLiteral("Host  ·  Port"), group), 11, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Connection status"), group), 12, 0);
+    grid->addWidget(m_serverConnectionLabel, 12, 1);
+    grid->addWidget(new QLabel(QStringLiteral("MQTT routing"), group), 13, 0);
+    grid->addWidget(new QLabel(QStringLiteral("Automatically follows the Pi API host."), group), 13, 1);
+    grid->addWidget(new QLabel(QStringLiteral("Local override file"), group), 14, 0);
+    grid->addWidget(new QLabel(QStringLiteral("client_config.local.ini"), group), 14, 1);
+    grid->addWidget(new QLabel(QStringLiteral("RTSP URL pattern"), group), 15, 0);
+    grid->addWidget(new QLabel(QStringLiteral("/{channel}/{profile}/media.smp"), group), 15, 1);
+    grid->addLayout(serverActions, 16, 1);
     configurationLayout->addWidget(group);
-    configurationLayout->addStretch();
-    m_systemTabs->addTab(configurationScroll, QStringLiteral("Connections"));
 
-    auto *policyScroll = new QScrollArea(m_systemTabs);
-    policyScroll->setObjectName(QStringLiteral("systemPolicyScrollArea"));
-    policyScroll->setWidgetResizable(true);
-    policyScroll->setFrameShape(QFrame::NoFrame);
-    policyScroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
-    auto *policy = new QWidget(policyScroll);
-    policy->setProperty("systemTabContent", true);
-    policy->setMaximumWidth(SystemUiStyle::PolicyMaxWidth);
-    auto *policyLayout = new QVBoxLayout(policy);
-    policyLayout->setContentsMargins(16, 16, 16, 16);
-    policyLayout->setSpacing(12);
-    policyScroll->setWidget(policy);
     auto *policyNote = new QLabel(
-        QStringLiteral("SERVER POLICY · Reload reads the current value from the Pi server. Apply policy updates and verifies the server value."),
-        policy);
+        QStringLiteral("SERVER POLICY · Reload reads the current value from the Pi server. Apply writes the new value and verifies the server response."),
+        configuration);
     policyNote->setWordWrap(true);
     policyNote->setProperty("uiBanner", QStringLiteral("success"));
-    policyLayout->addWidget(policyNote);
+    configurationLayout->addWidget(policyNote);
 
-    auto *overstayGroup = new QGroupBox(QStringLiteral("Parking Policy"), policy);
+    auto *overstayGroup = new QGroupBox(QStringLiteral("Parking Policy"), configuration);
+    overstayGroup->setObjectName(QStringLiteral("parkingPolicyGroup"));
     auto *overstayGrid = new QGridLayout(overstayGroup);
     overstayGrid->setContentsMargins(12, 14, 12, 12);
     overstayGrid->setHorizontalSpacing(14);
@@ -273,9 +266,9 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     overstayGrid->addWidget(new QLabel(QStringLiteral("Policy update"), overstayGroup), 3, 0);
     overstayGrid->addWidget(m_overstayStatusLabel, 3, 1);
     overstayGrid->addLayout(overstayButtonLayout, 4, 1);
-    policyLayout->addWidget(overstayGroup);
-    policyLayout->addStretch();
-    m_systemTabs->addTab(policyScroll, QStringLiteral("Parking Policy"));
+    configurationLayout->addWidget(overstayGroup);
+    configurationLayout->addStretch();
+    m_systemTabs->addTab(configurationScroll, QStringLiteral("Configuration"));
     layout->addWidget(m_systemTabs, 1);
 
     saveCameraButton->setProperty("uiActionRole", QStringLiteral("primary"));
@@ -286,12 +279,10 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     for (QWidget *field : {static_cast<QWidget *>(m_cameraIpInput),
                            static_cast<QWidget *>(m_cameraUsernameInput),
                            static_cast<QWidget *>(m_cameraPasswordInput),
-                           static_cast<QWidget *>(m_serverSchemeInput),
                            static_cast<QWidget *>(m_serverHostInput),
                            static_cast<QWidget *>(m_serverPortInput)}) {
         field->setMinimumHeight(32);
     }
-    m_serverSchemeInput->setFixedWidth(92);
     m_serverPortInput->setFixedWidth(110);
     setCameraIp(cameraIp);
     setCameraCredentials(cameraUsername, cameraPassword);
@@ -304,7 +295,9 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     };
     auto requestServerSave = [this]() {
         QUrl url;
-        url.setScheme(m_serverSchemeInput->currentText());
+        url.setScheme(m_serverHttpsRadio->isChecked()
+                          ? QStringLiteral("https")
+                          : QStringLiteral("http"));
         url.setHost(m_serverHostInput->text().trimmed());
         url.setPort(m_serverPortInput->value());
         emit saveServerBaseUrlRequested(url.toString());
@@ -371,8 +364,8 @@ void SettingsPage::setServerBaseUrl(const QString &baseUrl)
     }
 
     const QString scheme = url.scheme().toLower();
-    const int schemeIndex = m_serverSchemeInput->findText(scheme);
-    if (schemeIndex >= 0) m_serverSchemeInput->setCurrentIndex(schemeIndex);
+    m_serverHttpsRadio->setChecked(scheme == QStringLiteral("https"));
+    m_serverHttpRadio->setChecked(scheme != QStringLiteral("https"));
     m_serverHostInput->setText(url.host());
     const int defaultPort = scheme == QStringLiteral("https") ? 443 : 80;
     m_serverPortInput->setValue(url.port(defaultPort));

@@ -6,7 +6,6 @@
 namespace SystemUiStyle {
 
 inline constexpr int ConnectionsMaxWidth = 960;
-inline constexpr int PolicyMaxWidth = 820;
 inline constexpr int DiagnosticsMaxWidth = 1080;
 inline constexpr int LogsMaxWidth = 1080;
 inline constexpr int TestToolsMaxWidth = 900;
@@ -77,7 +76,13 @@ inline QString pageStyleSheet()
         "QHeaderView::section { background:#eaf0f3;color:#3d5662;border:none;"
         "border-right:1px solid #d5dee3;border-bottom:1px solid #d5dee3;"
         "padding:7px 8px;font-weight:800; }"
-        "QCheckBox { spacing:7px;color:#455a64; }"
+        "QCheckBox, QRadioButton { spacing:7px;color:#455a64; }"
+        "QRadioButton { min-height:32px;font-weight:750; }"
+        "QRadioButton::indicator { width:17px;height:17px; }"
+        "QRadioButton::indicator:unchecked { background:#ffffff;border:2px solid #8ca7b3;"
+        "border-radius:9px; }"
+        "QRadioButton::indicator:checked { background:#ffffff;border:5px solid #ef7d00;"
+        "border-radius:9px; }"
     );
 }
 
