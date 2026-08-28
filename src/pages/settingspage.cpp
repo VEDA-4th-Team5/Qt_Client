@@ -1,5 +1,6 @@
 #include "settingspage.h"
 
+#include "pages/systemuistyle.h"
 #include "widgets/pagehelp.h"
 
 #include <QCheckBox>
@@ -14,9 +15,20 @@
 #include <QScrollArea>
 #include <QShowEvent>
 #include <QSpinBox>
+#include <QStyle>
 #include <QTabWidget>
 #include <QUrl>
 #include <QVBoxLayout>
+
+namespace {
+void setUiBannerTone(QLabel *label, const QString &tone)
+{
+    if (!label) return;
+    label->setProperty("uiBanner", tone);
+    label->style()->unpolish(label);
+    label->style()->polish(label);
+}
+}
 
 SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
                            QWidget *parent,
@@ -24,6 +36,7 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
                            const QString &cameraPassword)
     : QWidget(parent)
 {
+    setStyleSheet(SystemUiStyle::pageStyleSheet());
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(10);
@@ -50,30 +63,23 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
         this);
     systemBanner->setObjectName(QStringLiteral("systemScopeBanner"));
     systemBanner->setWordWrap(true);
-    systemBanner->setStyleSheet(QStringLiteral(
-        "background:#e8f1f5;color:#173b4d;border:1px solid #9fb9c6;"
-        "border-radius:8px;padding:10px 12px;font-weight:800;"));
+    systemBanner->setProperty("uiBanner", QStringLiteral("info"));
     layout->addWidget(systemBanner);
 
     m_systemTabs = new QTabWidget(this);
     m_systemTabs->setObjectName(QStringLiteral("systemTabWidget"));
     m_systemTabs->setDocumentMode(true);
-    m_systemTabs->setStyleSheet(QStringLiteral(
-        "QTabWidget::pane { border:1px solid #c7d0d8;border-radius:7px;"
-        "background:#ffffff;top:-1px; }"
-        "QTabBar::tab { background:#e8edf0;color:#455a64;padding:10px 18px;"
-        "border:1px solid #c7d0d8;border-bottom:none;min-width:118px;font-weight:700; }"
-        "QTabBar::tab:selected { background:#ffffff;color:#173b4d;"
-        "border-top:3px solid #ef7d00;padding-top:8px; }"
-        "QTabBar::tab:hover:!selected { background:#f3f6f8;color:#263238; }"));
 
     auto *configurationScroll = new QScrollArea(m_systemTabs);
     configurationScroll->setObjectName(QStringLiteral("systemConnectionsScrollArea"));
     configurationScroll->setWidgetResizable(true);
     configurationScroll->setFrameShape(QFrame::NoFrame);
+    configurationScroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
     auto *configuration = new QWidget(configurationScroll);
+    configuration->setProperty("systemTabContent", true);
+    configuration->setMaximumWidth(SystemUiStyle::ConnectionsMaxWidth);
     auto *configurationLayout = new QVBoxLayout(configuration);
-    configurationLayout->setContentsMargins(12, 12, 12, 12);
+    configurationLayout->setContentsMargins(16, 16, 16, 16);
     configurationLayout->setSpacing(12);
     configurationScroll->setWidget(configuration);
 
@@ -81,13 +87,12 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
         QStringLiteral("CONNECTION CHANGES · Applying a Pi endpoint updates this PC's local override and reconnects the API. MQTT follows the same host."),
         configuration);
     configurationNote->setWordWrap(true);
-    configurationNote->setStyleSheet(QStringLiteral(
-        "background:#fff8e1;color:#7a4f00;border:1px solid #ffe082;"
-        "border-radius:6px;padding:8px;font-weight:700;"));
+    configurationNote->setProperty("uiBanner", QStringLiteral("warning"));
     configurationLayout->addWidget(configurationNote);
 
     auto *group = new QGroupBox(QStringLiteral("Camera & Pi Server"), configuration);
     auto *grid = new QGridLayout(group);
+    grid->setContentsMargins(12, 14, 12, 12);
     m_cameraIpLabel = new QLabel(group);
     m_cameraIpInput = new QLineEdit(group);
     m_cameraIpInput->setPlaceholderText(QStringLiteral("e.g. 192.168.10.20"));
@@ -149,11 +154,14 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     };
     grid->setHorizontalSpacing(14);
     grid->setVerticalSpacing(9);
-    grid->setColumnMinimumWidth(0, 190);
+    grid->setColumnMinimumWidth(0, 168);
     grid->setColumnStretch(1, 1);
     grid->addWidget(makeSectionLabel(QStringLiteral("CAMERA ACCESS")), 0, 0, 1, 2);
     grid->addWidget(new QLabel(QStringLiteral("Configuration file"), group), 1, 0);
-    grid->addWidget(new QLabel(configPath, group), 1, 1);
+    auto *configPathLabel = new QLabel(configPath, group);
+    configPathLabel->setWordWrap(true);
+    configPathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    grid->addWidget(configPathLabel, 1, 1);
     grid->addWidget(new QLabel(QStringLiteral("Active IP"), group), 2, 0);
     grid->addWidget(m_cameraIpLabel, 2, 1);
     grid->addWidget(new QLabel(QStringLiteral("Camera IP address"), group), 3, 0);
@@ -163,7 +171,10 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     grid->addWidget(new QLabel(QStringLiteral("Password"), group), 5, 0);
     grid->addLayout(passwordLayout, 5, 1);
     grid->addWidget(new QLabel(QStringLiteral("Credential storage"), group), 6, 0);
-    grid->addWidget(new QLabel(QStringLiteral("Local camera config only · Never commit real credentials."), group), 6, 1);
+    auto *credentialNote = new QLabel(
+        QStringLiteral("Local camera config only · Never commit real credentials."), group);
+    credentialNote->setWordWrap(true);
+    grid->addWidget(credentialNote, 6, 1);
     grid->addLayout(cameraActions, 7, 1);
     grid->addWidget(makeSectionLabel(QStringLiteral("PI SERVER")), 8, 0, 1, 2);
     grid->addWidget(new QLabel(QStringLiteral("API endpoint"), group), 9, 0);
@@ -187,33 +198,33 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     policyScroll->setObjectName(QStringLiteral("systemPolicyScrollArea"));
     policyScroll->setWidgetResizable(true);
     policyScroll->setFrameShape(QFrame::NoFrame);
+    policyScroll->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
     auto *policy = new QWidget(policyScroll);
+    policy->setProperty("systemTabContent", true);
+    policy->setMaximumWidth(SystemUiStyle::PolicyMaxWidth);
     auto *policyLayout = new QVBoxLayout(policy);
-    policyLayout->setContentsMargins(12, 12, 12, 12);
+    policyLayout->setContentsMargins(16, 16, 16, 16);
     policyLayout->setSpacing(12);
     policyScroll->setWidget(policy);
     auto *policyNote = new QLabel(
         QStringLiteral("SERVER POLICY · Reload reads the current value from the Pi server. Apply policy updates and verifies the server value."),
         policy);
     policyNote->setWordWrap(true);
-    policyNote->setStyleSheet(QStringLiteral(
-        "background:#eef6ee;color:#285b2b;border:1px solid #a5d6a7;"
-        "border-radius:6px;padding:8px;font-weight:700;"));
+    policyNote->setProperty("uiBanner", QStringLiteral("success"));
     policyLayout->addWidget(policyNote);
 
     auto *overstayGroup = new QGroupBox(QStringLiteral("Parking Policy"), policy);
     auto *overstayGrid = new QGridLayout(overstayGroup);
+    overstayGrid->setContentsMargins(12, 14, 12, 12);
+    overstayGrid->setHorizontalSpacing(14);
+    overstayGrid->setVerticalSpacing(10);
     m_currentOverstayLabel = new QLabel(QStringLiteral("Not loaded"), overstayGroup);
     m_currentOverstayLabel->setObjectName(QStringLiteral("currentOverstayThresholdLabel"));
-    m_currentOverstayLabel->setStyleSheet(QStringLiteral(
-        "background:#f4f7f8;color:#173b4d;border:1px solid #c7d0d8;"
-        "border-radius:5px;padding:7px 9px;font-weight:800;"));
+    m_currentOverstayLabel->setProperty("uiReadOnlyValue", true);
     m_applyPolicyLabel = new QLabel(QStringLiteral("Not loaded"), overstayGroup);
     m_applyPolicyLabel->setObjectName(QStringLiteral("overstayApplyPolicyLabel"));
     m_applyPolicyLabel->setWordWrap(true);
-    m_applyPolicyLabel->setStyleSheet(QStringLiteral(
-        "background:#f4f7f8;color:#455a64;border:1px solid #c7d0d8;"
-        "border-radius:5px;padding:7px 9px;font-weight:700;"));
+    m_applyPolicyLabel->setProperty("uiReadOnlyValue", true);
 
     m_overstayHoursInput = new QSpinBox(overstayGroup);
     m_overstayHoursInput->setObjectName(QStringLiteral("overstayHoursInput"));
@@ -243,6 +254,7 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     m_overstayStatusLabel->setObjectName(QStringLiteral("overstayStatusLabel"));
     m_overstayStatusLabel->setWordWrap(true);
     m_overstayStatusLabel->setMinimumHeight(38);
+    m_overstayStatusLabel->setProperty("uiBanner", QStringLiteral("neutral"));
     m_refreshOverstayButton = new QPushButton(QStringLiteral("Reload"), overstayGroup);
     m_refreshOverstayButton->setObjectName(QStringLiteral("refreshOverstayThresholdButton"));
     m_applyOverstayButton = new QPushButton(QStringLiteral("Apply policy"), overstayGroup);
@@ -266,19 +278,11 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     m_systemTabs->addTab(policyScroll, QStringLiteral("Parking Policy"));
     layout->addWidget(m_systemTabs, 1);
 
-    const QString primaryButtonStyle = QStringLiteral(
-        "QPushButton { background:#ef7d00;color:white;border:1px solid #d86f00;"
-        "border-radius:5px;padding:7px 12px;font-weight:800; }"
-        "QPushButton:hover { background:#ff8f1f; }"
-        "QPushButton:disabled { background:#d7dce0;color:#8b9499;border-color:#c7cdd1; }");
-    saveCameraButton->setStyleSheet(primaryButtonStyle);
-    saveServerButton->setStyleSheet(primaryButtonStyle);
-    m_applyOverstayButton->setStyleSheet(primaryButtonStyle);
-    reconnectButton->setStyleSheet(QStringLiteral(
-        "QPushButton { background:#ffffff;color:#294b5a;border:1px solid #8ca7b3;"
-        "border-radius:5px;padding:7px 12px;font-weight:700; }"
-        "QPushButton:hover { background:#edf4f7;border-color:#5f8292; }"));
-    m_refreshOverstayButton->setStyleSheet(reconnectButton->styleSheet());
+    saveCameraButton->setProperty("uiActionRole", QStringLiteral("primary"));
+    saveServerButton->setProperty("uiActionRole", QStringLiteral("primary"));
+    m_applyOverstayButton->setProperty("uiActionRole", QStringLiteral("primary"));
+    reconnectButton->setProperty("uiActionRole", QStringLiteral("secondary"));
+    m_refreshOverstayButton->setProperty("uiActionRole", QStringLiteral("secondary"));
     for (QWidget *field : {static_cast<QWidget *>(m_cameraIpInput),
                            static_cast<QWidget *>(m_cameraUsernameInput),
                            static_cast<QWidget *>(m_cameraPasswordInput),
@@ -329,8 +333,7 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
         if (seconds < 60 || seconds > 86400) {
             m_overstayStatusLabel->setText(QStringLiteral(
                 "Enter a threshold between 00h 01m 00s and 24h 00m 00s."));
-            m_overstayStatusLabel->setStyleSheet(
-                QStringLiteral("color:#b71c1c;font-weight:700;"));
+            setUiBannerTone(m_overstayStatusLabel, QStringLiteral("danger"));
             return;
         }
         setOverstayThresholdRequestStarted(
@@ -392,7 +395,7 @@ void SettingsPage::setOverstayThresholdRequestStarted(const QString &status)
 {
     m_overstayRequestInFlight = true;
     m_overstayStatusLabel->setText(status);
-    m_overstayStatusLabel->setStyleSheet(QStringLiteral("color:#455a64;"));
+    setUiBannerTone(m_overstayStatusLabel, QStringLiteral("neutral"));
     updateOverstayButtons();
 }
 
@@ -422,8 +425,7 @@ void SettingsPage::setOverstayThreshold(int seconds,
             ? QStringLiteral("Parking policy updated to %1.")
                   .arg(formatOverstayDuration(seconds))
             : QStringLiteral("Current parking policy loaded."));
-    m_overstayStatusLabel->setStyleSheet(
-        QStringLiteral("color:#1b5e20;font-weight:700;"));
+    setUiBannerTone(m_overstayStatusLabel, QStringLiteral("success"));
     updateOverstayButtons();
 }
 
@@ -438,8 +440,7 @@ void SettingsPage::setOverstayThresholdError(const QString &message,
         message.trimmed().isEmpty()
             ? prefix
             : prefix + QStringLiteral("\nServer response: ") + message.trimmed());
-    m_overstayStatusLabel->setStyleSheet(
-        QStringLiteral("color:#b71c1c;font-weight:700;"));
+    setUiBannerTone(m_overstayStatusLabel, QStringLiteral("danger"));
     updateOverstayButtons();
 }
 

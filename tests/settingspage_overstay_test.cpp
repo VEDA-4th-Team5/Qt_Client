@@ -4,9 +4,12 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
+#include <QDir>
 #include <QLabel>
+#include <QLayout>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QPixmap>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QTabWidget>
@@ -26,7 +29,14 @@ int main(int argc, char **argv)
         || systemTabs->tabText(0) != QStringLiteral("Connections")
         || systemTabs->tabText(1) != QStringLiteral("Parking Policy")
         || !connectionsScroll || !connectionsScroll->widgetResizable()
-        || !policyScroll || !policyScroll->widgetResizable()) {
+        || !policyScroll || !policyScroll->widgetResizable()
+        || !connectionsScroll->widget() || !connectionsScroll->widget()->layout()
+        || connectionsScroll->widget()->layout()->contentsMargins().left() != 16
+        || connectionsScroll->widget()->maximumWidth() != 960
+        || !policyScroll->widget() || !policyScroll->widget()->layout()
+        || policyScroll->widget()->layout()->contentsMargins().left() != 16
+        || policyScroll->widget()->maximumWidth() != 820
+        || !page.styleSheet().contains(QStringLiteral("uiActionRole"))) {
         return 28;
     }
 
@@ -102,7 +112,11 @@ int main(int argc, char **argv)
         QStringLiteral("saveServerSettingsButton"));
     if (!reconnect || !applyEndpoint
         || reconnect->text() != QStringLiteral("Retry connection")
-        || applyEndpoint->text() != QStringLiteral("Apply & reconnect")) return 31;
+        || applyEndpoint->text() != QStringLiteral("Apply & reconnect")
+        || reconnect->property("uiActionRole").toString()
+            != QStringLiteral("secondary")
+        || applyEndpoint->property("uiActionRole").toString()
+            != QStringLiteral("primary")) return 31;
     reconnect->click();
     if (reconnectRequests != 1) return 32;
 
@@ -158,6 +172,22 @@ int main(int argc, char **argv)
     hours->setValue(23);
     hours->setValue(24);
     if (minutes->value() != 0 || seconds->value() != 0) return 19;
+
+    const QString captureDir = qEnvironmentVariable("SYSTEM_UI_CAPTURE_DIR");
+    if (!captureDir.isEmpty()) {
+        QDir().mkpath(captureDir);
+        page.resize(900, 720);
+        page.show();
+        QApplication::processEvents();
+        for (int index = 0; index < systemTabs->count(); ++index) {
+            systemTabs->setCurrentIndex(index);
+            QApplication::processEvents();
+            const QString fileName = index == 0
+                ? QStringLiteral("system-connections.png")
+                : QStringLiteral("system-parking-policy.png");
+            if (!page.grab().save(QDir(captureDir).filePath(fileName))) return 33;
+        }
+    }
 
     QPushButton *helpButton = page.findChild<QPushButton *>(
         QStringLiteral("settingsHelpButton"));
