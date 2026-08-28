@@ -2,6 +2,7 @@
 #include "RtspVideoItem.h"
 #include "auth/authclient.h"
 #include "dialogs/logindialog.h"
+#include "services/uifontscale.h"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -128,6 +129,7 @@ int main(int argc, char *argv[])
     qmlRegisterType<RtspVideoItem>("Rtsp", 1, 0, "RtspVideoItem");
 
     ApiStartupOptions apiOptions = loadApiStartupOptions();
+    UiFontScale::initialize(app, apiOptions.localConfigPath);
     QString loginNotice;
     for (;;) {
         AuthSession session;

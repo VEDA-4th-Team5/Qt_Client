@@ -4,8 +4,10 @@
 #include "widgets/pagehelp.h"
 
 #include <QAbstractItemView>
+#include <QApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QEvent>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QFrame>
@@ -380,6 +382,11 @@ QWidget *DashboardPage::createVideoChannel(int channelIndex, const QString &chan
     videoView->rootContext()->setContextProperty(QStringLiteral("rtspSourceLabel"), lowRtspUrl.isEmpty() ? QStringLiteral("RTSP URL not set") : QStringLiteral("RTSP"));
     videoView->rootContext()->setContextProperty(QStringLiteral("channelExpanded"), false);
     videoView->rootContext()->setContextProperty(QStringLiteral("channelStreamEnabled"), false);
+    videoView->rootContext()->setContextProperty(
+        QStringLiteral("uiFontScale"),
+        qApp->property("uiFontScalePercent").isValid()
+            ? qApp->property("uiFontScalePercent").toInt() / 100.0
+            : 1.0);
     videoView->setSource(QUrl(QStringLiteral("qrc:/qml/RtspChannel.qml")));
     if (QQuickItem *rootObject = videoView->rootObject()) {
         rootObject->setProperty("channelIndex", channelIndex);
@@ -392,6 +399,23 @@ QWidget *DashboardPage::createVideoChannel(int channelIndex, const QString &chan
     m_videoChannelWidgets.append(frame);
     m_videoQuickWidgets.append(videoView);
     return frame;
+}
+
+void DashboardPage::changeEvent(QEvent *event)
+{
+    QWidget::changeEvent(event);
+    if (event->type() != QEvent::ApplicationFontChange
+        && event->type() != QEvent::FontChange) return;
+    const QVariant scaleProperty = qApp->property("uiFontScalePercent");
+    const qreal scale = scaleProperty.isValid()
+        ? scaleProperty.toInt() / 100.0
+        : 1.0;
+    for (QQuickWidget *view : m_videoQuickWidgets) {
+        if (view) {
+            view->rootContext()->setContextProperty(
+                QStringLiteral("uiFontScale"), scale);
+        }
+    }
 }
 
 QImage DashboardPage::currentRtspFrame(int channelIndex) const

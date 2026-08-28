@@ -124,6 +124,8 @@ add_executable(smart_parking_qt_client
     src/services/notificationcenter.h
     src/services/notificationpolicy.cpp
     src/services/notificationpolicy.h
+    src/services/uifontscale.cpp
+    src/services/uifontscale.h
     src/services/mqttserviceclient.cpp
     src/services/mqttserviceclient.h
     src/widgets/pagehelp.h
@@ -603,6 +605,8 @@ if (BUILD_TESTING)
         tests/settingspage_overstay_test.cpp
         src/pages/settingspage.cpp
         src/pages/settingspage.h
+        src/services/uifontscale.cpp
+        src/services/uifontscale.h
     )
     target_include_directories(settingspage_overstay_test PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -614,6 +618,22 @@ if (BUILD_TESTING)
         AUTOMOC_COMPILER_PREDEFINES OFF
     )
     add_test(NAME settings_page_overstay COMMAND settingspage_overstay_test)
+
+    add_executable(uifontscale_test
+        tests/uifontscale_test.cpp
+        src/services/uifontscale.cpp
+        src/services/uifontscale.h
+    )
+    target_include_directories(uifontscale_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(uifontscale_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+    )
+    set_target_properties(uifontscale_test PROPERTIES
+        AUTOMOC_COMPILER_PREDEFINES OFF
+    )
+    add_test(NAME ui_font_scale COMMAND uifontscale_test)
 
     add_executable(overstaycontroller_test
         tests/overstaycontroller_test.cpp

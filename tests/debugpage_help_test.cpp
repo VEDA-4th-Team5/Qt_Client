@@ -212,14 +212,15 @@ int main(int argc, char **argv)
     QApplication::processEvents();
 
     QTabWidget systemTabs;
+    systemTabs.addTab(new QWidget(&systemTabs), QStringLiteral("General UI"));
     systemTabs.addTab(new QWidget(&systemTabs), QStringLiteral("Configuration"));
     DebugPage embeddedPage(&systemTabs, &systemTabs);
     QLabel *embeddedApiImpact = systemTabs.findChild<QLabel *>(
         QStringLiteral("debugApiImpactLabel"));
-    if (systemTabs.count() != 4
-        || systemTabs.tabText(1) != QStringLiteral("Diagnostics")
-        || systemTabs.tabText(2) != QStringLiteral("Live Logs")
-        || systemTabs.tabText(3) != QStringLiteral("Test Tools")
+    if (systemTabs.count() != 5
+        || systemTabs.tabText(2) != QStringLiteral("Diagnostics")
+        || systemTabs.tabText(3) != QStringLiteral("Live Logs")
+        || systemTabs.tabText(4) != QStringLiteral("Test Tools")
         || systemTabs.findChild<QPushButton *>(
                QStringLiteral("debugReconnectApiButton"))
         || !embeddedApiImpact

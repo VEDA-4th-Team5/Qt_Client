@@ -13,6 +13,7 @@
 #include "pages/settingspage.h"
 #include "services/camerasettings.h"
 #include "services/notificationcenter.h"
+#include "services/uifontscale.h"
 #include "simulation/parkingsimulationservice.h"
 #include "iva/wiseaiconfigclient.h"
 
@@ -377,6 +378,7 @@ void MainWindow::buildUi()
                                       m_pages,
                                       m_cameraSettings.cameraUsername(),
                                       m_cameraSettings.cameraPassword());
+    m_settingsPage->setUiFontScalePercent(UiFontScale::currentPercent());
     m_ivaSettingsPage = new IvaSettingsPage(m_cameraSettings.cameraIp(), m_pages);
     m_ivaSettingsPage->setParkingZoneMappings(m_parkingMapPage->parkingZoneMappings());
     m_debugPage = new DebugPage(m_settingsPage->systemTabs(), m_settingsPage);
@@ -657,6 +659,16 @@ void MainWindow::connectPages()
             m_parkingController, &ParkingController::updateServerBaseUrl);
     connect(m_settingsPage, &SettingsPage::reconnectServerRequested,
             m_parkingController, &ParkingController::reconnectNow);
+    connect(m_settingsPage, &SettingsPage::uiFontScaleChangeRequested,
+            this, [this](int percent) {
+                QString error;
+                if (!UiFontScale::setPercent(percent, &error)) {
+                    QMessageBox::warning(this, QStringLiteral("UI preferences"), error);
+                    return;
+                }
+                m_settingsPage->setUiFontScalePercent(
+                    UiFontScale::currentPercent());
+            });
     connect(m_settingsPage, &SettingsPage::overstayThresholdRefreshRequested,
             m_parkingController, &ParkingController::requestOverstayThreshold);
     connect(m_settingsPage, &SettingsPage::overstayThresholdUpdateRequested,

@@ -28,6 +28,7 @@ public:
     void setOverstayThreshold(int seconds, const QString &applyPolicy,
                               bool afterUpdate);
     void setOverstayThresholdError(const QString &message, bool updateRequest);
+    void setUiFontScalePercent(int percent);
     static int overstaySeconds(int hours, int minutes, int seconds);
     QTabWidget *systemTabs() const;
 
@@ -39,6 +40,7 @@ signals:
     void reconnectServerRequested();
     void overstayThresholdRefreshRequested();
     void overstayThresholdUpdateRequested(int seconds);
+    void uiFontScaleChangeRequested(int percent);
 
 protected:
     void showEvent(QShowEvent *event) override;
@@ -56,6 +58,10 @@ private:
     QLineEdit *m_serverHostInput = nullptr;
     QSpinBox *m_serverPortInput = nullptr;
     QLabel *m_serverConnectionLabel = nullptr;
+    QRadioButton *m_compactFontRadio = nullptr;
+    QRadioButton *m_defaultFontRadio = nullptr;
+    QRadioButton *m_largeFontRadio = nullptr;
+    QLabel *m_uiFontScaleStatusLabel = nullptr;
     QSpinBox *m_overstayHoursInput = nullptr;
     QSpinBox *m_overstayMinutesInput = nullptr;
     QSpinBox *m_overstaySecondsInput = nullptr;
