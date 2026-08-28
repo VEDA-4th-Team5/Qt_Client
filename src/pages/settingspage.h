@@ -9,6 +9,7 @@ class QLineEdit;
 class QPushButton;
 class QShowEvent;
 class QSpinBox;
+class QTabWidget;
 
 class SettingsPage : public QWidget
 {
@@ -28,6 +29,7 @@ public:
                               bool afterUpdate);
     void setOverstayThresholdError(const QString &message, bool updateRequest);
     static int overstaySeconds(int hours, int minutes, int seconds);
+    QTabWidget *systemTabs() const;
 
 signals:
     void saveCameraCredentialsRequested(const QString &cameraIp,
@@ -61,6 +63,7 @@ private:
     QLabel *m_overstayStatusLabel = nullptr;
     QPushButton *m_applyOverstayButton = nullptr;
     QPushButton *m_refreshOverstayButton = nullptr;
+    QTabWidget *m_systemTabs = nullptr;
     int m_serverOverstaySeconds = -1;
     bool m_serverConnected = false;
     bool m_overstayRequestInFlight = false;

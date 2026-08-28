@@ -168,5 +168,22 @@ int main(int argc, char **argv)
 
     dialog->close();
     QApplication::processEvents();
+
+    QTabWidget systemTabs;
+    systemTabs.addTab(new QWidget(&systemTabs), QStringLiteral("Connections"));
+    systemTabs.addTab(new QWidget(&systemTabs), QStringLiteral("Parking Policy"));
+    DebugPage embeddedPage(&systemTabs, &systemTabs);
+    QLabel *embeddedApiImpact = systemTabs.findChild<QLabel *>(
+        QStringLiteral("debugApiImpactLabel"));
+    if (systemTabs.count() != 5
+        || systemTabs.tabText(2) != QStringLiteral("Diagnostics")
+        || systemTabs.tabText(3) != QStringLiteral("Live Logs")
+        || systemTabs.tabText(4) != QStringLiteral("Test Tools")
+        || systemTabs.findChild<QPushButton *>(
+               QStringLiteral("debugReconnectApiButton"))
+        || !embeddedApiImpact
+        || !embeddedApiImpact->text().contains(QStringLiteral("Connections"))) {
+        return 12;
+    }
     return 0;
 }

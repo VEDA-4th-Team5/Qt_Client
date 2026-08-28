@@ -277,9 +277,8 @@ void MainWindow::buildUi()
     addNavButton(QStringLiteral("Parking Map"), 1);
     m_eventsNavButton = addNavButton(QStringLiteral("Events"), 2);
     m_evidenceNavButton = addNavButton(QStringLiteral("Evidence"), 3);
-    addNavButton(QStringLiteral("Settings"), 4);
+    addNavButton(QStringLiteral("System"), 4);
     m_ivaNavButton = addNavButton(QStringLiteral("IVA Setup"), 5);
-    addNavButton(QStringLiteral("Debug"), 6);
     connect(m_evidenceNavButton, &QPushButton::clicked, this, [this]() {
         if (m_evidencePage) {
             m_evidencePage->requestCurrentEvidence();
@@ -380,14 +379,13 @@ void MainWindow::buildUi()
                                       m_cameraSettings.cameraPassword());
     m_ivaSettingsPage = new IvaSettingsPage(m_cameraSettings.cameraIp(), m_pages);
     m_ivaSettingsPage->setParkingZoneMappings(m_parkingMapPage->parkingZoneMappings());
-    m_debugPage = new DebugPage(m_pages);
+    m_debugPage = new DebugPage(m_settingsPage->systemTabs(), m_settingsPage);
     m_pages->addWidget(m_dashboardPage);
     m_pages->addWidget(m_parkingMapPage);
     m_pages->addWidget(m_eventsPage);
     m_pages->addWidget(m_evidencePage);
     m_pages->addWidget(m_settingsPage);
     m_pages->addWidget(m_ivaSettingsPage);
-    m_pages->addWidget(m_debugPage);
     installPageHelpButtons();
     contentLayout->addWidget(m_pages, 1);
     rootLayout->addWidget(sidebar);
@@ -425,7 +423,6 @@ void MainWindow::installPageHelpButtons()
         m_evidencePage,
         m_settingsPage,
         m_ivaSettingsPage,
-        m_debugPage,
     };
     const QStringList buttonNames = {
         QStringLiteral("dashboardHelpButton"),
@@ -434,7 +431,6 @@ void MainWindow::installPageHelpButtons()
         QStringLiteral("evidenceHelpButton"),
         QStringLiteral("settingsHelpButton"),
         QStringLiteral("ivaHelpButton"),
-        QStringLiteral("debugHelpButton"),
     };
 
     for (int index = 0; index < pages.size(); ++index) {

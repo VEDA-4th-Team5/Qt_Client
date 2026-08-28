@@ -340,7 +340,7 @@ void DashboardPage::showHelpDialog()
         QStringLiteral(
             "문제가 보일 때\n"
             "• 영상 안의 상태·오류 문구와 Frame 시간이 멈췄는지 먼저 확인합니다.\n"
-            "• 연결 상태, 해상도, Frame age, 마지막 오류는 Debug > Overview의 RTSP Channel Diagnostics에서 확인합니다.\n"
+            "• 연결 상태, 해상도, Frame age, 마지막 오류는 System > Diagnostics의 RTSP Channel Diagnostics에서 확인합니다.\n"
             "• Recent Events는 요약이므로 전체 검색·필터·CSV 저장은 Events 메뉴를 사용합니다."),
         content);
     troubleshooting->setObjectName(QStringLiteral("dashboardHelpTroubleshooting"));

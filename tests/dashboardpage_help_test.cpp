@@ -52,7 +52,7 @@ int main(int argc, char **argv)
         || videoGrid->findChildren<QFrame *>().size() < 4
         || summaryCards->findChildren<QFrame *>().size() < 4
         || !troubleshooting->text().contains(
-            QStringLiteral("Debug > Overview"))) {
+            QStringLiteral("System > Diagnostics"))) {
         return 2;
     }
 

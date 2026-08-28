@@ -1,22 +1,40 @@
 #include "pages/settingspage.h"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSpinBox>
+#include <QTabWidget>
 
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
     SettingsPage page(QStringLiteral("camera_config.ini"), QString());
 
+    QTabWidget *systemTabs = page.findChild<QTabWidget *>(
+        QStringLiteral("systemTabWidget"));
+    QScrollArea *connectionsScroll = page.findChild<QScrollArea *>(
+        QStringLiteral("systemConnectionsScrollArea"));
+    QScrollArea *policyScroll = page.findChild<QScrollArea *>(
+        QStringLiteral("systemPolicyScrollArea"));
+    if (!systemTabs || systemTabs->count() != 2
+        || systemTabs->tabText(0) != QStringLiteral("Connections")
+        || systemTabs->tabText(1) != QStringLiteral("Parking Policy")
+        || !connectionsScroll || !connectionsScroll->widgetResizable()
+        || !policyScroll || !policyScroll->widgetResizable()) {
+        return 28;
+    }
+
     int refreshRequests = 0;
     int updateRequests = 0;
     int requestedSeconds = -1;
     QString requestedServerUrl;
+    int reconnectRequests = 0;
     QObject::connect(&page, &SettingsPage::saveServerBaseUrlRequested,
                      &app, [&](const QString &url) { requestedServerUrl = url; });
     QObject::connect(&page, &SettingsPage::overstayThresholdRefreshRequested,
@@ -26,6 +44,8 @@ int main(int argc, char **argv)
                          ++updateRequests;
                          requestedSeconds = seconds;
                      });
+    QObject::connect(&page, &SettingsPage::reconnectServerRequested,
+                     &app, [&]() { ++reconnectRequests; });
 
     if (SettingsPage::overstaySeconds(1, 0, 0) != 3600) return 1;
     if (SettingsPage::overstaySeconds(0, 30, 0) != 1800) return 2;
@@ -41,7 +61,9 @@ int main(int argc, char **argv)
         QStringLiteral("cameraPasswordInput"));
     auto *saveCamera = page.findChild<QPushButton *>(
         QStringLiteral("saveCameraSettingsButton"));
-    if (!cameraUsername || !cameraPassword || !saveCamera
+    auto *showPassword = page.findChild<QCheckBox *>(
+        QStringLiteral("showCameraPasswordCheck"));
+    if (!cameraUsername || !cameraPassword || !saveCamera || !showPassword
         || cameraPassword->echoMode() != QLineEdit::Password) return 26;
     QString requestedCameraIp;
     QString requestedCameraUsername;
@@ -56,6 +78,10 @@ int main(int argc, char **argv)
     page.setCameraIp(QStringLiteral("172.20.32.1"));
     page.setCameraCredentials(QStringLiteral("admin"),
                                QStringLiteral("camera-secret"));
+    showPassword->setChecked(true);
+    if (cameraPassword->echoMode() != QLineEdit::Normal) return 29;
+    showPassword->setChecked(false);
+    if (cameraPassword->echoMode() != QLineEdit::Password) return 30;
     saveCamera->click();
     if (requestedCameraIp != QStringLiteral("172.20.32.1")
         || requestedCameraUsername != QStringLiteral("admin")
@@ -70,6 +96,15 @@ int main(int argc, char **argv)
     if (scheme->currentText() != QStringLiteral("https")
         || host->text() != QStringLiteral("pi.example.test")
         || port->value() != 8443) return 23;
+    auto *reconnect = page.findChild<QPushButton *>(
+        QStringLiteral("reconnectServerButton"));
+    auto *applyEndpoint = page.findChild<QPushButton *>(
+        QStringLiteral("saveServerSettingsButton"));
+    if (!reconnect || !applyEndpoint
+        || reconnect->text() != QStringLiteral("Retry connection")
+        || applyEndpoint->text() != QStringLiteral("Apply & reconnect")) return 31;
+    reconnect->click();
+    if (reconnectRequests != 1) return 32;
 
     page.setServerConnectionStatus(QStringLiteral("Connected"), true);
     page.show();
@@ -106,7 +141,7 @@ int main(int argc, char **argv)
     apply->click();
     page.setOverstayThreshold(1800, QStringLiteral("ACTIVE_AND_NEW_SESSIONS"), true);
     if (current->text() != QStringLiteral("00h 30m 00s")) return 14;
-    if (!status->text().contains(QStringLiteral("changed"))) return 15;
+    if (!status->text().contains(QStringLiteral("updated"))) return 15;
 
     hours->setValue(0);
     minutes->setValue(0);
@@ -135,7 +170,7 @@ int main(int argc, char **argv)
         ? helpDialog->findChild<QLabel *>(QStringLiteral("settingsHelpSteps"))
         : nullptr;
     if (!helpDialog || !helpSteps
-        || !helpSteps->text().contains(QStringLiteral("Save and reconnect"))) {
+        || !helpSteps->text().contains(QStringLiteral("Connections"))) {
         return 25;
     }
     helpDialog->close();
