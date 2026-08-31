@@ -14,6 +14,7 @@
 #include <QRadioButton>
 #include <QScrollArea>
 #include <QShowEvent>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QStyle>
 #include <QTabWidget>
@@ -222,21 +223,30 @@ SettingsPage::SettingsPage(const QString &configPath, const QString &cameraIp,
     m_overstayHoursInput = new QSpinBox(overstayGroup);
     m_overstayHoursInput->setObjectName(QStringLiteral("overstayHoursInput"));
     m_overstayHoursInput->setRange(0, 24);
-    m_overstayHoursInput->setSuffix(QStringLiteral(" h"));
+    m_overstayHoursInput->setSuffix(QStringLiteral("h"));
     m_overstayMinutesInput = new QSpinBox(overstayGroup);
     m_overstayMinutesInput->setObjectName(QStringLiteral("overstayMinutesInput"));
     m_overstayMinutesInput->setRange(0, 59);
-    m_overstayMinutesInput->setSuffix(QStringLiteral(" min"));
+    m_overstayMinutesInput->setSuffix(QStringLiteral("m"));
     m_overstaySecondsInput = new QSpinBox(overstayGroup);
     m_overstaySecondsInput->setObjectName(QStringLiteral("overstaySecondsInput"));
     m_overstaySecondsInput->setRange(0, 59);
-    m_overstaySecondsInput->setSuffix(QStringLiteral(" sec"));
+    m_overstaySecondsInput->setSuffix(QStringLiteral("s"));
     for (QSpinBox *input : {m_overstayHoursInput, m_overstayMinutesInput,
                             m_overstaySecondsInput}) {
-        input->setMinimumSize(112, 34);
-        input->setAlignment(Qt::AlignRight);
+        input->setProperty("uiDurationInput", true);
+        input->setMinimumHeight(34);
+        input->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        input->setAlignment(Qt::AlignCenter);
     }
+    m_overstayHoursInput->setAccessibleName(QStringLiteral("Hours"));
+    m_overstayMinutesInput->setAccessibleName(QStringLiteral("Minutes"));
+    m_overstaySecondsInput->setAccessibleName(QStringLiteral("Seconds"));
+
     auto *thresholdLayout = new QHBoxLayout;
+    thresholdLayout->setObjectName(QStringLiteral("overstayDurationLayout"));
+    thresholdLayout->setContentsMargins(0, 0, 0, 0);
+    thresholdLayout->setSpacing(12);
     thresholdLayout->addWidget(m_overstayHoursInput);
     thresholdLayout->addWidget(m_overstayMinutesInput);
     thresholdLayout->addWidget(m_overstaySecondsInput);

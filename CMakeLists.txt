@@ -617,6 +617,7 @@ if (BUILD_TESTING)
     )
     target_link_libraries(settingspage_overstay_test PRIVATE
         Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Test
     )
     set_target_properties(settingspage_overstay_test PROPERTIES
         AUTOMOC_COMPILER_PREDEFINES OFF

@@ -32,6 +32,7 @@ inline QString pageStyleSheet()
         "QLineEdit, QComboBox, QSpinBox { background:#ffffff;color:#263238;"
         "border:1px solid #b8c6cd;border-radius:6px;min-height:34px;"
         "padding:0 9px;selection-background-color:#406274; }"
+        "QSpinBox[uiDurationInput=\"true\"] { padding:0 28px 0 8px; }"
         "QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border:2px solid #ef7d00; }"
         "QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled {"
         "background:#eef1f3;color:#8b979d;border-color:#d5dde1; }"

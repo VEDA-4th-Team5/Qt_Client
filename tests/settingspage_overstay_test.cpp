@@ -14,9 +14,12 @@
 #include <QRadioButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSizePolicy>
 #include <QSpinBox>
+#include <QStyleOptionSpinBox>
 #include <QTabWidget>
 #include <QTemporaryDir>
+#include <QTest>
 
 int main(int argc, char **argv)
 {
@@ -142,11 +145,67 @@ int main(int argc, char **argv)
     auto *status = page.findChild<QLabel *>(QStringLiteral("overstayStatusLabel"));
     auto *apply = page.findChild<QPushButton *>(QStringLiteral("applyOverstayThresholdButton"));
     if (!hours || !minutes || !seconds || !current || !policy || !status || !apply) return 5;
+    if (hours->suffix() != QStringLiteral("h")
+        || minutes->suffix() != QStringLiteral("m")
+        || seconds->suffix() != QStringLiteral("s")) return 44;
+    for (QSpinBox *input : {hours, minutes, seconds}) {
+        if (!input->property("uiDurationInput").toBool()
+            || input->sizePolicy().horizontalPolicy() != QSizePolicy::Fixed
+            || input->alignment() != Qt::AlignCenter) return 45;
+
+        QStyleOptionSpinBox option;
+        option.initFrom(input);
+        option.rect = input->rect();
+        option.subControls = QStyle::SC_All;
+        option.buttonSymbols = input->buttonSymbols();
+        option.stepEnabled = QAbstractSpinBox::StepUpEnabled
+                           | QAbstractSpinBox::StepDownEnabled;
+        option.frame = input->hasFrame();
+        const QRect editRect = input->style()->subControlRect(
+            QStyle::CC_SpinBox, &option, QStyle::SC_SpinBoxEditField, input);
+        const QRect upRect = input->style()->subControlRect(
+            QStyle::CC_SpinBox, &option, QStyle::SC_SpinBoxUp, input);
+        const QRect downRect = input->style()->subControlRect(
+            QStyle::CC_SpinBox, &option, QStyle::SC_SpinBoxDown, input);
+        if (editRect.isEmpty() || upRect.isEmpty() || downRect.isEmpty()
+            || input->fontMetrics().horizontalAdvance(input->text()) + 8
+                   > editRect.width()
+            || editRect.intersects(upRect) || editRect.intersects(downRect)
+            || input->style()->hitTestComplexControl(
+                   QStyle::CC_SpinBox, &option, upRect.center(), input)
+                   != QStyle::SC_SpinBoxUp
+            || input->style()->hitTestComplexControl(
+                   QStyle::CC_SpinBox, &option, downRect.center(), input)
+                   != QStyle::SC_SpinBoxDown) return 46;
+    }
+    if (hours->geometry().right() >= minutes->geometry().left()
+        || minutes->geometry().right() >= seconds->geometry().left()) return 47;
 
     page.setOverstayThreshold(3600, QStringLiteral("ACTIVE_AND_NEW_SESSIONS"), false);
     if (hours->value() != 1 || minutes->value() != 0 || seconds->value() != 0) return 6;
     if (current->text() != QStringLiteral("01h 00m 00s")) return 7;
     if (!policy->text().contains(QStringLiteral("ACTIVE_AND_NEW_SESSIONS"))) return 8;
+    for (QSpinBox *input : {hours, minutes, seconds}) {
+        QStyleOptionSpinBox option;
+        option.initFrom(input);
+        option.rect = input->rect();
+        option.subControls = QStyle::SC_All;
+        option.buttonSymbols = input->buttonSymbols();
+        option.stepEnabled = QAbstractSpinBox::StepUpEnabled
+                           | QAbstractSpinBox::StepDownEnabled;
+        option.frame = input->hasFrame();
+        const QRect upRect = input->style()->subControlRect(
+            QStyle::CC_SpinBox, &option, QStyle::SC_SpinBoxUp, input);
+        const QRect downRect = input->style()->subControlRect(
+            QStyle::CC_SpinBox, &option, QStyle::SC_SpinBoxDown, input);
+        const int originalValue = input->value();
+        QTest::mouseClick(input, Qt::LeftButton, Qt::NoModifier,
+                          upRect.center());
+        if (input->value() != originalValue + 1) return 48;
+        QTest::mouseClick(input, Qt::LeftButton, Qt::NoModifier,
+                          downRect.center());
+        if (input->value() != originalValue) return 49;
+    }
 
     hours->setValue(0);
     minutes->setValue(30);
