@@ -1,7 +1,7 @@
 # Qt Client
 
 Qt Widgets와 QML 기반 스마트 주차 관제 클라이언트입니다.
-
+https://black7599.atlassian.net/jira/software/projects/EVDA/boards/1
 ## 기능
 
 - 한화비전 카메라 RTSP 4채널 표시
